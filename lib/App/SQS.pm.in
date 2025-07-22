@@ -1,0 +1,79 @@
+package App::SQS;
+
+# A simple SQS utility class that can check for the existence of a queue and create one if needed
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+use English qw(-no_match_vars);
+use List::Util qw(pairs);
+use JSON;
+
+use Role::Tiny::With;
+
+with 'App::AWS';
+
+use parent qw(App::Command);
+
+__PACKAGE__->mk_accessors(
+  qw(
+    name
+    region
+    profile
+    visibility_timeout
+    message_retention_period
+    receive_message_wait_time_seconds
+  )
+);
+
+########################################################################
+sub queue_exists { goto &get_queue_url; }
+########################################################################
+
+########################################################################
+sub get_queue_url {
+########################################################################
+  my ( $self, $queue_name ) = @_;
+
+  $queue_name //= $self->get_name;
+
+  my $queue_url = $self->commaand(
+    'get-queue-url' => [
+      '--queue-name' => $queue_name,
+      '--query'      => 'QueueUrl',
+      '--output'     => 'text',
+    ]
+  );
+
+  return $queue_url;
+}
+
+########################################################################
+sub create_queue {
+########################################################################
+  my ( $self, $queue_name ) = @_;
+
+  return
+    if $self->queue_exists;
+
+  $queue_name //= $self->get_name;
+
+  my %default_attrs = (
+    VisibilityTimeout             => 30,
+    MessageRetentionPeriod        => 345_600,
+    ReceiveMessageWaitTimeSeconds => 20,
+  );
+
+  foreach ( keys %default_attrs ) {
+    my $k = $_;
+    $k = join q{}, map {ucfirst} split /_/xsm, $k;
+    $default_attrs{$_} //= $self->get($_);
+  }
+
+  my @attr_args = map { ( '--attributes' => sprintf '%s=%s', @{$_} ) } pairs %default_attrs;
+
+  return $self->command( 'create-queue' => [ @attr_args, '--queue-name' => $queue_name, ] );
+}
+
+1;

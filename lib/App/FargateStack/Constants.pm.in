@@ -1,0 +1,66 @@
+package App::FargateStack::Constants;
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+use English qw(no_match_vars);
+
+use parent qw(Exporter);
+
+use Readonly;
+
+Readonly::Scalar our $TRUE  => 1;
+Readonly::Scalar our $FALSE => 0;
+Readonly::Scalar our $EMPTY => q{};
+
+Readonly::Scalar our $ACM_REQUEST_SLEEP_TIME => 5;
+Readonly::Scalar our $DEFAULT_CPU_SIZE       => 256;
+Readonly::Scalar our $DEFAULT_MEMORY_SIZE    => 512;
+Readonly::Scalar our $DEFAULT_PORT           => 80;
+Readonly::Scalar our $IAM_POLICY_VERSION     => '2012-10-17';
+
+Readonly::Scalar our $EFS_ARN_TEMPLATE             => 'arn:aws:elasticfilesystem:%s:%s:file-system/%s';
+Readonly::Scalar our $TASK_DEFINITION_ARN_TEMPLATE => 'arn:aws:ecs:%s:%s:task-definition/%s:*';
+Readonly::Scalar our $CLUSTER_ARN_TEMPLATE         => 'arn:aws:ecs:%s:%s:cluster/%s';
+Readonly::Scalar our $ROLE_ARN_TEMPLATE            => 'arn:aws:iam::%s:role/%s';
+Readonly::Scalar our $QUEUE_ARN_TEMPLATE           => 'arn:aws:sqs:%s:%s:%s';
+Readonly::Scalar our $S3_BUCKET_ARN_TEMPLATE       => 'arn:aws:s3:::%s';
+Readonly::Scalar our $ECR_ARN_TEMPLATE             => 'arn:aws:ecr:%s:%s:repository/%s';
+
+Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
+  'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
+
+Readonly our %HELP_SUBJECTS => (
+  'overview'        => 'OVERVIEW',
+  'load balancers'  => 'CREATING A LOAD BALANCER',
+  'daemon services' => 'DAEMON SERVICES',
+  'http services'   => 'HTTP SERVICES',
+  'iam permissions' => 'IAM PERMISSIONS',
+);
+
+our @EXPORT = (
+  qw(
+    $ACM_REQUEST_SLEEP_TIME
+    $DEFAULT_CPU_SIZE
+    $DEFAULT_MEMORY_SIZE
+    $DEFAULT_PORT
+    $EMPTY
+    $EVENT_SCHEDULER_TYPE_URL
+    $FALSE
+    $IAM_POLICY_VERSION
+    $TRUE
+    %HELP_SUBJECTS
+  ),
+  qw(
+    $CLUSTER_ARN_TEMPLATE
+    $ECR_ARN_TEMPLATE
+    $EFS_ARN_TEMPLATE
+    $QUEUE_ARN_TEMPLATE
+    $ROLE_ARN_TEMPLATE
+    $S3_BUCKET_ARN_TEMPLATE
+    $TASK_DEFINITION_ARN_TEMPLATE
+  )
+);
+
+1;

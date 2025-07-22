@@ -1,0 +1,265 @@
+package App::EC2;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use File::Temp qw(tempfile);
+use List::Util qw(any none);
+use JSON;
+
+use Role::Tiny::With;
+with 'App::AWS';
+
+use parent 'App::Command';
+
+__PACKAGE__->follow_best_practice;
+__PACKAGE__->mk_accessors(
+  qw(
+    is_default_vpc
+    profile
+    region
+    security_group_name
+    subnets
+    vpc_id
+  )
+);
+
+########################################################################
+sub new {
+########################################################################
+  my ( $class, @args ) = @_;
+
+  my $self = $class->SUPER::new(@args);
+
+  if ( !$self->get_vpc_id ) {
+
+    my $vpc_id = $self->command(
+      'describe-vpcs' => [
+        '--query'  => 'Vpcs[?IsDefault == `true`]|[0].VpcId',
+        '--output' => 'text'
+      ]
+    );
+
+    croak "ERROR: could not find a default VPC\n"
+      if $vpc_id eq 'None';
+
+    $self->set_vpc_id($vpc_id);
+    $self->set_is_default_vpc(1);
+  }
+
+  my $subnets = $self->describe_subnets( $self->get_vpc_id, 'Subnets' );
+
+  croak "ERROR: there are no subnets in %s\n", $self->get_vpc_id
+    if !@{$subnets};
+
+  $self->find_all_subnets;  # find private, public subnets
+
+  return $self;
+}
+
+########################################################################
+sub describe_subnet {
+########################################################################
+  my ( $self, $subnet_id, $query ) = @_;
+
+  croak "usage: describe_subnets(subnet-id)\n"
+    if !$subnet_id;
+
+  return $self->command(
+    'describe-subnets' => [
+      '--subnet-id' => $subnet_id,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+
+}
+
+########################################################################
+sub describe_security_group_rules {
+########################################################################
+  my ( $self, $group_id, $query ) = @_;
+
+  croak "usage: describe_security_group_rules(group-id, [query])\n"
+    if !$group_id;
+
+  return $self->command( 'describe-security-group-rules' =>
+      [ '--filters', 'Name=group-id,Values=' . $group_id, $query ? ( '--query' => $query ) : (), ] );
+
+}
+
+########################################################################
+sub describe_subnets {
+########################################################################
+  my ( $self, $vpc_id, $query ) = @_;
+
+  $vpc_id //= $self->get_vpc_id;
+
+  return $self->command( 'describe-subnets' =>
+      [ '--filters', 'Name=vpc-id,Values=' . $vpc_id, $query ? ( '--query' => $query ) : () ] );
+}
+
+########################################################################
+sub find_public_subnets {
+########################################################################
+  my ($self) = @_;
+
+  return $self->_find_subnets('public');
+}
+
+########################################################################
+sub find_private_subnets {
+########################################################################
+  my ($self) = @_;
+
+  return $self->_find_subnets('private');
+}
+
+########################################################################
+sub _find_subnets {
+########################################################################
+  my ( $self, $type ) = @_;
+
+  my $subnets = $self->get_subnets // $self->find_all_subnets;
+  $self->set_subnets($subnets);
+
+  my $all_subnets = $self->find_all_subnets;
+
+  return $all_subnets->{ lc $type };
+}
+
+########################################################################
+sub find_all_subnets {
+########################################################################
+  my ( $self, $vpc_id ) = @_;
+
+  $vpc_id //= $self->get_vpc_id;
+
+  my $result = $self->command( 'describe-route-tables' => [ '--filters' => 'Name=vpc-id,Values=' . $vpc_id, ] );
+
+  croak "unable to describe-route-tables\n"
+    if !$result;
+
+  my %subnets;
+
+  my @route_tables = @{ $result->{RouteTables} };
+
+  foreach my $r (@route_tables) {
+    my ($is_public) = any { $_->{GatewayId} && $_->{GatewayId} =~ /^igw/xsm } @{ $r->{Routes} };
+
+    my $type = $is_public ? 'public' : 'private';
+
+    my @associations = @{ $r->{Associations} };
+
+    foreach my $a (@associations) {
+      next if !$a->{SubnetId};
+
+      $subnets{$type} //= [];
+      push @{ $subnets{$type} }, $a->{SubnetId};
+    }
+  }
+
+  $self->set_subnets( \%subnets );
+
+  return \%subnets;
+}
+
+########################################################################
+sub describe_security_groups {
+########################################################################
+  my ( $self, $query, @filters ) = @_;
+
+  my $vpc_id = $self->get_vpc_id;
+
+  croak "no vpc_id\n"
+    if !$vpc_id;
+
+  push @filters, 'Name=vpc-id,Values=' . $vpc_id;
+
+  return $self->command( 'describe-security-groups' =>
+      [ $query ? ( '--query' => $query ) : (), map { ( '--filters' => $_ ) } @filters, ] );
+}
+
+########################################################################
+sub describe_security_group {
+########################################################################
+  my ( $self, $security_group, $query, $filters ) = @_;
+
+  my $result = $self->command(
+    'describe-security-groups' => [
+
+      '--filters', 'Name=vpc-id,Values=' . $self->get_vpc_id,
+      '--query' => sprintf( q{SecurityGroups[?GroupName == '%s']}, $security_group ),
+      $query   ? ( '--query'   => $query ) : (),
+      $filters ? ( '--filters' => $query ) : ()
+    ]
+  );
+
+  return
+    if !$result;
+
+  return $result->[0];
+}
+
+########################################################################
+sub create_security_group {
+########################################################################
+  my ( $self, $security_group_name, $description ) = @_;
+
+  croak "usage: create_security_group(name, description)\n"
+    if !$security_group_name || !$description;
+
+  return $self->command(
+    'create-security-group' => [
+      '--group-name'  => $security_group_name,
+      '--description' => $description,
+      '--vpc-id'      => $self->get_vpc_id,
+      '--query'       => 'GroupId',
+      '--output'      => 'text',
+    ]
+  );
+}
+
+########################################################################
+sub authorize_security_group_ingress {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $group_id, $port, $protocol, $source_group, $cidr )
+    = @args{qw(group_id port protocol source_group cidr)};
+
+  $protocol //= 'tcp';
+  $port     //= '80';
+
+  return $self->command(
+    'authorize-security-group-ingress' => [
+      '--group-id' => $group_id,
+      '--port'     => $port,
+      '--protocol' => $protocol,
+      $cidr         ? ( '--cidr'         => $cidr )         : (),
+      $source_group ? ( '--source-group' => $source_group ) : (),
+    ]
+  );
+}
+
+########################################################################
+sub validate_subnets {
+########################################################################
+  my ( $self, $subnets ) = @_;
+
+  # flatten private, public subnets
+  my @all_subnets = map { @{ $subnets->{$_} // [] } } keys %{$subnets};
+
+  my @valid_subnets = map { $_->{SubnetId} } @{ $self->describe_subnets()->{Subnets} };
+
+  foreach my $s (@all_subnets) {
+    croak sprintf "ERROR: The subnet [%s] does not exist in vpc: [%s]\nvalid subnets: \n\t%s\n", $s,
+      $self->get_vpc_id, join "\n\t", @valid_subnets
+      if none { $_ eq $s } @valid_subnets;
+  }
+
+  return;
+}
+
+1;

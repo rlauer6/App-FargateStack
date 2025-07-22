@@ -1,0 +1,86 @@
+package App::FargateStack::Builder::EFS;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+use JSON;
+use App::EFS;
+
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub add_volumes {
+########################################################################
+  my ( $self, $task ) = @_;
+
+  return
+    if !$task->{efs};
+
+  require App::EFS;
+
+  my $efs = App::EFS->new( $self->get_global_options );
+
+  my ( $id, $path, $mount_points ) = @{ $task->{efs} }{qw(id path mount_point)};
+
+  croak "no id set for EFS volume\n"
+    if !$id;
+
+  my $file_system = $efs->describe_file_systems( $id, 'FileSystems' );
+
+  croak "no such EFS file system ($id) found\n"
+    if !$file_system;
+
+  $task->{efs}->{arn} = $file_system->[0]->{fileSystemArn};
+
+  return (
+    { name                   => 'efs-volume',
+      efsVolumeConfiguration => {
+        fileSystemId      => $id,
+        rootDirectory     => $path // q{/},
+        transitEncryption => 'ENABLED'
+      }
+    },
+    { sourceVolume  => 'efs-volume',
+      containerPath => $mount_points // '/mnt',
+      readOnly      => JSON::false,
+    }
+  );
+}
+
+########################################################################
+sub add_efs_policy {
+########################################################################
+  my ($self) = @_;
+
+  my $tasks = $self->get_config->{tasks};
+
+  my @efs_arns;
+
+  foreach my $task_name ( keys %{$tasks} ) {
+    my $efs = $tasks->{$task_name}->{efs};
+    next if !$efs || !$efs->{id};
+
+    push @efs_arns, sprintf $EFS_ARN_TEMPLATE, $self->get_region, $self->get_account, $efs->{id};
+  }
+
+  return
+    if !@efs_arns;
+
+  return {
+    Effect => 'Allow',
+    Action => [
+      elasticfilesystem => 'ClientMount',
+      elasticfilesystem => 'ClientWrite',
+      elasticfilesystem => 'ClientRootAccess'
+    ],
+    Resource => \@efs_arns,
+  };
+
+}
+
+1;

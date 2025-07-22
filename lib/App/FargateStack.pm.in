@@ -1,0 +1,684 @@
+package App::FargateStack;
+
+use strict;
+use warnings;
+
+use App::EC2;
+use App::ECS;
+use App::ElbV2;
+use App::ECR;
+use App::Route53;
+use App::STS;
+use App::FargateStack::Constants;
+
+use CLI::Simple::Constants qw(:booleans :chars);
+use CLI::Simple;
+use Carp;
+use Data::Dumper;
+use English qw(no_match_vars);
+use Pod::Usage;
+use Scalar::Util qw(reftype);
+use YAML qw(LoadFile);
+
+use Role::Tiny::With;
+
+with 'App::Benchmark';
+with 'App::FargateStack::Builder';
+with 'App::FargateStack::Builder::Certificate';
+with 'App::FargateStack::Builder::Cluster';
+with 'App::FargateStack::Builder::Events';
+with 'App::FargateStack::Builder::EFS';
+with 'App::FargateStack::Builder::HTTPService';
+with 'App::FargateStack::Builder::IAM';
+with 'App::FargateStack::Builder::LogGroup';
+with 'App::FargateStack::Builder::SecurityGroup';
+with 'App::FargateStack::Builder::Secrets';
+with 'App::FargateStack::Builder::Service';
+with 'App::FargateStack::Builder::S3Bucket';
+with 'App::FargateStack::Builder::SQSQueue';
+with 'App::FargateStack::Builder::TaskDefinition';
+with 'App::FargateStack::Builder::Utils';
+
+our $VERSION = '@PACKAGE_VERSION@';
+
+use parent qw(CLI::Simple);
+
+__PACKAGE__->use_log4perl( level => 'info' );
+
+caller or __PACKAGE__->main;
+
+########################################################################
+sub init {
+########################################################################
+  my ($self) = @_;
+
+  return
+    if $self->command =~ /version|help/xsm;
+
+  my $dryrun = $self->get_dryrun;
+  $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
+
+  my $config = $self->_init_config;
+
+  $self->_init_defaults($config);
+
+  $self->_init_account;
+
+  my $ec2 = $self->_init_ec2( $config->{vpc_id}, %{ $self->get_global_options } );
+
+  $self->set_ecs(
+    App::ECS->new(
+      ec2 => $ec2,
+      %{ $self->get_global_options },
+    )
+  );
+
+  my $elb = App::ElbV2->new(
+    vpc_id => $config->{vpc_id},
+    ec2    => $ec2,
+    %{ $self->get_global_options },
+  );
+
+  $self->set_elb($elb);
+
+  # this will determine if we have an http service defined, configure
+  # the ALB if it is not set explicitly and check on required parameters
+  $self->_init_tasks();
+
+  if ( $self->get_http ) {
+    $self->_init_route53();
+  }
+
+  $self->get_logger->trace( Dumper( [ config => $config ] ) );
+
+  my $subnets = $self->get_subnets;
+
+  $self->get_logger->info( sprintf 'init:            config: [%s]', $self->get_config_name );
+  $self->get_logger->info( sprintf 'init:         log level: [%s]', $self->get_log_level );
+  $self->get_logger->info( sprintf 'init:           account: [%s]', $self->get_account );
+  $self->get_logger->info( sprintf 'init:           profile: [%s]', $self->get_profile );
+  $self->get_logger->info( sprintf 'init:            region: [%s]', $self->get_region );
+  $self->get_logger->info( sprintf 'init:          app name: [%s]', $config->{app}->{name} );
+  $self->get_logger->info( sprintf 'init:       app version: [%s]', $config->{app}->{version} // q{-} );
+  $self->get_logger->info( sprintf 'init:     https service: [%s]', $self->get_http           // q{-} );
+  $self->get_logger->info( sprintf 'init:  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
+  $self->get_logger->info( sprintf 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
+  $self->get_logger->info( sprintf '                 public: [%s]', join q{,}, @{ $subnets->{private} || [] } );
+  $self->get_logger->info( sprintf '                 private: [%s]', join q{,}, @{ $subnets->{public} || [] } );
+
+  return $TRUE;
+}
+
+########################################################################
+sub _init_tasks {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $tasks = $config->{tasks};
+
+  croak "ERROR: no tasks defined in config\n"
+    if !$tasks;
+
+  # see if we have an http service
+  my ( $http_service, $error )
+    = grep { $tasks->{$_}->{type} && $tasks->{$_}->{type} =~ /^http/xsm } keys %{$tasks};
+
+  croak "ERROR: only one http service is permitted\n"
+    if $error;
+
+  $self->set_http($http_service);
+
+  if ($http_service) {
+    $self->configure_alb();
+
+    croak "ERROR: when provisioning an http service type, domain is required\n"
+      if !$config->{domain};
+
+    croak "ERROR: when provisioning an http service route53->zone_id is required\n"
+      if !$config->{route53}->{zone_id};
+  }
+
+  my @images = map { $tasks->{$_}->{image} } keys %{$tasks};
+
+  croak "ERROR: every task must have an image\n"
+    if @images != scalar keys %{$tasks};
+
+  my $ecr = App::ECR->new( $self->get_global_options );
+
+  $ecr->validate_images(@images);
+
+  return;
+}
+
+########################################################################
+sub _init_account {
+########################################################################
+  my ($self) = @_;
+
+  my $sts = App::STS->new( profile => $self->get_profile );
+
+  $self->set_sts($sts);
+
+  $self->set_account( $sts->get_caller_identity->{Account} );
+  return;
+}
+
+########################################################################
+sub _init_defaults {
+########################################################################
+  my ( $self, $config ) = @_;
+
+  $config->{region} //= $self->get_region // $ENV{AWS_DEFAULT_REGION} // 'us-east-1';
+  $self->set_region( $config->{region} );  # let's make sure we can use get_region()
+
+  my $profile        = $self->get_profile;
+  my $profile_source = 'command line';
+
+  if ( !$profile && $config->{profile} ) {
+    $profile        = $config->{profile};
+    $profile_source = 'config';
+  }
+  elsif ( !$profile && $ENV{AWS_PROFILE} ) {
+    $profile        = $ENV{AWS_PROFILE};
+    $profile_source = 'environment';
+  }
+
+  if ( !$profile ) {
+    $profile = 'default';
+    $self->log_info( 'init: no profile found, using [%s]', $profile );
+  }
+  else {
+    $self->log_info( 'init: using profile [%s] from [%s]', $profile, $profile_source );
+  }
+
+  $self->set_profile($profile);
+
+  $config->{default_log_group} //= sprintf '/ecs/' . $config->{app}->{name};
+
+  my %global_options = (
+    profile   => $self->get_profile,
+    region    => $self->get_region,
+    logger    => $self->get_logger,
+    log_level => $self->get_log_level,
+  );
+
+  $self->set_global_options( \%global_options );
+
+  return;
+}
+
+########################################################################
+sub _init_route53 {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $alb_type = $config->{alb}->{type};
+
+  my ( $route53_config, $domain ) = @{$config}{qw(route53 domain)};
+
+  my ( $zone_id, $profile ) = @{$route53_config}{qw(zone_id profile)};
+
+  my $route53 = App::Route53->new(
+    hosted_zone_id => $zone_id,
+    elb            => $self->get_elb,
+    %{ $self->get_global_options },
+    profile => $profile // $self->get_profile
+  );
+
+  $self->set_route53($route53);
+
+  $route53->validate_hosted_zone(
+    zone_id  => $zone_id,
+    domain   => $domain,
+    alb_type => $alb_type,
+  );
+
+  return;
+}
+
+########################################################################
+sub _init_ec2 {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $ec2 = App::EC2->new(
+    vpc_id => $config->{vpc_id},
+    %{ $self->get_global_options },
+  );
+
+  $self->set_ec2($ec2);
+
+  if ( $ec2->get_is_default_vpc ) {
+    $self->get_logger->warn( sprintf 'init: found a default VPC...%s', $ec2->get_vpc_id );
+    $config->{vpc_id} = $ec2->get_vpc_id;
+  }
+
+  # if we find subnets in the config...always validate in case they
+  # got changed...
+  if ( my $subnets = $config->{subnets} ) {
+    $ec2->validate_subnets($subnets);  # this will croak if any are invalid
+    $self->set_subnets($subnets);
+  }
+  else {
+    my $subnets = $ec2->get_subnets;
+    $self->set_subnets($subnets);
+    $config->{subnets} = $subnets;
+  }
+
+  return $ec2;
+}
+
+########################################################################
+sub _init_config {
+########################################################################
+  my ($self) = @_;
+
+  my $config_file = $self->get_config;
+
+  croak "--config is a required argument\n"
+    if !$config_file;
+
+  croak sprintf "%s not foud or is unreadable\n"
+    if !-s $config_file || !-r $config_file;
+
+  $self->set_config_name($config_file);
+
+  $self->section_break;
+
+  $self->get_logger->info( sprintf '%s %s (c) Copyright 2025 TBC Development Group, LLC', ref $self, $VERSION );
+  $self->section_break;
+
+  my $config = LoadFile($config_file);
+
+  $self->set_config($config);
+
+  return $config;
+}
+
+########################################################################
+sub cmd_create_service {
+########################################################################
+  my ($self) = @_;
+
+  my ($service_name) = $self->get_args;
+
+  my $config = $self->get_config;
+
+  croak sprintf "usage: $ENV{SCRIPT_NAME} create-service service\n"
+    if !$service_name;
+
+  croak sprintf "no such service [%s]\n", $service_name
+    if !$config->{tasks}->{$service_name};
+
+  return $self->build_service($service_name);
+}
+
+########################################################################
+sub cmd_stop_service {
+########################################################################
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_delete_service {
+########################################################################
+  my ($self) = @_;
+
+  my ($service_name) = $self->get_args;
+
+  croak "usage: $ENV{SCRIPT_NAME} delete-service service-name\n"
+    if !$service_name;
+
+  my $config = $self->get_config;
+
+  croak "service [$service_name] was not found in the configuration\n"
+    if !$config->{tasks}->{$service_name};
+
+  my $ecs = $self->get_ecs;
+
+  my $result = $ecs->delete_service( $config->{cluster}->{name}, $service_name );
+
+  croak sprintf "could not stop service %s\n%s", $service_name, $ecs->get_error
+    if $ecs->get_error;
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_start_service {
+########################################################################
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_explain {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_version {
+########################################################################
+
+  my $version_stmt = <<'END_OF_TEXT';
+%s %s
+Copyright 2025 (c) TBC Development Group, LLC.
+
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+END_OF_TEXT
+
+  my $pgm = $ENV{SCRIPT_NAME} // $PROGRAM_NAME;
+
+  print {*STDOUT} sprintf $version_stmt, $pgm, $VERSION;
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub help {
+########################################################################
+  my ($self) = @_;
+
+  my $subject = lc join $SPACE, @ARGV, $EMPTY;
+
+  my $section = $HELP_SUBJECTS{$subject} // $EMPTY;
+
+  if ( !$section ) {
+    print {*STDERR} sprintf "'%s' is not one of these subjects:\n\t* %s\n\n", $subject, join "\n\t* ",
+      keys %HELP_SUBJECTS;
+  }
+
+  return pod2usage(
+    -exitval => 1,
+    ( -verbose => $section ? 99 : 1 ),
+    $section ? ( -sections => $section ) : ()
+  );
+}
+
+########################################################################
+sub main {
+########################################################################
+
+  my @extra_options = qw(
+    account
+    alb
+    config_name
+    ec2
+    ecs
+    efs
+    elb
+    existing_resources
+    http
+    global_options
+    log_groups
+    required_resources
+    route53
+    sts
+    secrets
+    subnets
+    taskdef_status
+  );
+
+  my @option_specs = qw(
+    help
+    config|c=s
+    create-alb|C
+    dryrun
+    profile=s
+    region=s
+    update|u!
+    version|v
+  );
+
+  my $fargate_stack = App::FargateStack->new(
+    option_specs    => \@option_specs,
+    default_options => { 'update' => $TRUE },  # set some defaults
+    extra_options   => \@extra_options,
+    commands        => {
+      plan => sub {
+        my ( $self, @args ) = @_;
+
+        $self->set_dryrun('(dryrun)');
+
+        return $self->build(@args);
+      },
+      apply => sub {
+        my ( $self, @args ) = @_;
+
+        $self->set_dryrun($EMPTY);
+
+        return $self->build(@args);
+      },
+      'create-service' => \&cmd_create_service,
+      'delete-service' => \&cmd_delete_service,
+      'start-service'  => \&cmd_start_service,
+      'stop-service'   => \&cmd_stop_service,
+      create           => \&cmd_create_service,
+      default          => \&cmd_explain,
+      delete           => \&cmd_delete_service,
+      help             => \&help,
+      start            => \&cmd_start_service,
+      stop             => \&cmd_stop_service,
+      version          => \&cmd_version,
+    }
+  );
+
+  $fargate_stack->run();
+
+  return 0;
+}
+
+1;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+app-fargateStack
+
+=head1 SYNOPSIS
+
+ app-fargateStack Options Command
+
+=head2 Commands
+
+ apply                          determines resource gaps and applie changes
+ create{-service} service-name  create a new service
+ delete{-service} service-name  delete an existing service
+ help {subject}                 displays general help or help on a particular subject (see Note 2)
+ plan
+ start{-service} service-ame    start a service
+ stop{-service} service-name    stop a service
+ version                        show version number
+
+=head2 Options
+
+ -h, --help                 help
+ -c, --config               path to the .yml config file
+ -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
+ -p, --profile              AWS profile (see Note 1)
+ -u, --update, --no-update  update config
+ -v, --version              script version
+
+=head2 Notes
+
+=over 4
+
+=item 1. Use the --profile option ot override the profile defined in
+the configuration file.
+
+The Route53 service uses the same profile unless you specify a profile
+name in the C<route53> section of the configuraiton file.
+
+=item 2. You can get help program options using --help or use the help
+command with a subject.
+
+If you do not provide a subject then you will get the same information
+as C<--help>. Use help ? to get a list of subjects you can get help on.
+
+=back
+
+=head1 DESCRIPTION
+
+=head1 OVERVIEW
+
+The C<App::Fargate> framework is designed to make creating and
+launching Fargate based services as simple as possible. Using a YAML
+based configuration file you specify the services and resources
+required to create your services.
+
+Features of the stack that can be built with this tool include:
+
+=over 4
+
+=item * Creation of either an internal or external facing HTTP service.
+
+=item * Automatic creation of a certificate for external facing HTTP services.
+
+=item * Creation of an internal or external facing application load balancer.
+
+=over 10
+
+=item * Discovery of existing ALBs or ability to force creation of a new ALB
+
+=item * Redirect listener rule that redirects port 80 requests to 443 
+
+=back
+
+=item * Creation of queues and buckets to support your application
+
+=item * Dryrun mode to examine what will created before resources are built
+
+=item * Idempotent behavior allows you to run script multiple times
+
+=back
+
+=head1 IAM PERMISSIONS
+
+This framework uses a single IAM role for all defined tasks in a
+given application stack. The assumption is that all services defined
+in a stack operate on shared infrastructure and can be trusted
+equally. This simplifies IAM management while maintaining a secure
+boundary around the stack as a whole.
+
+=head1 CONFIGURATION
+
+The C<App::Fargate> framework maintains your application stack's state
+using a YAML configuration file. Start the process of building your
+stack by creating a F<.yml> file with the minimum required elements.
+
+ app:
+   name: my-stack
+ services:
+   my-stack-daemon-1:
+     command: /usr/local/bin/start-daemon
+     image: my-stack-daemon:latest
+     type: daemon
+
+Each service corresponds to a containerized task you wish to
+deploy. In this minimal configuration we are provisioning:
+
+=over 4
+
+=item * ...a Fargate cluster in the us-east-1 region 
+
+=item * ...one service that will run a daemon
+
+=item * ...a service that run in the default VPC in a private
+subnet (or public subnet if that is the only subnet available)
+
+=item * ...resources using the default AWS profile (or the one specified
+by the environment variable AWS_PROFILE)
+
+=back
+
+Running C<app-Fargate -c my-stack.yml plan> will analyze you
+configuration file and report on the resources about to be created. It
+will also update the configuration file with the defaults it used when
+deciding what to do. Run C<app-Fargate -c my-stack.yml apply> to build
+the stack.
+
+=head1 LOAD BALANCERS
+
+When you provision an http service whether it is secure or not we will
+place the service behind a load balancer. The framework will provision
+an ALB for you or you can use an ALB currently in your VPC.
+
+=over 4
+
+=item 1. An ALB will be created if no usable ALB exists when the service
+type is http or https.
+
+If no ALB is defined in the configuration and the service type is
+C<http> or C<https> then the script will look for an internal or
+inter-facing ALB depending on the service type. If no ALB is found,
+one will be provisioned.
+
+If multiple ALBs exist, the script will terminate and display a list
+of ALBs. The user should then pick one and set C<alb_arn> in the
+configuration file.
+
+=item 2. C<domain> is required if service type is C<http" or C<https>
+
+=item 3. A certificate will be created for the domain if the service
+type is C<https> and no certificate for that domain currently exists.
+
+=item 4. If an ALB is required and no C<type> is defined in the
+configuration it assumed to be an internal ALB for service type
+C<http> and internet-facing for service type C<https>
+
+=item 5. If no port is defined for the ALB port 443 will be used for
+service type C<https> and 80 for service type C<http>.
+
+
+=item 6. If C<redirect_80> is not explicitly set and the ALB port is
+443, a listener rule to redirect 80 to 443 will automatically be
+provisioned.
+
+=item 7. You can set the port for the ALB to any valid custom value.
+
+
+ ERROR: Multiple ALBs found in region us-east-1 for this VPC.
+ Please specify the ALB ARN in your configuration to continue.
+ 
+ Candidate ALBs:
+   - my-alb-1 [arn:aws:elasticloadbalancing:...]
+   - my-alb-2 [arn:aws:elasticloadbalancing:...]
+   - internal-service-alb [arn:aws:elasticloadbalancing:...]
+ 
+ Hint: Add "alb_arn" to your config to reuse an existing ALB.
+
+=back
+
+=back
+
+=head1 SEE ALSO
+
+L<IPC::Run>
+
+=head1 AUTHOR
+
+Rob Lauer - rclauer@gmail.com
+
+=head1 LICENSE
+
+This script is released under the same terms as Perl itself.
+
+=cut
+

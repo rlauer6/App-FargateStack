@@ -1,0 +1,73 @@
+---
+alb:
+  arn: arn:aws:elasticloadbalancing:us-east-1:106518701080:loadbalancer/app/external/b9867d6854a3bb73
+  name: external
+  port: 443
+  redirect_80: 1
+  type: public
+app:
+  name: doc-converter
+  version: 1.0.0
+bucket:
+  name: tbc-doc-converter
+certificate_arn: arn:aws:acm:us-east-1:106518701080:certificate/edd482a2-30c7-496c-9907-7dad107d8eca
+cluster_name: doc-converter-cluster
+default_log_group: doc-converter
+domain: doc-converter.treasurersbriefcase.com
+profile: prod
+queue:
+  message_retention_period: 345600
+  name: tbc-doc-converter
+  receive_message_wait_time_seconds: 20
+  visibility_timeout: 30
+region: us-east-1
+role: FargateDocConverterRole
+route53:
+  profile: prod
+  zone_id: Z3ZZX1RBQJTYM
+security_groups:
+  alb:
+    group_id: sg-f8b14f8f
+  fargate:
+    group_id: sg-01ae45bd64f77c37b
+    group_name: doc-converter-sg
+services:
+  doc-converter-server:
+    command: /usr/local/bin/start-server
+    cpu: 256
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-apache
+    image: doc-converter:latest
+    log_group: {}
+    memory: 512
+    name: doc-converter-server
+    type: https
+  queue-processor:
+    command: /usr/local/bin/start-server
+    cpu: 1024
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-queue
+    image: doc-converter-daemon:latest
+    log_group: {}
+    memory: 2 GB
+    name: queue-processor
+    type: daemon
+subnets:
+  private:
+    - subnet-720ed804
+    - subnet-6033e039
+    - subnet-33a15c18
+    - subnet-05651e3a
+  public:
+    - subnet-6e8bfc33
+    - subnet-1a6db326
+    - subnet-932594e4
+    - subnet-38ee9d17
+target_group_arn: arn:aws:elasticloadbalancing:us-east-1:106518701080:targetgroup/doc-converter-target-group/d28d15a32bd0ae1a
+vpc_id: vpc-d1c355b4

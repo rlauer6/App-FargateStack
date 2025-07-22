@@ -1,0 +1,233 @@
+package App::FargateStack::Builder;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+use File::Temp qw(tempfile);
+use List::Util qw(pairs);
+use Text::ASCIITable::EasyTable;
+use Scalar::Util qw(reftype);
+use YAML qw(DumpFile);
+
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub build {
+########################################################################
+  my ($self) = @_;
+
+  $self->benchmark;
+
+  my $config = $self->get_config;
+
+  my $domain = $config->{domain};
+
+  my $subnets = $self->get_subnets();
+
+  $self->section_break;
+
+  # -- task definitions --
+  $self->create_taskdef_files;
+  $self->section_break;
+
+  # -- log groups --
+  # this needs to follow _create_taskdef_files
+  $self->build_log_groups;
+  $self->benchmark('log-groups');
+  $self->section_break;
+
+  # -- certificate --
+  if ( $domain && $self->has_https_service ) {
+    $self->build_certificate;
+    $self->benchmark('certificate');
+    $self->section_break;
+  }
+
+  # -- queue --
+  if ( $config->{queue} && $config->{queue}->{name} ) {
+    $self->build_queue;
+    $self->benchmark('queue');
+    $self->section_break;
+  }
+
+  # -- bucket --
+  if ( $config->{bucket} && $config->{bucket}->{name} ) {
+    $self->build_bucket;
+    $self->benchmark('bucket');
+    $self->section_break;
+  }
+
+  ## -- iam --
+  $self->build_iam_role;
+  $self->benchmark('iam');
+  $self->section_break;
+
+  ## -- cluster --
+  $self->build_fargate_cluster;
+  $self->benchmark('cluster');
+  $self->section_break;
+
+  ## -- events --
+  if ( $self->has_events ) {
+    $self->build_events;
+    $self->benchmark('events');
+    $self->section_break;
+  }
+
+  ## -- security group --
+  $self->build_security_group;
+  $self->benchmark('security-group');
+  $self->section_break;
+
+  ## -- http service --
+  if ( $self->get_http() ) {
+    $self->build_http_service;
+    $self->benchmark('http-service');
+    $self->section_break;
+  }
+
+  # -- task definitions --
+  foreach my $task ( keys %{ $config->{tasks} } ) {
+    $self->register_task_definition($task);
+  }
+
+  $self->benchmark('task-definition');
+  $self->section_break;
+
+  if ( $self->get_http ) {
+    $self->create_alias();
+    $self->benchmark('route53');
+    $self->section_break;
+  }
+
+  # -- finished --
+  $self->get_logger->info( sprintf 'build complete: %ds', $self->benchmark('elapsed_time') );
+  $self->section_break;
+
+  $self->get_logger->info( sprintf 'benchmarks:' );
+  $self->section_break;
+
+  $self->dump_benchmarks();
+  $self->section_break;
+
+  $self->get_logger->info( sprintf "\t%d resources will be created.\n",
+    scalar keys %{ $self->get_required_resources // {} } // 0 );
+
+  $self->get_logger->info( sprintf "\t%d resources already exist\n",
+    scalar keys %{ $self->get_existing_resources // {} } // 0 );
+
+  foreach my $p ( pairs Required => $self->get_required_resources, Existing => $self->get_existing_resources ) {
+
+    $self->section_break;
+    my $data      = [];
+    my $resources = $p->[1];
+
+    foreach my $k ( sort keys %{$resources} ) {
+      my $value = resolve_resource_value( $resources->{$k} // $EMPTY, $self->get_dryrun );
+      $value = sprintf '%s', join( "\n", @{$value} ) // $EMPTY;
+
+      push @{$data}, { Resource => $k, Value => $value };
+    }
+
+    if ( @{$data} ) {
+      print easy_table(
+        columns       => [qw(Resource Value)],
+        data          => $data,
+        table_options => { headingText => $p->[0] . ' Resources Summary' }
+      );
+    }
+    else {
+      $self->get_logger->info( sprintf 'summary: no %s resources', lc $p->[0] );
+    }
+  }
+
+  $self->update_config;
+
+  return;
+}
+
+# resolves the resource value from the hash of resources
+# TBD: better documentation of this method
+########################################################################
+sub resolve_resource_value {
+########################################################################
+  my ( $value, $dryrun ) = @_;
+
+  return [$value]
+    if !ref $value;
+
+  if ( reftype($value) eq 'ARRAY' ) {
+    my @values;
+
+    foreach my $v ( @{$value} ) {
+      if ( ref $v && reftype($v) eq 'CODE' ) {
+        push @values, $v->($dryrun);
+      }
+      else {
+        push @values, $v;
+      }
+    }
+    return \@values;
+  }
+  else {
+    return [ $value->($dryrun) ];
+  }
+}
+
+########################################################################
+sub update_config {
+########################################################################
+  my ($self) = @_;
+
+  return
+    if !$self->get_update;
+
+  my ( $fh, $filename ) = tempfile( 'fargate-stack-XXXX', SUFFIX => '.yml' );
+
+  DumpFile( $filename, $self->get_config );
+
+  my $config_name = $self->get_config_name;
+
+  rename $config_name, "${config_name}.bak";
+
+  rename $filename, $config_name;
+
+  return;
+}
+
+########################################################################
+sub configure_alb {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  # default ALB type is private with a listener on port 80
+  my $alb_config = $config->{alb} // {
+    type => 'private',
+    port => '80'
+  };
+
+  # if it was already defined as public w/o a port, then 443 and
+  # redirect 80 -> 443
+  if ( $alb_config->{type} eq 'public' && !$alb_config->{port} ) {
+    $alb_config->{port} = '443';
+    if ( !defined $alb_config->{redirect_80} ) {
+      $alb_config->{redirect_80} = $TRUE;
+    }
+  }
+
+  croak "invalid alb type, must be 'public' or 'private'\n"
+    if $alb_config->{type} !~ /^public|private$/xsm;
+
+  $config->{alb} = $alb_config;
+
+  return;
+}
+
+1;

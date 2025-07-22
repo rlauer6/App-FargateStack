@@ -1,0 +1,451 @@
+package App::ElbV2;
+
+use strict;
+use warnings;
+
+use App::EC2;
+use Carp;
+use Data::Dumper;
+use File::Temp qw(tempfile);
+use List::Util qw(first any);
+use JSON;
+
+use Role::Tiny::With;
+with 'App::AWS';
+
+use parent 'App::Command';
+
+__PACKAGE__->follow_best_practice;
+__PACKAGE__->mk_accessors(
+  qw(
+    alb
+    certificate_arn
+    ec2
+    name
+    profile
+    region
+    security_groups
+    subnets
+    tags
+    vpc_id
+  )
+);
+
+########################################################################
+sub add_listener_certificate {
+########################################################################
+  my ( $self, $listener_arn, $certificate_arn ) = @_;
+
+  return $self->command(
+    'add-listener-certificates' => [
+      '--listener-arn' => $listener_arn,
+      '--certificates' => "CertificateArn=$certificate_arn",
+    ]
+  );
+}
+
+########################################################################
+sub modify_listener_certificate {
+########################################################################
+  my ( $self, $listener_arn, $certificate_arn, $default_action ) = @_;
+
+  if ( !$default_action ) {
+    my $response = $self->command( 'describe-listeners' => [ '--listener-arns' => $listener_arn ] );
+
+    my ($listener) = ref $response eq 'HASH' ? @{ $response->{Listeners} || [] } : ();
+
+    if ( $listener && $listener->{DefaultActions} ) {
+      $default_action = $listener->{DefaultActions};
+    }
+    else {
+      die "Unable to retrieve existing default actions for listener $listener_arn\n";
+    }
+  }
+
+  return $self->command(
+    'modify-listener' => [
+      '--listener-arn'    => $listener_arn,
+      '--certificates'    => "CertificateArn=$certificate_arn",
+      '--default-actions' => encode_json($default_action),
+    ]
+  );
+}
+
+########################################################################
+sub create_load_balancer {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my $lb_name = $args{name} // $self->get_name;
+
+  my $type   = $args{type}   // 'application';
+  my $scheme = $args{scheme} // 'internet-facing';
+
+  my $subnets         = join q{ }, @{ $args{subnets} // [] };
+  my $security_groups = join q{ }, @{ $args{security_groups} };
+
+  my $tags = $args{tags};
+
+  return $self->command(
+    'create-load-balancer' => [
+      '--name'            => $lb_name,
+      '--type'            => $type,
+      '--scheme'          => $scheme,
+      '--subnets'         => $subnets,
+      '--security-groups' => $security_groups,
+      $tags ? ( '--tags' => $self->format_tags($tags) ) : ()
+    ]
+  );
+}
+
+########################################################################
+sub add_certficate {
+########################################################################
+  my ( $self, $listener_arn, $certificate_arn ) = @_;
+
+  return $self->command(
+    'add-listener-certificates' => [
+      '--listener-arn'    => $listener_arn,
+      '--certificate-arn' => $certificate_arn,
+    ]
+  );
+}
+
+########################################################################
+sub describe_listeners {
+########################################################################
+  my ( $self, $alb_arn, $query ) = @_;
+
+  croak "no ALB arn\n"
+    if !$alb_arn;
+
+  return $self->command(
+    'describe-listeners' => [
+      '--load-balancer-arn' => $alb_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
+}
+
+########################################################################
+sub describe_load_balancers {
+########################################################################
+  my ( $self, $query ) = @_;
+
+  return $self->command( 'describe-load-balancers' => [ $query ? ( '--query' => $query ) : () ] );
+}
+
+########################################################################
+sub set_security_groups {
+########################################################################
+  my ( $self, $arn, @security_groups ) = @_;
+
+  return $self->command(
+    'set-security-groups' => [
+      '--load-balancer-arn' => $arn,
+      '--security-groups'   => join( q{ }, @security_groups ),
+    ]
+  );
+
+}
+
+########################################################################
+sub describe_load_balancer {
+########################################################################
+  my ( $self, $arn, $query, @filters ) = @_;
+
+  return $self->command(
+    'describe-load-balancers' => [
+      '--load-balancer-arn' => $arn,
+      $query ? ( '--query' => $query ) : (),
+      map { ( '--filters' => $_ ) } @filters
+    ]
+  );
+}
+
+########################################################################
+sub find_public_alb {
+########################################################################
+  my ($self) = @_;
+
+  return $self->_find_alb_of_type('internet-facing');
+}
+
+########################################################################
+sub find_alb {
+########################################################################
+  my ( $self, $type ) = @_;
+
+  return $type eq 'private' ? $self->find_private_alb : $self->find_public_alb;
+}
+
+########################################################################
+sub find_private_alb {
+########################################################################
+  my ($self) = @_;
+
+  return $self->_find_alb_of_type('internal');
+}
+
+########################################################################
+sub _find_alb_of_type {
+########################################################################
+  my ( $self, $type, $no_error ) = @_;
+
+  croak "usage: find_alb(internal|internet-facing)\n"
+    if !$type || $type !~ /internal|internet\-facing/xsm;
+
+  my $ec2 = $self->get_ec2;
+
+  my $vpc_id = $ec2->get_vpc_id;
+
+  croak "no vpc_id found\n"
+    if !$vpc_id;
+
+  my $query = sprintf 'LoadBalancers[?Scheme == `%s` && VpcId == `%s`]', $type, $vpc_id;
+
+  my $albs = $self->describe_load_balancers($query);
+
+  croak "no ALBs of type: $type\n"
+    if !$no_error && !$albs || !@{$albs};
+
+  croak sprintf "more than one ALBs of type: $type\n%s\n", join "\n", map { $_->{LoadBalancerName} } @{$albs}
+    if !$no_error && @{$albs} > 1;
+
+  my $alb = $albs->[0];
+
+  $self->set_alb($alb);
+
+  return ( $alb->{LoadBalancerArn}, $alb->{SecurityGroups}->[0] );
+}
+
+########################################################################
+sub get_listener_by_port {
+########################################################################
+  my ( $self, $alb_arn, $port ) = @_;
+
+  my $query = sprintf 'Listeners[?Port == `%s`]', $port;
+
+  my $result = $self->command(
+    'describe-listeners' => [
+      '--load-balancer' => $alb_arn,
+      '--query',        => $query,
+    ]
+  );
+
+  return @{$result};
+}
+
+########################################################################
+sub create_rule {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $listener_arn, $priority, $conditions, $default_action )
+    = @args{qw(listener_arn priority conditions default_action)};
+
+  return $self->command(
+    'create-rule' => [
+      '--listener-arn' => $listener_arn,
+      '--priority'     => $priority,
+      '--conditions'   => $conditions,
+      '--actions'      => $default_action,
+    ]
+  );
+}
+
+########################################################################
+sub validate_alb {
+########################################################################
+  my ( $self, $alb_arn, $vpc_id ) = @_;
+
+  croak "usage: validate_alb(alb-arn, [ vpc-id ])\n"
+    if !$alb_arn;
+
+  $vpc_id //= $self->get_vpc_id;
+
+  croak "no vpc_id found\n"
+    if !$vpc_id;
+
+  my $alb;
+  my $alb_subnets;
+
+  if ( !$vpc_id ) {
+    my $query = sprintf "LoadBalancers[?LoadBalancerArn == `%s`]|[0]", $alb_arn;
+
+    $alb = $self->describe_load_balancers($query);
+
+    croak "unable to find ALB: $alb_arn\n"
+      if !$alb || !ref $alb;
+
+    $vpc_id      = $alb->{VpcId};
+    $alb_subnets = [ map { $_->{SubnetId} } @{ $alb->{AvailabilityZones} } ];
+  }
+
+  $alb_subnets //= $self->find_alb_subnets($alb_arn);
+
+  my $ec2 = $self->get_ec2 // App::EC2->new( profile => $self->profile, vpc_id => $vpc_id );
+
+  my $public_subnets = $ec2->find_public_subnets();
+
+  return
+    if !$public_subnets;
+
+  return
+    if !$alb_subnets || !@{$alb_subnets};
+
+  foreach my $id ( @{$alb_subnets} ) {
+    return $id
+      if any { $id eq $_ } @{$public_subnets};
+  }
+
+  return;
+}
+
+########################################################################
+sub find_alb_subnets {
+########################################################################
+  my ( $self, $alb_arn ) = @_;
+
+  my $query = sprintf "LoadBalancers[?LoadBalancerArn == `%s`] | [0].AvailabilityZones[].SubnetId", $alb_arn;
+
+  my @cmd = qw(aws elbv2 describe-load-balancers);
+
+  push @cmd,
+    '--profile' => $self->profile,
+    '--query'   => $query;
+
+  my $result = $self->execute(@cmd);
+
+  return $result ? decode_json($result) : $result;
+}
+
+########################################################################
+sub target_group_exists {
+########################################################################
+  my ( $self, $target_group_name ) = @_;
+
+  my $query = sprintf "TargetGroups[?TargetGroupName == `%s`]|[0]", $target_group_name;
+
+  my @cmd = qw(aws elbv2 describe-target-groups);
+
+  push @cmd,
+    (
+    '--query'   => $query,
+    '--profile' => $self->profile,
+    );
+
+  my $result = $self->execute(@cmd);
+
+  return $result ? decode_json($result) : $result;
+}
+
+########################################################################
+sub create_target_group {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $port, $protocol, $name, $vpc_id, $target_type ) = @args{qw(port protocol name vpc_id target_type)};
+
+  $port        //= '80';
+  $protocol    //= 'HTTP';
+  $target_type //= 'ip';
+  $vpc_id      //= $self->get_vpc_id;
+
+  my $tags = $self->format_tags;
+
+  return $self->command(
+    'create-target-group' => [
+      '--name'        => $name,
+      '--protocol'    => $protocol,
+      '--port'        => $port,
+      '--vpc-id'      => $vpc_id,
+      '--target-type' => $target_type,
+      $tags ? ( '--tags' => $tags ) : (),
+      '--query' => 'TargetGroups[0].TargetGroupArn'
+    ]
+  );
+}
+
+########################################################################
+sub create_listener {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $alb_arn, $tg_arn, $port, $default_actions, $certificate_arn, $query )
+    = @args{qw(alb_arn target_group_arn port certificate_arn query)};
+
+  $certificate_arn //= $self->get_certificate_arn;
+  my $protocol //= $certificate_arn ? 'HTTPS' : 'HTTP';
+
+  croak "port is a required argument\n"
+    if !$port;
+
+  return $self->command(
+    'create-listener' => [
+      '--load-balancer-arn' => $alb_arn,
+      '--protocol'          => $protocol,
+      '--port'              => $port,
+      '--default-actions'   => $default_actions,
+      $query           ? ( '--query'        => $query )                                        : (),
+      $certificate_arn ? ( '--certificates' => sprintf 'CertificateArn=%s', $certificate_arn ) : (),
+    ]
+  );
+}
+
+########################################################################
+sub fetch_rules_by_domain {
+########################################################################
+  my ( $self, $domain, $listener_arn ) = @_;
+
+  my $query = sprintf 'Rules[?Conditions[?Field == `host-header` && contains(Values,`%s`)]]', $domain;
+
+  return $self->command(
+    'describe-rules' => [
+      '--listener-arn' => $listener_arn,
+      '--query'        => $query
+    ]
+  );
+
+}
+
+########################################################################
+sub fetch_rule_arns_by_domain {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my $rules = $self->fetch_rules_by_domain(@args);
+
+  return
+    if !$rules || !@{$rules};
+
+  return [ map { $_->{RuleArn} } @{$rules} ];
+}
+
+########################################################################
+sub describe_rules {
+########################################################################
+  my ( $self, $listener_arn, $query ) = @_;
+
+  return $self->command(
+    'describe-rules' => [
+      '--listener-arn' => $listener_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
+
+  return;
+}
+
+########################################################################
+sub format_tags {
+########################################################################
+  my ( $self, $tags ) = @_;
+
+  return
+    if !$tags || !keys %{$tags};
+
+  return join q{ }, map { sprintf 'Key=%s,Value=%s', $_, $tags->{$_} } keys %{$tags};
+}
+
+1;

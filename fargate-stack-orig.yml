@@ -1,0 +1,78 @@
+---
+alb:
+  arn: arn:aws:elasticloadbalancing:us-east-1:106518701080:loadbalancer/app/external/b9867d6854a3bb73
+  name: external
+  type: public
+  port: 443
+  redirect_80: true
+app:
+  name: doc-converter
+  version: 1.0.0
+bucket:
+  name: tbc-doc-converter
+  policy: ~
+certificate_arn: arn:aws:acm:us-east-1:106518701080:certificate/edd482a2-30c7-496c-9907-7dad107d8eca
+cluster_name: doc-converter-cluster
+default_log_group: doc-converter
+domain: doc-converter.treasurersbriefcase.com
+profile: sandbox
+route53:
+  zone_id: Z3ZZX1RBQJTYM
+  profile: prod
+queue:
+  message_retention_period: 345600
+  name: tbc-doc-converter
+  receive_message_wait_time_seconds: 20
+  visibility_timeout: 30
+region: us-east-1
+role: FargateDocConverterRole
+security_groups:
+  alb:
+    group_id: sg-0da45a7a
+  fargate:
+    group_id: sg-01ae45bd64f77c37b
+    group_name: doc-converter-sg
+services:
+  doc-converter-server:
+    command: /usr/local/bin/start-server
+    cpu: 256
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-apache
+    image: doc-converter:latest
+    log_group:
+      prefix: apache
+    memory: 512
+    name: doc-converter-server
+    port: 80
+    role: role-name
+    type: https
+  queue-processor:
+    command: /usr/local/bin/start-server
+    cpu: 1024
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-queue
+    image: doc-converter-daemon:latest
+    log_group:
+      name: doc-converter
+      prefix: queue
+    memory: 2 GB
+    name: queue-processor
+    type: daemon
+subnets:
+  private:
+    - subnet-720ed804
+    - subnet-05651e3a
+    - subnet-33a15c18
+    - subnet-6033e039
+  public:
+    - subnet-1a6db326
+    - subnet-38ee9d17
+    - subnet-6e8bfc33
+    - subnet-932594e4
+vpc_id: vpc-d1c355b4

@@ -1,0 +1,253 @@
+package App::FargateStack::Builder::Events;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+
+use App::Events;
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub build_events {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $tasks = $config->{tasks};
+
+  my @events = grep { $tasks->{$_}->{type} eq 'task' } keys %{$tasks};
+
+  return
+    if !@events;
+
+  $self->build_events_iam_role(@events);  # task names
+
+  foreach my $task_name (@events) {
+    # ok to be undef, as App::Events will provide default
+    my $event_bus_name = $tasks->{$task_name}->{event_bus_name};
+
+    my $event = App::Events->new(
+      profile        => $self->get_profile,
+      event_bus_name => $event_bus_name
+    );
+
+    my $schedule = $tasks->{$task_name}->{schedule};
+
+    croak sprintf "no schedule for event [%s]\n", $task_name
+      if !$schedule;
+
+    my $valid_schedule = $event->validate_schedule($schedule);
+
+    croak sprintf "ERROR: invalid schedule expression: %s\nSee: %s", $schedule, $EVENT_SCHEDULER_TYPE_URL
+      if !$valid_schedule;
+
+    if ( $valid_schedule ne $schedule ) {
+      $self->get_logger->info( sprintf 'events: [%s] schedule modified [%s]', $schedule, $valid_schedule );
+      $tasks->{$task_name}->{schedule} = $valid_schedule;
+      $schedule = $valid_schedule;
+    }
+
+    my $rule_name = sprintf '%s-schedule', $task_name;
+
+    my $exists = $event->rule_exists( $rule_name, $schedule );
+
+    if ( !$dryrun && $exists == -1 ) {
+      $event->delete_rule($rule_name);
+    }
+
+    if ( !$exists || $exists == -1 ) {
+      my $action = !$exists ? 'created' : 'updated';
+
+      $self->inc_required_resources( 'events:rule' => [$rule_name] );
+      $self->get_logger->info( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
+
+      if ( !$dryrun ) {
+
+        my $result = $event->put_rule( $rule_name, $schedule );
+
+        croak sprintf "could not create rule [%s]\n%s", $rule_name, $event->get_error
+          if !$result;
+
+        $self->get_logger->info( sprintf 'events: [%s] rule %s successfully', $rule_name, $action );
+      }
+    }
+    else {
+      $self->get_logger->info( sprintf 'events: rule [%s] exists...skipping', $rule_name );
+      $self->inc_existing_resources( 'events:rule' => $rule_name );
+    }
+
+    $self->create_event_target($task_name);
+  }
+
+  return;
+}
+
+########################################################################
+sub create_event_target {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $region = $self->get_region;
+
+  my $account = $self->get_account;
+
+  my $task_definition_arn = $config->{tasks}->{$task_name}->{arn};
+
+  my $subnets = $self->get_subnets->{private} // $self->get_subnets->{public};
+
+  my $security_group = $config->{security_groups}->{fargate}->{group_id};
+
+  my $cluster_arn = sprintf $CLUSTER_ARN_TEMPLATE, $region, $account, $config->{cluster}->{name};
+
+  my $events_role = $config->{events_role};
+
+  my $target = [
+    { Id            => '1',
+      Arn           => $cluster_arn,
+      RoleArn       => $events_role->{arn},
+      EcsParameters => {
+        TaskDefinitionArn    => $task_definition_arn,
+        LaunchType           => 'FARGATE',
+        NetworkConfiguration => {
+          awsvpcConfiguration => {
+            Subnets        => [ $subnets->[0] ],
+            SecurityGroups => [$security_group],
+            AssignPublicIp => 'DISABLED'
+          }
+        }
+      }
+    }
+  ];
+
+  my $rule_name = sprintf '%s-schedule', $task_name;
+
+  my $event = App::Events->new(
+    profile        => $self->get_profile,
+    event_bus_name => $config->{tasks}->{event_bus_name}
+  );
+
+  if ( $event->target_exists($rule_name) ) {
+    $self->get_logger->info( sprintf 'events: [%s] target exists...skipping', $task_name );
+    $self->inc_existing_resources( 'events:target' => [$task_name] );
+  }
+  else {
+    $self->get_logger->info( sprintf 'events: [%s] target will be created...%s', $task_name, $dryrun );
+    $self->inc_required_resources( 'events:target' => [$task_name] );
+
+    if ( !$dryrun ) {
+      my $result = $event->put_targets( $rule_name, $target );
+
+      croak sprintf "ERROR: could not create target for [%s]\n%s", $rule_name, $event->get_error
+        if !$result;
+    }
+  }
+
+  return;
+}
+
+########################################################################
+sub build_events_iam_role {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $iam = App::IAM->new( $self->get_global_options );
+
+  my $default_name = $self->normalize_name( $config->{app}->{name} );
+
+  my $role_name = $self->create_events_role( $iam, $default_name );
+
+  my $policy_name = $config->{events_policy_name};
+  $policy_name //= sprintf 'Events%sPolicy', $default_name;
+
+  if ( my $policy = $iam->get_role_policy( $role_name, $policy_name ) ) {
+    $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
+    return;
+  }
+
+  my @statement;
+
+  my $role_policy = {
+    Version   => $IAM_POLICY_VERSION,
+    Statement => \@statement,
+  };
+
+  push @statement, $self->add_events_policy();
+
+  $self->inc_required_resources( 'iam:policy' => [$policy_name] );
+
+  return
+    if $dryrun;
+
+  $iam->put_role_policy( $role_name, $policy_name, $role_policy );
+
+  croak sprintf "could not create policy %s for %s\n%s", $role_name, $policy_name, $iam->get_error
+    if $iam->get_error;
+
+  return;
+}
+
+########################################################################
+sub create_events_role { return create_role( @_, 'events' ); }
+########################################################################
+
+########################################################################
+sub add_events_policy {
+########################################################################
+  my ($self) = @_;
+
+  my @events = $self->has_events;
+
+  my $region       = $self->get_region;
+  my $account      = $self->get_account;
+  my $cluster_name = $self->get_config->{cluster}->{name};
+
+  my $role_arn = $self->get_config->{role}->{arn};
+
+  my @policy_statement = (
+    { Effect    => 'Allow',
+      Action    => 'ecs:RunTask',
+      Resource  => [ map { sprintf $TASK_DEFINITION_ARN_TEMPLATE, $region, $account, $_ } @events ],
+      Condition => {
+        ArnLike => {
+          'ecs:cluster' => sprintf $CLUSTER_ARN_TEMPLATE,
+          $region, $account, $cluster_name,
+        }
+      }
+    },
+    { Effect   => 'Allow',
+      Action   => 'iam:PassRole',
+      Resource => [$role_arn],
+    }
+  );
+
+  return @policy_statement;
+}
+
+########################################################################
+sub has_events {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+  my $tasks  = $config->{tasks};
+
+  return grep { $tasks->{$_}->{type} eq 'task' } keys %{$tasks};
+}
+
+1;

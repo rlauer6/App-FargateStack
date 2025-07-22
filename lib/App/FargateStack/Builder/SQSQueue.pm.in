@@ -1,0 +1,72 @@
+package App::FargateStack::Builder::SQSQueue;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+
+use App::SQS;
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub build_queue {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $queue = $config->{queue};
+
+  return
+    if !$queue || !$queue->{name};
+
+  my $sqs = App::SQS->new( %{$queue}, %{ $self->get_global_options } );
+
+  if ( my $queue_url = $sqs->queue_exists ) {
+    $self->get_logger->info( sprintf 'queue: [%s] exists...skipping', $queue->{name} );
+    $config->{queue}->{url} = $queue_url;
+    $self->inc_existing_resources( queue => $queue_url );
+
+    return $TRUE;
+  }
+
+  $self->inc_required_resources( queue => $queue->{name} );
+
+  my $dryrun = $self->get_dryrun;
+
+  $self->get_logger->info( sprintf 'queue: %s will be created...%s', $queue->{name}, $dryrun );
+
+  return $TRUE
+    if $dryrun;
+
+  my $result = $sqs->create_queue;
+
+  croak sprintf "could not create queue %s\n%s", $queue->{name}, $sqs->get_get_error
+    if !$result;
+
+  $queue->{url} = $result->{QueueUrl};
+
+  return;
+}
+
+########################################################################
+sub add_queue_policy {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $queue_arn = sprintf $QUEUE_ARN_TEMPLATE, $self->get_region, $self->get_account, $config->{queue}->{name};
+
+  return {
+    Effect   => 'Allow',
+    Action   => ['sqs:*'],
+    Resource => [$queue_arn]
+  };
+}
+
+1;

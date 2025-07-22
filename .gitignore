@@ -1,0 +1,11 @@
+*.json
+*.log
+*.md5
+*.tmp
+*.tar.gz
+resources
+**/*.pm
+extra-files
+provides
+modified
+postamble

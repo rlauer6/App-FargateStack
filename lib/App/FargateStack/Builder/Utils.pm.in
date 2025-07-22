@@ -1,0 +1,95 @@
+package App::FargateStack::Builder::Utils;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(no_match_vars);
+use JSON;
+use Scalar::Util qw(reftype);
+
+use Role::Tiny;
+
+########################################################################
+sub _inc {
+########################################################################
+  my ( $what, $self, $key, $value ) = @_;
+
+  my $resources = $self->get($what) // {};
+
+  if ( ref $value && reftype($value) eq 'ARRAY' ) {
+    ($value) = @{$value};
+    $resources->{$key} //= [];
+    push @{ $resources->{$key} }, $value;
+  }
+  else {
+    $resources->{$key} = $value;
+  }
+
+  $self->set( $what, $resources );
+
+  return $resources;
+}
+
+########################################################################
+sub inc_existing_resources {
+########################################################################
+  return _inc( 'existing_resources', @_ );
+}
+
+########################################################################
+sub inc_required_resources {
+########################################################################
+  return _inc( 'required_resources', @_ );
+}
+
+########################################################################
+sub slurp_file {
+########################################################################
+  my ( $file, $json ) = @_;
+
+  local $RS = undef;
+
+  open my $fh, '<', $file
+    or croak "could not open $file\n";
+
+  my $content = <$fh>;
+
+  close $fh;
+
+  return $json ? decode_json($content) : $content;
+}
+
+########################################################################
+sub section_break { return shift->get_logger->info( q{-} x 80 ) }
+########################################################################
+
+########################################################################
+sub normalize_name {
+########################################################################
+  my ( $self, $name ) = @_;
+
+  return join q{}, map {ucfirst} split /[_-]+/xsm, $name;
+}
+
+########################################################################
+sub _log {
+########################################################################
+  my ( $logger, $level, @args ) = @_;
+
+  # If first arg looks like a sprintf format string AND we have more args, call sprintf
+  if ( @args > 1 && $args[0] =~ /%/xsm ) {
+    return $logger->$level( sprintf shift(@args), @args );
+  }
+  else {
+    return $logger->$level(@args);
+  }
+}
+
+sub log_info  { return _log( shift->get_logger, 'info',  @_ ) }
+sub log_debug { return _log( shift->get_logger, 'debug', @_ ) }
+sub log_warn  { return _log( shift->get_logger, 'warn',  @_ ) }
+sub log_error { return _log( shift->get_logger, 'error', @_ ) }
+
+1;

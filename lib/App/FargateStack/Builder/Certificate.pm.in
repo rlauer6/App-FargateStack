@@ -1,0 +1,94 @@
+package App::FargateStack::Builder::Certificate;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+
+use App::ACM;
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub build_certificate {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $domain = $config->{domain};
+
+  my $acm = App::ACM->new( domain => $domain, %{ $self->get_global_options } );
+
+  my @all_certs = @{ $acm->list_certificates };
+
+  my ($cert) = grep { $domain eq $_->{DomainName} } @all_certs;
+
+  my $arn;
+
+  if ($cert) {
+    $self->get_logger->info( sprintf 'certificate: [%s] certificate exists...skipping', $domain );
+
+    $arn = $cert->{CertificateArn};
+
+    my $status = $cert->{Status};
+
+    $self->get_logger->info( sprintf "\tarn: %s",    $arn );
+    $self->get_logger->info( sprintf "\tstatus: %s", $status );
+
+    $self->inc_existing_resources( certificate => $arn );
+  }
+  else {
+    $self->get_logger->info( sprintf 'certificate: certificate for [%s] will be created...%s',
+      $domain, $dryrun );
+
+    $self->inc_required_resources(
+      certificate => sub {
+        return $self->get_config->{certficate_arn} // 'arn:???';
+      }
+    );
+
+    if ( !$dryrun ) {
+
+      $arn = $acm->request_certificate();
+
+      sleep $ACM_REQUEST_SLEEP_TIME;
+
+      my $dns_record
+        = $acm->describe_certificate( $arn, 'Certificate.DomainValidationOptions[0].ResourceRecord' );
+
+      croak "ERROR: no DNS record found yet for $arn\n"
+        if !$dns_record;
+
+      my ( $name, $type, $value ) = @{$dns_record}{qw(Name Type Value)};
+
+      my $change_batch = [
+        { Action            => 'UPSERT',
+          ResourceRecordSet => {
+            Name            => $name,
+            Type            => $type,
+            TTL             => 300,
+            ResourceRecords => [ { Value => $value } ]
+          }
+        }
+      ];
+
+      my $route53 = $self->get_route53();
+
+      $route53->set_change_batch($change_batch);
+
+      $self->get_logger->info( Dumper( [ result => $route53->change_resource_record_sets ] ) );
+    }
+  }
+
+  $config->{certificate_arn} = $arn;
+
+  return $cert;
+}
+
+1;

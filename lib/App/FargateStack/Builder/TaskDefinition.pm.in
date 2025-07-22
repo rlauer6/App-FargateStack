@@ -1,0 +1,248 @@
+package App::FargateStack::Builder::TaskDefinition;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+use File::Basename qw(fileparse);
+use Data::Compare;
+use JSON;
+
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub register_task_definition {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $config = $self->get_config;
+
+  my $ecs = $self->get_ecs;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $tasks = $config->{tasks};
+
+  my $family = $tasks->{$task_name}->{family};
+
+  my @task_definitions = map { $_->[0] }
+    sort { $a->[1] <=> $b->[1] }
+    map { [ $_, /:(\d+)$/ ? $1 : 0 ] } @{ $ecs->list_task_definitions( $family, 'taskDefinitionArns' ) // [] };
+
+  if ( $self->taskdef_has_changed($task_name) || !@task_definitions ) {
+    my $taskdef = @task_definitions ? $task_definitions[-1] : "arn:???/$task_name";
+
+    if ( $taskdef =~ /:(\d+)$/xsm ) {
+      my $version = $1 + 1;
+
+      $taskdef =~ s/\d+$/$version/xsm;
+    }
+
+    $self->inc_required_resources( task => [$taskdef] );
+
+    my $task_definition = sprintf 'taskdef-%s.json', $task_name;
+
+    $self->get_logger->info( sprintf 'task: [%s] changed or does not exists...will be created...%s',
+      $task_name, $dryrun );
+
+    if ( !$dryrun ) {
+      my $result = $ecs->register_task_definition($task_definition);
+
+      croak sprintf "unable to register task definition: [%s]\n", $task_definition
+        if !$result;
+
+      $tasks->{$task_name}->{arn} = $result->{taskDefinition}->{taskDefinitionArn};
+    }
+
+  }
+  else {
+    $self->get_logger->info( sprintf 'task: [%s] unchanged...skipping', $task_name );
+
+    $tasks->{$task_name}->{arn} = $task_definitions[-1];
+
+    $self->inc_existing_resources( task => [ $task_definitions[-1] ] );
+  }
+
+  return;
+}
+
+########################################################################
+sub taskdef_has_changed { goto &taskdef_status; }
+########################################################################
+
+########################################################################
+sub taskdef_status {
+########################################################################
+  my ( $self, $task, $action ) = @_;
+
+  $action //= 'status';
+
+  my $taskdef = "taskdef-$task.json";
+
+  my ( $name, $path, $ext ) = fileparse( $taskdef, qr/[.][^.]+$/xsm );
+
+  return !$self->get_taskdef_status->{$task};
+}
+
+########################################################################
+sub task_execution_role {
+########################################################################
+  my ( $self, $role_name ) = @_;
+
+  my $config = $self->get_config;
+
+  $role_name //= $config->{role}->{name};
+
+  if ( !$role_name ) {
+    my $app_name = $self->get_config->{app}->{name};
+    $app_name =~ s/[^[:alpha:]_-]//xsm;
+
+    $role_name = sprintf 'Fargate%sRole', $role_name;
+
+    $config->{role}->{name} = $role_name;
+  }
+
+  return sprintf 'arn:aws:iam::%s:role/%s', $self->get_account, $role_name;
+}
+
+########################################################################
+sub create_taskdef_files {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $services = $config->{tasks};
+
+  foreach my $task_name ( keys %{$services} ) {
+    my $task = $services->{$task_name};
+
+    my @portMappings;
+
+    if ( $task->{type} =~ /^http/xsm ) {
+      # use port or specify container_port, host_port - pick your poison
+      my $default_port = $task->{port} // $DEFAULT_PORT;
+
+      @portMappings = (
+        { protocol      => 'tcp',
+          containerPort => 0 + ( $task->{container_port} // $default_port ),
+          hostPort      => 0 + ( $task->{host_port}      // $default_port ),
+        }
+      );
+    }
+
+    my $log_group = $task->{log_group}->{name} // $config->{default_log_group};
+
+    $self->update_log_groups( $log_group => $task_name );
+
+    my $stream_prefix = $task->{log_group}->{prefix} // $task_name;
+
+    my ( $image, $image_version ) = $task->{image} =~ /([^:]+)(:.*)?$/xsm;
+    $image_version //= ':latest';
+
+    $image = sprintf '%s.dkr.ecr.us-east-1.amazonaws.com/%s%s', $self->get_account, $image, $image_version;
+
+    my @environment
+      = map { { name => $_, value => $task->{environment}->{$_} } } keys %{ $task->{environment} // {} };
+
+    # update config...
+    $task->{memory} //= $DEFAULT_MEMORY_SIZE;
+    $task->{name}   //= $task_name;
+    $task->{cpu}    //= $DEFAULT_CPU_SIZE;
+    $task->{family} //= $task_name;
+
+    my @secrets = $self->add_secrets($task);
+    my ( $volumes, $mount_points ) = $self->add_volumes($task);
+
+    my $taskdef = {
+      executionRoleArn     => $self->task_execution_role( $config->{role}->{name} // $task_name ),
+      memory               => $task->{memory},
+      containerDefinitions => [
+        { logConfiguration => {
+            options => {
+              'awslogs-region'        => $config->{region},
+              'awslogs-stream-prefix' => $stream_prefix,
+              'awslogs-group'         => $log_group
+            },
+            logDriver => q{awslogs}
+          },
+          environment  => \@environment,
+          secrets      => \@secrets,
+          portMappings => \@portMappings,
+          essential    => JSON::true,
+          name         => $task->{name},
+          $task->{command} ? ( command => [ $task->{command} ] ) : (),
+          image       => $image,
+          mountPoints => $mount_points // [],
+        }
+      ],
+      cpu                     => $task->{cpu},
+      requiresCompatibilities => [q{FARGATE}],
+      networkMode             => q{awsvpc},
+      family                  => $task->{family},
+      volumes                 => $volumes // [],
+
+    };
+
+    $self->write_taskdef( $task_name, $taskdef );
+  }
+
+  return $TRUE;
+}
+
+########################################################################
+sub write_taskdef {
+########################################################################
+  my ( $self, $task, $taskdef ) = @_;
+
+  my $config = $self->get_config;
+
+  my $taskdef_file = sprintf 'taskdef-%s.json', $task;
+
+  my $current_taskdef = $self->get_ecs->describe_task_definition( $task, 'taskDefinition' );
+
+  if ($current_taskdef) {
+    $config->{tasks}->{$task}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
+  }
+
+  my $taskdef_status = $self->get_taskdef_status // {};
+
+  $taskdef_status->{$task} = -s $taskdef_file ? $TRUE : $FALSE;
+
+  foreach my $k ( keys %{$taskdef} ) {
+    next if $k eq 'containerDefinitions';
+
+    next if Compare( $taskdef->{$k}, $current_taskdef->{$k} );
+
+    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task, $k );
+
+    $taskdef_status->{$task} = $FALSE;
+  }
+
+  my $containerDefinitions = $taskdef->{containerDefinitions}->[0];
+
+  foreach my $k ( keys %{$containerDefinitions} ) {
+    next if Compare( $containerDefinitions->{$k}, $current_taskdef->{containerDefinitions}->[0]->{$k} );
+
+    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task, $k );
+
+    $taskdef_status->{$task} = $FALSE;
+  }
+
+  $self->set_taskdef_status($taskdef_status);
+
+  open my $fh, '>', $taskdef_file
+    or croak "could not open $taskdef_file for writing\n";
+
+  print {$fh} JSON->new->pretty->encode($taskdef);
+
+  close $fh;
+
+  return;
+}
+
+1;

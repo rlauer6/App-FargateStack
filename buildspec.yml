@@ -1,0 +1,27 @@
+project:
+  description: App::FargateStack
+  author:
+    name: Rob Lauer
+    mailto: rclauer@gmail.com
+pm_module: App::FargateStack
+min-perl-version: 5.010
+dependencies:
+  requires: requires
+  test_requires: test-requires
+path:
+  pm_module: lib
+  scripts: bin
+  tests: t
+extra-files:
+  - share:
+    - README.md
+    - ChangeLog
+resources:
+  homepage: http://github.com/rlauer6/App-FargateStack
+  bugtracker:
+    web: http://github.com/rlauer6/App-FargateStack
+    mailto: rclauer@gmail.com
+  repository:
+    url: git://github.com/rlauer6/App-FargateStack
+    web: http://github.com/rlauer6/App-FargateStack
+    type: 'git'

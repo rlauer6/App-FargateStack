@@ -1,0 +1,56 @@
+package App::Benchmark;
+
+use strict;
+use warnings;
+
+use Role::Tiny;
+
+use Time::HiRes qw(gettimeofday tv_interval);
+
+use parent qw(Class::Accessor::Fast);
+
+__PACKAGE__->follow_best_practice;
+__PACKAGE__->mk_accessors(qw(benchmark));
+
+########################################################################
+sub benchmark {
+########################################################################
+  my ( $self, $name ) = @_;
+
+  if ( !$name || !$self->get_benchmark ) {
+    my $t0 = [gettimeofday];
+
+    $self->set_benchmark(
+      { t0 => $t0,
+        t1 => $t0,
+        t  => {},
+      }
+    );
+
+    return;
+  }
+
+  my $benchmark = $self->get_benchmark;
+
+  my ( $t, $t0, $t1 ) = @{$benchmark}{qw(t t0 t1)};
+
+  $t->{elapsed_time} = tv_interval( $t0, [gettimeofday] );
+
+  $t->{$name} += tv_interval( $t1, [gettimeofday] );
+
+  $benchmark->{t1} = [gettimeofday];
+
+  return $t->{$name};
+}
+
+########################################################################
+sub AUTOLOAD {
+########################################################################
+  my ($self) = @_;
+
+  our $AUTOLOAD;
+
+  return $self->get_benchmark->{t}->{$AUTOLOAD};
+}
+
+1;

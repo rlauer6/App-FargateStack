@@ -1,0 +1,88 @@
+---
+alb:
+  arn: arn:aws:elasticloadbalancing:us-east-1:106518701080:loadbalancer/app/external/b9867d6854a3bb73
+  name: external
+  port: 443
+  redirect_80: 1
+  type: public
+app:
+  name: doc-converter
+  version: 1.0.0
+bucket:
+  name: tbc-doc-converter
+  policy: ~
+certificate_arn: arn:aws:acm:us-east-1:106518701080:certificate/edd482a2-30c7-496c-9907-7dad107d8eca
+cluster:
+  name: doc-converter-cluster
+  arn:
+default_log_group: doc-converter
+doc-converter-server:
+  task_definition_arn: arn:aws:ecs:us-east-1:106518701080:task-definition/doc-converter-apache:21
+domain: doc-converter.treasurersbriefcase.com
+profile: prod
+queue:
+  message_retention_period: 345600
+  name: tbc-doc-converter
+  receive_message_wait_time_seconds: 20
+  visibility_timeout: 30
+queue-processor:
+  task_definition_arn: arn:aws:ecs:us-east-1:106518701080:task-definition/doc-converter-queue:26
+region: us-east-1
+role: FargateDocConverterRole
+route53:
+  profile: prod
+  zone_id: Z3ZZX1RBQJTYM
+security_groups:
+  alb:
+    group_id: sg-f8b14f8f
+  fargate:
+    group_id: sg-01ae45bd64f77c37b
+    group_name: doc-converter-sg
+services:
+  doc-converter-server:
+    command: /usr/local/bin/start-server
+    cpu: 256
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-apache
+    image: doc-converter:latest
+    log_group:
+      prefix: apache
+    memory: 512
+    name: doc-converter-server
+    port: 80
+    role: role-name
+    target_group_arn: arn:aws:elasticloadbalancing:us-east-1:106518701080:targetgroup/doc-converter-tg/e2026d44aa60a241
+    target_group_name: doc-converter-tg
+    task_definition_arn: arn:aws:ecs:us-east-1:106518701080:task-definition/doc-converter-apache:21
+    type: https
+  queue-processor:
+    command: /usr/local/bin/start-server
+    cpu: 1024
+    environment:
+      AWS_BUCKET_NAME: tbc-doc-converter
+      AWS_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/106518701080/treasurersbriefcase-doc-converter
+      START_APACHE: 1
+    family: doc-converter-queue
+    image: doc-converter-daemon:latest
+    log_group:
+      name: doc-converter
+      prefix: queue
+    memory: 2 GB
+    name: queue-processor
+    task_definition_arn: arn:aws:ecs:us-east-1:106518701080:task-definition/doc-converter-queue:26
+    type: daemon
+subnets:
+  private:
+    - subnet-6033e039
+    - subnet-33a15c18
+    - subnet-05651e3a
+    - subnet-720ed804
+  public:
+    - subnet-932594e4
+    - subnet-6e8bfc33
+    - subnet-38ee9d17
+    - subnet-1a6db326
+vpc_id: vpc-d1c355b4

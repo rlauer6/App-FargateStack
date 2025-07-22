@@ -1,0 +1,73 @@
+package App::FargateStack::Builder::Service;
+
+use strict;
+use warnings;
+
+use Carp;
+use Data::Dumper;
+use English qw(-no_match_vars);
+
+use App::FargateStack::Constants;
+
+use Role::Tiny;
+
+########################################################################
+sub build_service {
+########################################################################
+  my ( $self, $service_name ) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $ecs = $self->get_ecs;
+
+  my $subnets = $self->get_subnets->{private};
+
+  if ( !$subnets || !@{$subnets} ) {
+    if ( $subnets = $self->get_subnets->{public} ) {
+      $self->get_logger->warn('service: no private subnets! Using public subnets is not recommended.');
+    }
+    else {
+      croak sprintf "no subnets in %s found\n", $config->{vpc_id};
+    }
+  }
+
+  my @vpc_subnets = @{$subnets}[ 0, 1 ];
+
+  my @services = @{ $ecs->list_services( $config->{cluster}->{name}, 'serviceArns' ) || [] };
+
+  my @desired_services = $service_name ? ($service_name) : $config->{tasks};
+
+  foreach my $task_name (@desired_services) {
+
+    my $task = $config->{tasks}->{$task_name};
+
+    if ( any { $_ eq $task_name } @services ) {
+      $self->get_logger->info( sprintf 'service: [%s] already exists...skipping', $task_name );
+      next;
+    }
+
+    $self->get_logger->info( sprintf 'service: creating [%s] service in subnets %s...%s',
+      $task_name, ( join q{,}, @vpc_subnets ), $dryrun );
+
+    if ( !$dryrun ) {
+      $ecs->create_service(
+        task_name       => $task_name,
+        cluster_name    => $config->{cluster}->{name},
+        task_definition => $task_name,
+        desired_count   => $task->{desired_count} // 1,
+        subnets         => \@vpc_subnets,
+        security_groups => [ $config->{security_groups}->{fargate}->{group_id} ],
+        $self->get_http ? ( target_group_arn => $task->{target_group_arn} ) : (),
+      );
+
+      croak sprintf "could not create service [%s]\n%s", $task_name, $ecs->get_error
+        if $ecs->get_error;
+    }
+  }
+
+  return;
+}
+
+1;

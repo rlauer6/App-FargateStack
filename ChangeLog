@@ -1,0 +1,60 @@
+Fri Jul 18 10:40:23 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[BigBang - 1.0.0]:
+	* .gitignore: new
+	* ChangeLog: new
+	* Dockerfile: new
+	* HelloWorld.pl: new
+	* Makefile: new
+	* README.md: new
+	* VERSION: new
+	* bin/app-FargateStack: new
+	* buildspec.yml: new
+	* deploy-to-ecr: new
+	* fargate-stack-orig.yml: new
+	* fargate-stack.yml: new
+	* fargate-template.yml: new
+	* lib/App/ACM.pm.in: new
+	* lib/App/AWS.pm.in: new
+	* lib/App/Benchmark.pm.in: new
+	* lib/App/Bencmark.pm.in: new
+	* lib/App/Command.pm.in: new
+	* lib/App/EC2.pm.in: new
+	* lib/App/ECR.pm.in: new
+	* lib/App/ECS.pm.in: new
+	* lib/App/EFS.pm.in: new
+	* lib/App/ElbV2.pm.in: new
+	* lib/App/Events.pm.in: new
+	* lib/App/FargateStack.pm.in: new
+	* lib/App/FargateStack/Builder.pm.in: new
+	* lib/App/FargateStack/Builder/Certificate.pm.in: new
+	* lib/App/FargateStack/Builder/Cluster.pm.in: new
+	* lib/App/FargateStack/Builder/EFS.pm.in: new
+	* lib/App/FargateStack/Builder/Events.pm.in: new
+	* lib/App/FargateStack/Builder/HTTPService.pm.in: new
+	* lib/App/FargateStack/Builder/IAM.pm.in: new
+	* lib/App/FargateStack/Builder/LogGroup.pm.in: new
+	* lib/App/FargateStack/Builder/S3Bucket.pm.in: new
+	* lib/App/FargateStack/Builder/SQSQueue.pm.in: new
+	* lib/App/FargateStack/Builder/Secrets.pm.in: new
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in: new
+	* lib/App/FargateStack/Builder/Service.pm.in: new
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in: new
+	* lib/App/FargateStack/Builder/Utils.pm.in: new
+	* lib/App/FargateStack/Constants.pm.in: new
+	* lib/App/IAM.pm.in: new
+	* lib/App/Logs.pm.in: new
+	* lib/App/Route53.pm.in: new
+	* lib/App/S3Api.pm.in: new
+	* lib/App/SQS.pm.in: new
+	* lib/App/STS.pm.in: new
+	* lib/App/SecretsManager.pm.in: new
+	* my-stack-minimal.yml: new
+	* requires: new
+	* t/00-app-fargatestack.t: new
+	* test-requires: new
+	* version.mk: new
+
+
+
+
