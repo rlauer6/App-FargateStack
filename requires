@@ -1,11 +1,10 @@
 Class::Accessor::Fast
 CLI::Simple
-CLI::Simple::Constants
+Data::Compare
 IPC::Run
 JSON
 List::Util
 Log::Log4perl
-Log::Log4perl::Level
 Readonly
 Role::Tiny
 Role::Tiny::With

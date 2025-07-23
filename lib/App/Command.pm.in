@@ -45,7 +45,12 @@ sub get_logger {
       my $log_level = $self->get_log_level // 'info';
       $log_level = $LOG_LEVELS{ lc $log_level } // $INFO;
 
-      Log::Log4perl->easy_init($log_level);
+      if ( my $log4perl_conf = $self->get_log4perl_conf ) {
+        Log::Log4perl->initialize( \$log4perl_conf );
+      }
+      else {
+        Log::Log4perl->easy_init($log_level);
+      }
     }
 
     $logger = Log::Log4perl->get_logger;

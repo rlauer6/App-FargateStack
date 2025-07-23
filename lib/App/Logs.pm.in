@@ -88,4 +88,18 @@ sub create_log_group {
   return $self->log_group_exists($log_group_name);
 }
 
+########################################################################
+sub get_log_event {
+########################################################################
+  my ( $self, $log_group, $log_stream, $query ) = @_;
+
+  return $self->command(
+    'get-log-events' => [
+      '--log-group-name' => $log_group,
+      '--log-stream'     => $log_stream,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
 1;

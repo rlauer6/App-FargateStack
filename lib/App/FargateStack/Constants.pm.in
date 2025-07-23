@@ -19,6 +19,7 @@ Readonly::Scalar our $DEFAULT_CPU_SIZE       => 256;
 Readonly::Scalar our $DEFAULT_MEMORY_SIZE    => 512;
 Readonly::Scalar our $DEFAULT_PORT           => 80;
 Readonly::Scalar our $IAM_POLICY_VERSION     => '2012-10-17';
+Readonly::Scalar our $DEFAULT_RULE_ID        => '1';
 
 Readonly::Scalar our $EFS_ARN_TEMPLATE             => 'arn:aws:elasticfilesystem:%s:%s:file-system/%s';
 Readonly::Scalar our $TASK_DEFINITION_ARN_TEMPLATE => 'arn:aws:ecs:%s:%s:task-definition/%s:*';
@@ -31,7 +32,7 @@ Readonly::Scalar our $ECR_ARN_TEMPLATE             => 'arn:aws:ecr:%s:%s:reposit
 Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
   'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
 
-Readonly our %HELP_SUBJECTS => (
+Readonly::Hash our %HELP_SUBJECTS => (
   'overview'        => 'OVERVIEW',
   'load balancers'  => 'CREATING A LOAD BALANCER',
   'daemon services' => 'DAEMON SERVICES',
@@ -39,16 +40,31 @@ Readonly our %HELP_SUBJECTS => (
   'iam permissions' => 'IAM PERMISSIONS',
 );
 
+Readonly::Scalar our $LOG4PERL_CONF => <<'END_OF_CONF';
+log4perl.logger = INFO, Screen
+log4perl.appender.Screen = Log::Log4perl::Appender::ScreenColoredLevels
+log4perl.appender.Screen.stderr = 1
+log4perl.appender.Screen.layout = Log::Log4perl::Layout::PatternLayout
+log4perl.appender.Screen.layout.ConversionPattern = %d %p %m%n
+log4perl.appender.Screen.color.DEBUG=magenta
+log4perl.appender.Screen.color.INFO=green
+log4perl.appender.Screen.color.WARN=yellow
+log4perl.appender.Screen.color.ERROR=red
+log4perl.appender.Screen.color.FATAL=bold red
+END_OF_CONF
+
 our @EXPORT = (
   qw(
     $ACM_REQUEST_SLEEP_TIME
     $DEFAULT_CPU_SIZE
     $DEFAULT_MEMORY_SIZE
     $DEFAULT_PORT
+    $DEFAULT_RULE_ID
     $EMPTY
     $EVENT_SCHEDULER_TYPE_URL
     $FALSE
     $IAM_POLICY_VERSION
+    $LOG4PERL_CONF
     $TRUE
     %HELP_SUBJECTS
   ),

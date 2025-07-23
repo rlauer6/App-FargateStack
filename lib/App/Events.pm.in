@@ -16,7 +16,7 @@ with 'App::AWS';
 use parent qw(App::Command);
 
 __PACKAGE__->follow_best_practice();
-__PACKAGE__->mk_accessors(qw(profile region event_bus_name));
+__PACKAGE__->mk_accessors(qw(profile region event_bus_name unlink));
 
 use Readonly;
 
@@ -34,6 +34,37 @@ sub new {
   }
 
   return $self;
+}
+
+########################################################################
+sub remove_targets {
+########################################################################
+  my ( $self, $rule_name, $id ) = @_;
+
+  return $self->command(
+    'remove-targets' => [
+      '--rule'           => $rule_name,
+      '--ids'            => $id,
+      '--event-bus-name' => $self->get_event_bus_name,
+    ]
+  );
+  return;
+}
+
+########################################################################
+sub list_targets_by_rule {
+########################################################################
+  my ( $self, $rule_name, $query ) = @_;
+
+  return $self->command(
+    'list-targets-by-rule' => [
+      '--rule'           => $rule_name,
+      '--event-bus-name' => $self->get_event_bus_name,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
+
+  return;
 }
 
 ########################################################################
@@ -105,8 +136,6 @@ sub put_rule {
 ########################################################################
   my ( $self, $rule_name, $schedule ) = @_;
 
-  print {*STDERR} Dumper( [ rule_name => $rule_name, schedule => $schedule ] );
-
   return $self->command(
     'put-rule' => [
       '--name'           => $rule_name,
@@ -141,12 +170,17 @@ sub put_targets {
 ########################################################################
   my ( $self, $rule, $target ) = @_;
 
-  my ( $fh, $tmpfile ) = tempfile( 'rule-XXXXX', UNLINK => 1, SUFFIX => '.json' );
-  my $json = JSON->new->pretty->encode($target);
-  print {$fh} $json;
-  close $fh;
+  my ( $fh, $tmpfile ) = tempfile(
+    'rule-XXXXX',
+    UNLINK => $self->get_unlink,
+    SUFFIX => '.json'
+  );
 
-  print {*STDERR} Dumper( [ target => $json ] );
+  my $json = JSON->new->pretty->encode($target);
+
+  print {$fh} $json;
+
+  close $fh;
 
   return $self->command(
     'put-targets' => [

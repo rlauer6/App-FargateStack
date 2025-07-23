@@ -79,6 +79,23 @@ sub delete_service {
 }
 
 ########################################################################
+sub describe_tasks {
+########################################################################
+  my ( $self, $cluster_name, $task_arn, $query ) = @_;
+
+  croak "usage: describe_tasks(cluster-name, task-arn, [query])\n"
+    if !$cluster_name || !$task_arn;
+
+  return $self->command(
+    'describe-tasks' => [
+      '--tasks'   => $task_arn,
+      '--cluster' => $cluster_name,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
+########################################################################
 sub describe_task_definition {
 ########################################################################
   my ( $self, $task, $query ) = @_;
@@ -116,6 +133,40 @@ sub register_task_definition {
     'register-task-definition' => [ '--no-cli-pager', '--cli-input-json' => "file://$task_definition", ] );
 
   return $result;
+}
+
+########################################################################
+sub run_task {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  foreach (qw(network_configuration subnets security_groups)) {
+    next if !ref $args{$_};
+    $args{$_} = encode_json( $args{$_} );
+  }
+
+  return $self->command(
+    'run-task' => [
+      '--cluster'               => $args{cluster},
+      '--task-definition'       => $args{task_definition},
+      '--network-configuration' => $args{network_configuration},
+      '--launch-type'           => 'FARGATE',
+    ]
+  );
+}
+
+########################################################################
+sub wait_tasks_stopped {
+########################################################################
+  my ( $self, $cluster_name, $task_arn ) = @_;
+
+  return $self->command(
+    'wait' => [
+      'tasks-stopped',
+      '--cluster' => $cluster_name,
+      '--tasks'   => $task_arn,
+    ]
+  );
 }
 
 ########################################################################

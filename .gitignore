@@ -3,9 +3,11 @@
 *.md5
 *.tmp
 *.tar.gz
+*.bak
 resources
 **/*.pm
 extra-files
 provides
 modified
 postamble
+\#*

@@ -11,11 +11,12 @@ use App::Route53;
 use App::STS;
 use App::FargateStack::Constants;
 
-use CLI::Simple::Constants qw(:booleans :chars);
+use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
 use CLI::Simple;
 use Carp;
 use Data::Dumper;
 use English qw(no_match_vars);
+use Log::Log4perl;
 use Pod::Usage;
 use Scalar::Util qw(reftype);
 use YAML qw(LoadFile);
@@ -24,12 +25,12 @@ use Role::Tiny::With;
 
 with 'App::Benchmark';
 with 'App::FargateStack::Builder';
+with 'App::FargateStack::Builder::IAM';
 with 'App::FargateStack::Builder::Certificate';
-with 'App::FargateStack::Builder::Cluster';
 with 'App::FargateStack::Builder::Events';
 with 'App::FargateStack::Builder::EFS';
 with 'App::FargateStack::Builder::HTTPService';
-with 'App::FargateStack::Builder::IAM';
+with 'App::FargateStack::Builder::Cluster';
 with 'App::FargateStack::Builder::LogGroup';
 with 'App::FargateStack::Builder::SecurityGroup';
 with 'App::FargateStack::Builder::Secrets';
@@ -42,8 +43,6 @@ with 'App::FargateStack::Builder::Utils';
 our $VERSION = '@PACKAGE_VERSION@';
 
 use parent qw(CLI::Simple);
-
-__PACKAGE__->use_log4perl( level => 'info' );
 
 caller or __PACKAGE__->main;
 
@@ -118,14 +117,14 @@ sub _init_tasks {
 
   my $tasks = $config->{tasks};
 
-  croak "ERROR: no tasks defined in config\n"
+  log_die( $self, "ERROR: no tasks defined in config\n" )
     if !$tasks;
 
   # see if we have an http service
   my ( $http_service, $error )
     = grep { $tasks->{$_}->{type} && $tasks->{$_}->{type} =~ /^http/xsm } keys %{$tasks};
 
-  croak "ERROR: only one http service is permitted\n"
+  log_die( $self, 'ERROR: only one http service is permitted' )
     if $error;
 
   $self->set_http($http_service);
@@ -133,16 +132,16 @@ sub _init_tasks {
   if ($http_service) {
     $self->configure_alb();
 
-    croak "ERROR: when provisioning an http service type, domain is required\n"
+    log_die( $self, "ERROR: when provisioning an http service type, domain is required\n" )
       if !$config->{domain};
 
-    croak "ERROR: when provisioning an http service route53->zone_id is required\n"
+    log_die( $self, "ERROR: when provisioning an http service route53->zone_id is required\n" )
       if !$config->{route53}->{zone_id};
   }
 
-  my @images = map { $tasks->{$_}->{image} } keys %{$tasks};
+  my @images = map { $tasks->{$_}->{image} // () } keys %{$tasks};
 
-  croak "ERROR: every task must have an image\n"
+  log_die( $self, 'ERROR: every task must have an image' )
     if @images != scalar keys %{$tasks};
 
   my $ecr = App::ECR->new( $self->get_global_options );
@@ -202,6 +201,7 @@ sub _init_defaults {
     region    => $self->get_region,
     logger    => $self->get_logger,
     log_level => $self->get_log_level,
+    unlink    => $self->get_unlink,
   );
 
   $self->set_global_options( \%global_options );
@@ -281,10 +281,10 @@ sub _init_config {
 
   my $config_file = $self->get_config;
 
-  croak "--config is a required argument\n"
+  croak sprintf "usage: %s --config config-file command\n", $ENV{SCRIPT_PATH}
     if !$config_file;
 
-  croak sprintf "%s not foud or is unreadable\n"
+  croak sprintf "ERROR: %s not found or is unreadable\n"
     if !-s $config_file || !-r $config_file;
 
   $self->set_config_name($config_file);
@@ -302,21 +302,116 @@ sub _init_config {
 }
 
 ########################################################################
+sub cmd_run_task {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my ($task_name) = $self->get_args;
+
+  log_die( $self, sprintf "usage: %s run-task task-name\n", $ENV{SCRIPT_PATH} )
+    if !$task_name;
+
+  my $task = $config->{tasks}->{$task_name};
+
+  log_die( $self, sprintf "ERROR: no such task [%s] defined in config\n", $task_name )
+    if !$task;
+
+  my @subnets = @{ $self->get_subnets->{private} // [] };
+
+  if ( !@subnets ) {
+    $self->log_warn('run-task: using public subnets is not recommended...');
+    @subnets = @{ $self->get_subnets->{public} // [] };
+  }
+
+  my $network_configuration = {
+    awsvpcConfiguration => {
+      subnets        => [ @subnets[ 0, 1 ] ],
+      securityGroups => [ $config->{security_groups}->{fargate}->{group_id} ],
+      assignPublicIp => 'DISABLED',
+    }
+  };
+
+  my $cluster_name = $config->{cluster}->{name};
+
+  $self->log_warn( 'run-task: launching [%s] in cluster [%s]', $task_name, $cluster_name );
+
+  my $result = $self->get_ecs->run_task(
+    cluster               => $cluster_name,
+    task_definition       => $task_name,
+    network_configuration => $network_configuration,
+  );
+
+  log_die( $self, sprintf "ERROR: could not run task [%s]\n%s\n", $task_name, $self->get_ecs->get_error )
+    if !$result;
+
+  my @failures = @{ $result->{failures} };
+
+  log_die( $self, sprintf 'ERROR: task failed to launch: %s', Dumper( \@failures ) )
+    if @failures;
+
+  my ($tasks) = @{ $result->{tasks} };
+
+  my $task_arn = $tasks->{taskArn};
+
+  my $should_wait = $self->get_wait ? '(waiting)' : $EMPTY;
+
+  $self->log_warn( 'run-task: task [%s] launched. ARN: [%s]...%s', $task_name, $task_arn, $should_wait );
+
+  if ($should_wait) {
+    my $poll_count = 0;
+
+    while ( $poll_count++ < 12 ) {  # $DEFAULT_ECS_POLL_LIMIT
+      my $query = 'tasks[0].{Status:lastStatus, Exit:containers[0].exitCode, Reason:stoppedReason}';
+
+      my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
+
+      $self->log_warn( 'run-task: task [%s] status: [%s], exit code:[%s], reason: [%s]',
+        $task_name, map { $_ // q{-} } @{$result}{qw(Status Exit Reason)} );
+
+      last if $result->{Status} eq 'STOPPED';
+
+      sleep 5;  # $DEFAULT_ECS_POLL_TIME;
+    }
+
+    my $logs = App::Logs->new( $self->get_global_options );
+
+    my $log_group = $config->{tasks}->{$task_name}->{log_group}->{name};
+
+    # by convention our log groups are named after our app
+    my $log_stream = sprintf '%s/%s/%s', $config->{app}->{name}, $task_name, ( split /\//xsm, $task_arn )[-1];
+
+    my $query = 'events[*].message';
+
+    my $event_logs = $logs->get_log_event( $log_group, $log_stream, $query );
+
+    log_die( $self, "run-task: unable to get logs from log group: [%s], stream: [%s]\n%s",
+      $log_group, $log_stream, $logs->get_error )
+      if !$event_logs;
+
+    $self->log_warn( "run-task: logs:\n", join "\n", @{$event_logs} );
+  }
+
+  return $SUCCESS;
+}
+
+########################################################################
 sub cmd_create_service {
 ########################################################################
   my ($self) = @_;
 
-  my ($service_name) = $self->get_args;
+  my ($task_name) = $self->get_args;
 
   my $config = $self->get_config;
 
-  croak sprintf "usage: $ENV{SCRIPT_NAME} create-service service\n"
-    if !$service_name;
+  log_die( $self, sprintf "usage: $ENV{SCRIPT_NAME} create-service task-name\n" )
+    if !$task_name;
 
-  croak sprintf "no such service [%s]\n", $service_name
-    if !$config->{tasks}->{$service_name};
+  log_die( $self, sprintf "no such task defined in config [%s]\n", $task_name )
+    if !$config->{tasks}->{$task_name};
 
-  return $self->build_service($service_name);
+  return $self->build_service($task_name);
 }
 
 ########################################################################
@@ -331,21 +426,21 @@ sub cmd_delete_service {
 ########################################################################
   my ($self) = @_;
 
-  my ($service_name) = $self->get_args;
+  my ($task_name) = $self->get_args;
 
-  croak "usage: $ENV{SCRIPT_NAME} delete-service service-name\n"
-    if !$service_name;
+  croak "usage: $ENV{SCRIPT_NAME} delete-service task-name\n"
+    if !$task_name;
 
   my $config = $self->get_config;
 
-  croak "service [$service_name] was not found in the configuration\n"
-    if !$config->{tasks}->{$service_name};
+  log_die( $self, "ERROR: no such task defined in config [$task_name]\n" )
+    if !$config->{tasks}->{$task_name};
 
   my $ecs = $self->get_ecs;
 
-  my $result = $ecs->delete_service( $config->{cluster}->{name}, $service_name );
+  my $result = $ecs->delete_service( $config->{cluster}->{name}, $task_name );
 
-  croak sprintf "could not stop service %s\n%s", $service_name, $ecs->get_error
+  log_die( $self, "ERROR: could not stop service %s\n%s", $task_name, $ecs->get_error )
     if $ecs->get_error;
 
   return $SUCCESS;
@@ -354,6 +449,67 @@ sub cmd_delete_service {
 ########################################################################
 sub cmd_start_service {
 ########################################################################
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_register {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my ($task_name) = $self->get_args;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $action = $self->get_skip_register ? 'update-target' : 'register';
+
+  log_die( $self, sprintf 'usage: %s %s task-name', $action, $ENV{SCRIPT_PATH} )
+    if !$task_name;
+
+  my $ecs = $self->get_ecs;
+
+  my $task_definition_file = sprintf 'taskdef-%s.json', $task_name;
+
+  log_die( $self, "ERROR: no such task [%s] defined in config\n", $task_name )
+    if !$config->{tasks}->{$task_name};
+
+  log_die( $self, "ERROR: no task definition file found for %s\n", $task_name )
+    if !-s $task_definition_file;
+
+  my $task_definition_arn = $config->{tasks}->{$task_name}->{arn};
+
+  if ( !$self->get_skip_register ) {
+    $self->log_warn( 'register: registering [%s]...%s', $task_name, $dryrun );
+
+    if ( !$dryrun ) {
+      my $task_definition = $ecs->register_task_definition($task_definition_file);
+
+      $task_definition_arn = $task_definition_arn->{taskDefinition}->{taskDefinitionArn};
+      $self->log_warn( 'register: registered...[%s]', $task_definition_arn );
+    }
+  }
+
+  ## - events -
+  if ( $config->{tasks}->{$task_name}->{type} eq 'task' ) {
+    my $event = App::Events->new( $self->get_global_options );
+
+    my $rule_name = sprintf '%s-schedule', $task_name;
+
+    my $target = $event->list_targets_by_rule( $rule_name, 'Targets' );
+
+    if ( $target && @{$target} ) {
+
+      if ( !$dryrun ) {
+        $config->{tasks}->{$task_name}->{arn} = $task_definition_arn;
+        $self->update_config;  # record new task definition arn
+      }
+
+      $self->create_event_target($task_name);
+    }
+  }
 
   return $SUCCESS;
 }
@@ -410,6 +566,28 @@ sub help {
 }
 
 ########################################################################
+sub init_logger {
+########################################################################
+  my ($self) = @_;
+
+  my $log4perl_conf = $LOG4PERL_CONF;
+
+  if ( !$self->get_color ) {
+    $log4perl_conf =~ s/\ColoredLevels//xsm;
+  }
+
+  Log::Log4perl->init( \$log4perl_conf );
+
+  $self->set_logger( Log::Log4perl->get_logger );
+
+  my $level = $self->get_log_level;
+
+  $self->get_logger->level( $LOG_LEVELS{$level} );
+
+  return;
+}
+
+########################################################################
 sub main {
 ########################################################################
 
@@ -425,6 +603,7 @@ sub main {
     http
     global_options
     log_groups
+    logger
     required_resources
     route53
     sts
@@ -436,19 +615,30 @@ sub main {
   my @option_specs = qw(
     help
     config|c=s
+    color!
     create-alb|C
     dryrun
+    force|f
     profile=s
+    log-level=s
     region=s
+    skip-register
     update|u!
+    unlink|U!
     version|v
+    wait|w!
   );
 
   my $fargate_stack = App::FargateStack->new(
     option_specs    => \@option_specs,
-    default_options => { 'update' => $TRUE },  # set some defaults
-    extra_options   => \@extra_options,
-    commands        => {
+    default_options => {
+      'update' => $TRUE,
+      wait     => $TRUE,
+      unlink   => $TRUE,
+      color    => $TRUE
+    },  # set some defaults
+    extra_options => \@extra_options,
+    commands      => {
       plan => sub {
         my ( $self, @args ) = @_;
 
@@ -467,13 +657,20 @@ sub main {
       'delete-service' => \&cmd_delete_service,
       'start-service'  => \&cmd_start_service,
       'stop-service'   => \&cmd_stop_service,
+      'run-task'       => \&cmd_run_task,
       create           => \&cmd_create_service,
       default          => \&cmd_explain,
       delete           => \&cmd_delete_service,
       help             => \&help,
       start            => \&cmd_start_service,
-      stop             => \&cmd_stop_service,
-      version          => \&cmd_version,
+      register         => \&cmd_register,
+      'update-target'  => sub {
+        my ( $self, @args ) = @_;
+        $self->set_skip_register(1);
+        return $self->cmd_register(@args);
+      },
+      stop    => \&cmd_stop_service,
+      version => \&cmd_version,
     }
   );
 
@@ -499,12 +696,13 @@ app-fargateStack
 =head2 Commands
 
  apply                          determines resource gaps and applie changes
- create{-service} service-name  create a new service
- delete{-service} service-name  delete an existing service
+ create{-service} task-name     create a new service
+ delete{-service} task-name     delete an existing service
  help {subject}                 displays general help or help on a particular subject (see Note 2)
  plan
- start{-service} service-ame    start a service
- stop{-service} service-name    stop a service
+ register task-name
+ run-task task-name
+ update-target task-name
  version                        show version number
 
 =head2 Options
@@ -512,6 +710,8 @@ app-fargateStack
  -h, --help                 help
  -c, --config               path to the .yml config file
  -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
+ -d, --dryrun               just report actions, do not apply
+ --color, --no-color        default: color
  -p, --profile              AWS profile (see Note 1)
  -u, --update, --no-update  update config
  -v, --version              script version
@@ -681,4 +881,3 @@ Rob Lauer - rclauer@gmail.com
 This script is released under the same terms as Perl itself.
 
 =cut
-

@@ -12,6 +12,9 @@ use App::FargateStack::Constants;
 
 use Role::Tiny;
 
+use Role::Tiny::With;
+with 'App::FargateStack::Builder::IAM';
+
 ########################################################################
 sub build_events {
 ########################################################################
@@ -35,8 +38,8 @@ sub build_events {
     my $event_bus_name = $tasks->{$task_name}->{event_bus_name};
 
     my $event = App::Events->new(
-      profile        => $self->get_profile,
-      event_bus_name => $event_bus_name
+      event_bus_name => $event_bus_name,
+      %{ $self->get_global_options },
     );
 
     my $schedule = $tasks->{$task_name}->{schedule};
@@ -49,34 +52,40 @@ sub build_events {
     croak sprintf "ERROR: invalid schedule expression: %s\nSee: %s", $schedule, $EVENT_SCHEDULER_TYPE_URL
       if !$valid_schedule;
 
+    my $rule_name = sprintf '%s-schedule', $task_name;
+
     if ( $valid_schedule ne $schedule ) {
-      $self->get_logger->info( sprintf 'events: [%s] schedule modified [%s]', $schedule, $valid_schedule );
+      $self->log_warn( sprintf 'events: [%s] schedule modified [%s]', $schedule, $valid_schedule );
+
       $tasks->{$task_name}->{schedule} = $valid_schedule;
       $schedule = $valid_schedule;
     }
 
-    my $rule_name = sprintf '%s-schedule', $task_name;
-
     my $exists = $event->rule_exists( $rule_name, $schedule );
 
-    if ( !$dryrun && $exists == -1 ) {
+    if ( ( !$dryrun && $exists == -1 ) || $self->taskdef_has_changed($task_name) ) {
+      # in the off chance the rule does not exist, but the taskdef has
+      # changed we still should not have an issue here since our
+      # $event object will not croak on an error...
+      $self->log_warn( 'events: attempting to deleting rule [%s]...', $rule_name );
       $event->delete_rule($rule_name);
     }
 
-    if ( !$exists || $exists == -1 ) {
-      my $action = !$exists ? 'created' : 'updated';
+    if ( !$exists || ( $exists == -1 || $self->taskdef_has_changed($task_name) ) ) {
+      my $action = !$exists ? 'created' : 'replaced';
 
       $self->inc_required_resources( 'events:rule' => [$rule_name] );
-      $self->get_logger->info( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
+      $self->get_logger->warn( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
 
       if ( !$dryrun ) {
 
+        $self->get_logger->warn( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
         my $result = $event->put_rule( $rule_name, $schedule );
 
-        croak sprintf "could not create rule [%s]\n%s", $rule_name, $event->get_error
+        log_die( $self, sprintf "ERROR: could not create rule [%s]\n%s", $rule_name, $event->get_error )
           if !$result;
 
-        $self->get_logger->info( sprintf 'events: [%s] rule %s successfully', $rule_name, $action );
+        $self->get_logger->warn( sprintf 'events: [%s] rule %s successfully', $rule_name, $action );
       }
     }
     else {
@@ -134,25 +143,49 @@ sub create_event_target {
   my $rule_name = sprintf '%s-schedule', $task_name;
 
   my $event = App::Events->new(
-    profile        => $self->get_profile,
-    event_bus_name => $config->{tasks}->{event_bus_name}
+    event_bus_name => $config->{tasks}->{$task_name}->{event_bus_name},
+    %{ $self->get_global_options },
   );
 
-  if ( $event->target_exists($rule_name) ) {
-    $self->get_logger->info( sprintf 'events: [%s] target exists...skipping', $task_name );
-    $self->inc_existing_resources( 'events:target' => [$task_name] );
-  }
-  else {
-    $self->get_logger->info( sprintf 'events: [%s] target will be created...%s', $task_name, $dryrun );
-    $self->inc_required_resources( 'events:target' => [$task_name] );
+  my $current_target = $event->target_exists($rule_name);
 
-    if ( !$dryrun ) {
-      my $result = $event->put_targets( $rule_name, $target );
-
-      croak sprintf "ERROR: could not create target for [%s]\n%s", $rule_name, $event->get_error
-        if !$result;
+  $self->log_debug(
+    sub {
+      return Dumper(
+        [ current_target      => $current_target,
+          task_definition_arn => $task_definition_arn
+        ]
+      );
     }
+  );
+
+  if ( $current_target && $current_target->{EcsParameters}->{TaskDefinitionArn} eq $task_definition_arn ) {
+    $self->log_info( sprintf 'events: [%s] target exists...skipping', $task_name );
+    $self->inc_existing_resources( 'events:target' => [$task_name] );
+
+    return;
   }
+
+  my $action = $current_target ? 'replaced' : 'created';
+
+  $self->log_warn( sprintf 'events: target [%s] will be %s...%s', $task_name, $action, $dryrun );
+
+  $self->inc_required_resources( 'events:target' => [$task_name] );
+
+  return
+    if $dryrun;
+
+  if ($current_target) {
+    $self->log_warn( 'events: deleting target for rule [%s]...', $rule_name );
+    $event->remove_targets( $rule_name, $DEFAULT_RULE_ID );
+  }
+
+  $self->log_warn( 'events: creating target for rule [%s]...', $rule_name );
+
+  my $result = $event->put_targets( $rule_name, $target );
+
+  croak sprintf "ERROR: could not create target for [%s]\n%s\n%s", $rule_name, $target, $event->get_error
+    if !$result;
 
   return;
 }

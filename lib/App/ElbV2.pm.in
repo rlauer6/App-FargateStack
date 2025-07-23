@@ -6,7 +6,6 @@ use warnings;
 use App::EC2;
 use Carp;
 use Data::Dumper;
-use File::Temp qw(tempfile);
 use List::Util qw(first any);
 use JSON;
 

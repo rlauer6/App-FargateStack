@@ -106,24 +106,32 @@ sub build {
   }
 
   # -- finished --
-  $self->get_logger->info( sprintf 'build complete: %ds', $self->benchmark('elapsed_time') );
-  $self->section_break;
-
-  $self->get_logger->info( sprintf 'benchmarks:' );
-  $self->section_break;
-
-  $self->dump_benchmarks();
-  $self->section_break;
-
+  $self->get_logger->info( sprintf 'build completed in %ds', $self->benchmark('elapsed_time') );
   $self->get_logger->info( sprintf "\t%d resources will be created.\n",
     scalar keys %{ $self->get_required_resources // {} } // 0 );
 
   $self->get_logger->info( sprintf "\t%d resources already exist\n",
     scalar keys %{ $self->get_existing_resources // {} } // 0 );
 
+  $self->section_break;
+
+  ## -- benchmarks --
+  my @benchmarks;
+  foreach my $p ( pairs $self->dump_benchmarks() ) {
+    push @benchmarks, { Resource => $p->[0], Time => $p->[1] };
+  }
+
+  my $table = easy_table(
+    columns       => [qw(Resource Time)],
+    data          => \@benchmarks,
+    table_options => { headingText => 'Benchmarks' },
+  );
+
+  $self->get_logger->info("\n$table");
+
+  # -- resources --
   foreach my $p ( pairs Required => $self->get_required_resources, Existing => $self->get_existing_resources ) {
 
-    $self->section_break;
     my $data      = [];
     my $resources = $p->[1];
 
@@ -135,11 +143,15 @@ sub build {
     }
 
     if ( @{$data} ) {
-      print easy_table(
+      my $table = easy_table(
         columns       => [qw(Resource Value)],
         data          => $data,
-        table_options => { headingText => $p->[0] . ' Resources Summary' }
+        table_options => { headingText => $p->[0] . ' Resources' }
       );
+
+      my $level = $p->[0] eq 'Required' ? 'warn' : 'info';
+
+      $self->get_logger->$level("\n$table");
     }
     else {
       $self->get_logger->info( sprintf 'summary: no %s resources', lc $p->[0] );

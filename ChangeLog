@@ -1,3 +1,88 @@
+Wed Jul 23 08:00:19 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.1]:
+	* .gitignore: *.bak, \#
+	* README: generated
+	* VERSION: bump
+	* fargate-stack-orig.yml: deleted
+	* fargate-stack.yml: deleted
+	* lib/App/Bencmark.pm.in: deleted
+	* ChangeLog
+	* HelloWorld.pl
+	* README.md
+	* lib/App/Benchmark.pm.in
+	(dump_benchmarks): return sorted list
+	* lib/App/Command.pm.in
+	(get_logger): use custom config if available
+	* lib/App/ECS.pm.in
+	(describe_tasks): new
+	(run_task): new
+	(wait_tasks_stoped): new
+	* lib/App/ElbV2.pm.in: -File::Temp
+	* lib/App/Events.pm.in
+	- unlink
+	(remove_targets): new
+	(list_rules_by_target): new
+	(put_targets): use unlink value
+	* lib/App/Logs.pm.in
+	(get_log_events): new
+	* lib/App/Secrets.pm.in: remove unnecessary modules
+	* lib/App/FargateStack.pm.in
+	- override init_logger()
+	(_init_tasks)
+	- use log_die instead of croak
+	- add unlink to global_options (to pass to App::*)
+	(_init_config)
+	- tweak some error messages
+	(cmd_run_task): new
+	(cmd_register): new
+	(init_logger): new
+	(cmd_delete_service)
+	- service_name => task_name
+	- log_die instead of croak
+	(cmd_create_service): likewise
+	(main)
+	- +options: logger, color, force, log-level, skip-register, unlink, wait
+	- +commands: run-task, update-target, register
+	* lib/App/FargateStack/Builder.pm.in
+	(build): better messages at end of run
+	* lib/App/FargateStack/Builder/EFS.pm.in
+	(add_volumes)
+	- FileSystemArn not fileSystemArn
+	- volumes and mount points should be arrays
+	(add_efs_policy): fat arrow mistakenly replaced :
+	* lib/App/FargateStack/Builder/Events.pm.in
+	- add global options when creating events object
+	(build_events)
+	- delete rule if taskdef changes
+	- change info messages to warn
+	(create_event_target)
+	- add global options when creating events object
+	- check to if taskdef arn has changes and remove target
+	(put_targets): use unlink value
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	- change info messages to warn
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	- change info messages to warn
+	- tweak some error messages
+	- fixed log_stream_prefix value
+	- log message when writing the taskdef
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(log_fatal): new
+	(log_die): new
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_RUL_ID, $LOG4PERL_CONF
+	* lib/App/IAM.pm.in
+	- remove unnecessary modules
+	- + unlink
+	(policy_exists): use command()
+	(create_policy): use unlink value
+	(is_policy_attached): uase command()
+	(put_role_policy): use unlink value
+	(create_role): likewise
+	* requires
+	- + Data::Compare, -Carp::Always
+
 Fri Jul 18 10:40:23 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[BigBang - 1.0.0]:

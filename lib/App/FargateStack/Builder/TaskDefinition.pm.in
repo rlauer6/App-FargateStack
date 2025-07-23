@@ -46,13 +46,15 @@ sub register_task_definition {
 
     my $task_definition = sprintf 'taskdef-%s.json', $task_name;
 
-    $self->get_logger->info( sprintf 'task: [%s] changed or does not exists...will be created...%s',
+    $self->get_logger->warn( sprintf 'task: [%s] changed or does not exists...will be created...%s',
       $task_name, $dryrun );
 
     if ( !$dryrun ) {
+      $self->log_warn( 'task: creating task definition [%s]...', $task_name );
+
       my $result = $ecs->register_task_definition($task_definition);
 
-      croak sprintf "unable to register task definition: [%s]\n", $task_definition
+      croak sprintf "ERROR: unable to register task definition: [%s]\n%s", $task_definition, $ecs->get_error
         if !$result;
 
       $tasks->{$task_name}->{arn} = $result->{taskDefinition}->{taskDefinitionArn};
@@ -139,7 +141,7 @@ sub create_taskdef_files {
 
     $self->update_log_groups( $log_group => $task_name );
 
-    my $stream_prefix = $task->{log_group}->{prefix} // $task_name;
+    my $stream_prefix = $task->{log_group}->{prefix} // $config->{app}->{name};
 
     my ( $image, $image_version ) = $task->{image} =~ /([^:]+)(:.*)?$/xsm;
     $image_version //= ':latest';
@@ -234,6 +236,8 @@ sub write_taskdef {
   }
 
   $self->set_taskdef_status($taskdef_status);
+
+  $self->log_info( 'task: [%s] writing task definition file...[%s]', $task, $taskdef_file );
 
   open my $fh, '>', $taskdef_file
     or croak "could not open $taskdef_file for writing\n";

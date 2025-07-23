@@ -2,12 +2,11 @@ package App::IAM;
 
 use strict;
 use warnings;
+
 use Carp;
-use Carp::Always;
 use Data::Dumper;
 use JSON;
 use English qw(-no_match_vars);
-use List::Util qw(first);
 use File::Temp qw(tempfile);
 
 use Role::Tiny::With;
@@ -16,7 +15,16 @@ with 'App::AWS';
 use parent qw(App::Command);
 
 __PACKAGE__->follow_best_practice;
-__PACKAGE__->mk_accessors(qw(profile region role_name policy_name policy_document));
+__PACKAGE__->mk_accessors(
+  qw(
+    policy_document
+    policy_name
+    profile
+    region
+    role_name
+    unlink
+  )
+);
 
 ########################################################################
 sub policy_exists {
@@ -25,17 +33,13 @@ sub policy_exists {
 
   my $name = $self->get_policy_name;
 
-  my @cmd = (
-    'aws', 'iam', 'list-policies',
-    '--scope'   => 'Local',
-    '--query'   => "Policies[?PolicyName=='$name'].Arn",
-    '--output'  => 'text',
-    '--profile' => $self->profile,
+  return $self->command(
+    'list-policies' => [
+      '--scope'  => 'Local',
+      '--query'  => "Policies[?PolicyName=='$name'].Arn",
+      '--output' => 'text',
+    ]
   );
-
-  my $output = $self->execute(@cmd);
-
-  return $output ? $output : undef;
 }
 
 ########################################################################
@@ -62,7 +66,7 @@ sub create_policy {
   my $name = $self->get_policy_name;
   my $doc  = $self->get_policy_document;
 
-  my ( $json_path, $fh ) = tempfile( 'policy-XXXXX', UNLINK => 1, SUFFIX => '.json' );
+  my ( $json_path, $fh ) = tempfile( 'policy-XXXXX', UNLINK => $self->get_unlink, SUFFIX => '.json' );
 
   print {$fh} encode_json($doc);
 
@@ -83,15 +87,14 @@ sub is_policy_attached {
 ########################################################################
   my ( $self, $role_name, $policy_arn ) = @_;
 
-  my @cmd = (
-    'aws',      'iam', 'list-attached-role-policies', '--role-name', $role_name,
-    '--query',  "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn",
-    '--output', 'text', '--profile', $self->profile,
+  my $output = $self->command(
+    'list-attached-role-policies' => [
+      '--role-name', $role_name, '--query', "AttachedPolicies[?PolicyArn=='$policy_arn'].PolicyArn",
+      '--output',    'text',
+    ]
   );
 
-  my $output = $self->execute(@cmd);
-
-  return $output ? 1 : 0;
+  return $output;
 }
 
 ########################################################################
@@ -132,7 +135,7 @@ sub put_role_policy {
 
   $role_name //= $self->get_role_name;
 
-  my ( $fh, $json_path ) = tempfile( 'policy-XXXXX', UNLINK => 1, SUFFIX => '.json' );
+  my ( $fh, $json_path ) = tempfile( 'policy-XXXXX', UNLINK => $self->get_unlink, SUFFIX => '.json' );
   print {$fh} encode_json($policy);
   close $fh;
 
@@ -157,7 +160,7 @@ sub create_role {
   return $result
     if $result;
 
-  my ( $fh, $json_path ) = tempfile( 'role-XXXXX', UNLINK => 1, SUFFIX => '.json' );
+  my ( $fh, $json_path ) = tempfile( 'role-XXXXX', UNLINK => $self->get_unlink, SUFFIX => '.json' );
 
   print {$fh} encode_json($trust_policy);
 

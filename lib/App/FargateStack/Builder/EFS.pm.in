@@ -35,20 +35,22 @@ sub add_volumes {
   croak "no such EFS file system ($id) found\n"
     if !$file_system;
 
-  $task->{efs}->{arn} = $file_system->[0]->{fileSystemArn};
+  $task->{efs}->{arn} = $file_system->[0]->{FileSystemArn};
 
   return (
-    { name                   => 'efs-volume',
-      efsVolumeConfiguration => {
-        fileSystemId      => $id,
-        rootDirectory     => $path // q{/},
-        transitEncryption => 'ENABLED'
+    [ { name                   => 'efs-volume',
+        efsVolumeConfiguration => {
+          fileSystemId      => $id,
+          rootDirectory     => $path // q{/},
+          transitEncryption => 'ENABLED'
+        }
       }
-    },
-    { sourceVolume  => 'efs-volume',
-      containerPath => $mount_points // '/mnt',
-      readOnly      => JSON::false,
-    }
+    ],
+    [ { sourceVolume  => 'efs-volume',
+        containerPath => $mount_points // '/mnt',
+        readOnly      => JSON::false,
+      }
+    ]
   );
 }
 
@@ -74,9 +76,8 @@ sub add_efs_policy {
   return {
     Effect => 'Allow',
     Action => [
-      elasticfilesystem => 'ClientMount',
-      elasticfilesystem => 'ClientWrite',
-      elasticfilesystem => 'ClientRootAccess'
+      'elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite',
+      'elasticfilesystem:ClientRootAccess',
     ],
     Resource => \@efs_arns,
   };

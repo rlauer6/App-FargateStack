@@ -9,12 +9,13 @@ app-fargateStack
 ## Commands
 
     apply                          determines resource gaps and applie changes
-    create{-service} service-name  create a new service
-    delete{-service} service-name  delete an existing service
+    create{-service} task-name     create a new service
+    delete{-service} task-name     delete an existing service
     help {subject}                 displays general help or help on a particular subject (see Note 2)
     plan
-    start{-service} service-ame    start a service
-    stop{-service} service-name    stop a service
+    register task-name
+    run-task task-name
+    update-target task-name
     version                        show version number
 
 ## Options
@@ -22,6 +23,8 @@ app-fargateStack
     -h, --help                 help
     -c, --config               path to the .yml config file
     -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
+    -d, --dryrun               just report actions, do not apply
+    --color, --no-color        default: color
     -p, --profile              AWS profile (see Note 1)
     -u, --update, --no-update  update config
     -v, --version              script version
@@ -155,10 +158,10 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 637:
+- Around line 839:
 
     Unterminated C<...> sequence
 
-- Around line 669:
+- Around line 871:
 
     &#x3d;back without =over

@@ -21,15 +21,17 @@ sub dump_benchmarks {
 
   my $benchmark = $self->get_benchmark();
 
-  my %benchmarks = %{$benchmark->{t}};
+  my %benchmarks = %{ $benchmark->{t} };
 
-  foreach (sort {  $a cmp $b || $benchmarks{$a} <=> $benchmarks{$b} } keys %benchmarks) {
+  my @sorted_benchmarks;
+
+  foreach ( sort { $a cmp $b || $benchmarks{$a} <=> $benchmarks{$b} } keys %benchmarks ) {
     next if $_ eq 'elapsed_time';
 
-    $self->get_logger->info(sprintf "\t%s => %s", $_, $benchmarks{$_});
+    push @sorted_benchmarks, $_, $benchmarks{$_};
   }
 
-  return;
+  return @sorted_benchmarks;
 }
 
 ########################################################################
@@ -60,11 +62,11 @@ sub benchmark {
   $t->{elapsed_time} = tv_interval( $t0, [gettimeofday] );
   my $prefix = $name . q{:};
 
-  my @benchmark_parts = map { $t->{$_} } grep { /^$prefix/xsm } keys %{$t};
-  
+  my @benchmark_parts = map { $t->{$_} } grep {/^$prefix/xsm} keys %{$t};
+
   $t->{$name} += tv_interval( $t1, [gettimeofday] );
 
-  if ( @benchmark_parts ) {
+  if (@benchmark_parts) {
     $t->{$name} += sum @benchmark_parts;
   }
 
@@ -72,6 +74,5 @@ sub benchmark {
 
   return $t->{$name};
 }
-
 
 1;
