@@ -12,14 +12,19 @@ use Readonly;
 
 Readonly::Scalar our $TRUE  => 1;
 Readonly::Scalar our $FALSE => 0;
+
 Readonly::Scalar our $EMPTY => q{};
+Readonly::Scalar our $SPACE => q{ };
+Readonly::Scalar our $DASH  => q{-};
+
+Readonly::Scalar our $DEFAULT_CPU_SIZE           => 256;
+Readonly::Scalar our $DEFAULT_MEMORY_SIZE        => 512;
+Readonly::Scalar our $DEFAULT_PORT               => 80;
+Readonly::Scalar our $DEFAULT_RULE_ID            => '1';
+Readonly::Scalar our $DEFAULT_LOG_RETENTION_DAYS => 14;
 
 Readonly::Scalar our $ACM_REQUEST_SLEEP_TIME => 5;
-Readonly::Scalar our $DEFAULT_CPU_SIZE       => 256;
-Readonly::Scalar our $DEFAULT_MEMORY_SIZE    => 512;
-Readonly::Scalar our $DEFAULT_PORT           => 80;
 Readonly::Scalar our $IAM_POLICY_VERSION     => '2012-10-17';
-Readonly::Scalar our $DEFAULT_RULE_ID        => '1';
 
 Readonly::Scalar our $EFS_ARN_TEMPLATE             => 'arn:aws:elasticfilesystem:%s:%s:file-system/%s';
 Readonly::Scalar our $TASK_DEFINITION_ARN_TEMPLATE => 'arn:aws:ecs:%s:%s:task-definition/%s:*';
@@ -29,15 +34,53 @@ Readonly::Scalar our $QUEUE_ARN_TEMPLATE           => 'arn:aws:sqs:%s:%s:%s';
 Readonly::Scalar our $S3_BUCKET_ARN_TEMPLATE       => 'arn:aws:s3:::%s';
 Readonly::Scalar our $ECR_ARN_TEMPLATE             => 'arn:aws:ecr:%s:%s:repository/%s';
 
+Readonly::Scalar our $CLOUDWATCH_LOGS_RETENTION_DAYS =>
+  [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653, ];
+
 Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
   'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
 
 Readonly::Hash our %HELP_SUBJECTS => (
-  'overview'        => 'OVERVIEW',
-  'load balancers'  => 'CREATING A LOAD BALANCER',
-  'daemon services' => 'DAEMON SERVICES',
-  'http services'   => 'HTTP SERVICES',
-  'iam permissions' => 'IAM PERMISSIONS',
+  'tbd' => [
+    'TBD' => << 'END_OF_TEXT'
+Our current TODO list. Add your request at
+https://github.com/rlauer6/App-Fargate
+END_OF_TEXT
+  ],
+  'overview' => [
+    'OVERVIEW' => <<'END_OF_TEXT'
+An overview of the App::FargateStack framework.
+END_OF_TEXT
+  ],
+  'load balancers' => [
+    'CREATING A LOAD BALANCER' => <<'END_OF_TEXT'
+A description of how the framework provisions Application Load
+Balancer for http services.
+END_OF_TEXT
+  ],
+  'daemon services' => [
+    'DAEMON SERVICES' => <<'END_OF_TEXT'
+Information on how to create long running daemon services using this
+framework.
+END_OF_TEXT
+  ],
+  'one shot' => [
+    'ONE SHOT WORKLOADS' => <<'END_OF_TEXT'
+A description of using the framework to execute single run workloads.
+END_OF_TEXT
+  ],
+  'http services' => [
+    'HTTP SERVICES' => <<'END_OF_TEXT'
+A description of how the framework can provision a fully functional
+web application using Fargate.
+END_OF_TEXT
+  ],
+  'iam permissions' => [
+    'IAM PERMISSIONS' => <<'END_OF_TEXT'
+A discussion of how the framework creates IAM roles and policies for
+the resources used in your tasks.
+END_OF_TEXT
+  ],
 );
 
 Readonly::Scalar our $LOG4PERL_CONF => <<'END_OF_CONF';
@@ -51,12 +94,16 @@ log4perl.appender.Screen.color.INFO=green
 log4perl.appender.Screen.color.WARN=yellow
 log4perl.appender.Screen.color.ERROR=red
 log4perl.appender.Screen.color.FATAL=bold red
+log4perl.appender.Screen.color.TRACE=bold white
 END_OF_CONF
 
 our @EXPORT = (
   qw(
     $ACM_REQUEST_SLEEP_TIME
+    $CLOUDWATCH_LOGS_RETENTION_DAYS
+    $DASH
     $DEFAULT_CPU_SIZE
+    $DEFAULT_LOG_RETENTION_DAYS
     $DEFAULT_MEMORY_SIZE
     $DEFAULT_PORT
     $DEFAULT_RULE_ID
@@ -65,6 +112,7 @@ our @EXPORT = (
     $FALSE
     $IAM_POLICY_VERSION
     $LOG4PERL_CONF
+    $SPACE
     $TRUE
     %HELP_SUBJECTS
   ),

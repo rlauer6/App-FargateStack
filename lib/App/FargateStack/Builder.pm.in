@@ -12,6 +12,8 @@ use Text::ASCIITable::EasyTable;
 use Scalar::Util qw(reftype);
 use YAML qw(DumpFile);
 
+use Digest::MD5 qw(md5_hex);
+
 use App::FargateStack::Constants;
 
 use Role::Tiny;
@@ -99,6 +101,7 @@ sub build {
   $self->benchmark('task-definition');
   $self->section_break;
 
+  # -- route53 (create alias)
   if ( $self->get_http ) {
     $self->create_alias();
     $self->benchmark('route53');
@@ -192,6 +195,22 @@ sub resolve_resource_value {
 }
 
 ########################################################################
+sub update_config_id {
+########################################################################
+  my ($self) = @_;
+
+  $Data::Dumper::Sortkeys = $TRUE;
+  my $config = $self->get_config;
+  delete $config->{id};
+  delete $config->{last_updated};
+  my $md5_hex = md5_hex( Dumper( $self->get_config ) );
+  $config->{id}           = $md5_hex;
+  $config->{last_updated} = scalar localtime;
+
+  return $config;
+}
+
+########################################################################
 sub update_config {
 ########################################################################
   my ($self) = @_;
@@ -201,7 +220,9 @@ sub update_config {
 
   my ( $fh, $filename ) = tempfile( 'fargate-stack-XXXX', SUFFIX => '.yml' );
 
-  DumpFile( $filename, $self->get_config );
+  my $config = $self->update_config_id();
+
+  DumpFile( $filename, $config );
 
   my $config_name = $self->get_config_name;
 

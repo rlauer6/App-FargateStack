@@ -5,17 +5,15 @@ package App::Logs;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
 use Carp;
 use Data::Dumper;
+use List::Util qw(any);
 
 use Role::Tiny::With;
 with 'App::AWS';
 
-use JSON;
-use File::Temp qw(tempfile);
-use App::Command;
-
-use parent 'App::Command';
+use parent qw(App::Command);
 
 __PACKAGE__->follow_best_practice;
 __PACKAGE__->mk_accessors(qw(log_group_name region profile));
@@ -51,23 +49,6 @@ sub log_group_exists {
   return $result->[0];
 }
 
-sub put_retention_policy {
-  my ( $self, $log_group_name, $retention_period ) = @_;
-
-  my @valid_periods = ( 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653 );
-
-  croak "invalid retention period ($retention_period)\n"
-    if !any { $_ eq $retention_period } @valid_periods;
-
-  return $self->command(
-    'put-retention-period' => [
-      '--log-group-name'     => $log_group_name,
-      'retention-period-day' => $retention_period,
-    ]
-  );
-
-}
-
 ########################################################################
 sub create_log_group {
 ########################################################################
@@ -100,6 +81,23 @@ sub get_log_event {
       $query ? ( '--query' => $query ) : ()
     ]
   );
+}
+
+########################################################################
+sub put_retention_policy {
+########################################################################
+  my ( $self, $log_group, $retention_days ) = @_;
+
+  croak "ERROR: %s is not a valid retention period\n"
+    if !any { $retention_days == $_ } @{$CLOUDWATCH_LOGS_RETENTION_DAYS};
+
+  return $self->command(
+    'put-retention-policy' => [
+      '--log-group-name'    => $log_group,
+      '--retention-in-days' => $retention_days,
+    ]
+  );
+
 }
 
 1;

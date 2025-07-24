@@ -8,6 +8,8 @@ use Data::Dumper;
 use English qw(-no_match_vars);
 use File::Basename qw(fileparse);
 use Data::Compare;
+use List::Util qw(uniq);
+
 use JSON;
 
 use App::FargateStack::Constants;
@@ -158,6 +160,7 @@ sub create_taskdef_files {
     $task->{family} //= $task_name;
 
     my @secrets = $self->add_secrets($task);
+
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
     my $taskdef = {
@@ -199,45 +202,15 @@ sub create_taskdef_files {
 ########################################################################
 sub write_taskdef {
 ########################################################################
-  my ( $self, $task, $taskdef ) = @_;
+  my ( $self, $task_name, $taskdef ) = @_;
 
   my $config = $self->get_config;
 
-  my $taskdef_file = sprintf 'taskdef-%s.json', $task;
+  my $taskdef_file = sprintf 'taskdef-%s.json', $task_name;
 
-  my $current_taskdef = $self->get_ecs->describe_task_definition( $task, 'taskDefinition' );
+  $self->compare_task_definition( $task_name, $taskdef, $taskdef_file );
 
-  if ($current_taskdef) {
-    $config->{tasks}->{$task}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
-  }
-
-  my $taskdef_status = $self->get_taskdef_status // {};
-
-  $taskdef_status->{$task} = -s $taskdef_file ? $TRUE : $FALSE;
-
-  foreach my $k ( keys %{$taskdef} ) {
-    next if $k eq 'containerDefinitions';
-
-    next if Compare( $taskdef->{$k}, $current_taskdef->{$k} );
-
-    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task, $k );
-
-    $taskdef_status->{$task} = $FALSE;
-  }
-
-  my $containerDefinitions = $taskdef->{containerDefinitions}->[0];
-
-  foreach my $k ( keys %{$containerDefinitions} ) {
-    next if Compare( $containerDefinitions->{$k}, $current_taskdef->{containerDefinitions}->[0]->{$k} );
-
-    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task, $k );
-
-    $taskdef_status->{$task} = $FALSE;
-  }
-
-  $self->set_taskdef_status($taskdef_status);
-
-  $self->log_info( 'task: [%s] writing task definition file...[%s]', $task, $taskdef_file );
+  $self->log_info( 'task: [%s] saving task definition file...[%s]', $task_name, $taskdef_file );
 
   open my $fh, '>', $taskdef_file
     or croak "could not open $taskdef_file for writing\n";
@@ -249,4 +222,66 @@ sub write_taskdef {
   return;
 }
 
+########################################################################
+sub compare_task_definition {
+########################################################################
+  my ( $self, $task_name, $taskdef, $taskdef_file ) = @_;
+
+  my $config = $self->get_config;
+
+  my $ecs            = $self->get_ecs;
+  my $task           = $config->{tasks}->{$task_name};
+  my $taskdef_status = $self->get_taskdef_status // {};
+
+  my $current_taskdef = $ecs->describe_task_definition( $task_name, 'taskDefinition' );
+
+  if ($current_taskdef) {
+    $config->{tasks}->{$task_name}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
+  }
+
+  my $status = -s $taskdef_file ? $TRUE : $FALSE;
+
+  if ( !$status ) {
+    $self->log_warn( 'task: [%s] no task definition file [%s]...forces new task definition',
+      $task_name, $taskdef_file );
+  }
+
+  foreach my $k ( keys %{$taskdef} ) {
+    next if $k eq 'containerDefinitions';
+
+    next if Compare( $taskdef->{$k}, $current_taskdef->{$k} );
+
+    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task_name, $k );
+
+    $status = $FALSE;
+  }
+
+  my $containerDefinitions = $taskdef->{containerDefinitions}->[0];
+
+  my @keys_to_check = (
+    qw(
+      mountPoints
+      portMappings
+      command
+      environment
+      image
+      name
+      secrets), keys %{$containerDefinitions}
+  );
+
+  foreach my $k ( uniq @keys_to_check ) {
+    my $current_elem = $current_taskdef->{containerDefinitions}->[0]->{$k};
+    next if Compare( $containerDefinitions->{$k}, $current_elem );
+
+    $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task_name, $k );
+
+    $status = $FALSE;
+  }
+
+  $taskdef_status->{$task_name} = $status;
+
+  $self->set_taskdef_status($taskdef_status);
+
+  return;
+}
 1;

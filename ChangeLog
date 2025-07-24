@@ -1,3 +1,93 @@
+Thu Jul 24 14:50:31 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.2]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(command)
+	- log result in trace mode
+	- use log_error
+	* lib/App/Command.pm.in
+	(execute)
+	- log flattended command
+	- use log_error
+	* lib/App/EC2.pm.in
+	(new)
+	- cache subnets
+	- use log_die
+	(find_public_subnets): use cached version
+	(find_private_subnets): likewise
+	* lib/App/FargateStack.pm.in
+	- +events, iam, logs, cache
+	- pod updates
+	(init)
+	- setup cache str
+	- log cache
+	- don't validate images if cached
+	(_init_account)
+	- use cached account
+	- use log_infi, log_die
+	(_init_ec2)
+	- pass subnets if caching
+	- do not validate subnets if caching
+	(help)
+	- display list of subjects in ASCII table
+	- use pager
+	* lib/App/FargateStack/Builder.pm.in
+	(update_config_id): new
+	* lib/App/FargateStack/Builder/Cluster.pm.in
+	- cache cluster
+	- removed create_fargate_role
+	* lib/App/FargateStack/Builder/EFS.pm.in
+	(add_volumes)
+	- +readonly
+	- cached EFS parameters
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in
+	(build_security_group)
+	- use cache
+	- refactoring
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events)
+	- some refactoring
+	(create_event_target)
+	- likewise
+	- use log_die
+	(build_events_iam_role)
+	- refactoring
+	- use cache
+	- use log_die
+	- update policy_name
+	(fetch_events): new
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- refactoring
+	- use cache
+	- use log_die
+	(create_role)
+	- use cache
+	- use log_info
+	- use log_die
+	(fetch_iam): new
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	- refactoring
+	- use cache
+	(fetch_logs): new
+	* lib/App/FargateStack/Builder/Secrets.pm.in
+	- refactoring
+	- store arn
+	- use cache
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(write_taskdef)
+	- refactoring
+	(compare_task_definition): new
+	* lib/App/FargateStack/Builder/Utils.pm.in: +log_trace
+	* lib/App/FargateStack/Constants.pm.in
+	- +$DEFAULT_LOG_RETENTION_DAYS, $SPACE, $DASH, $CLOUDWATCH_LOGS_RETENTION_DAYS
+	- %HELP_SUBJECT values now array
+	- add bold white for TRACE level
+	* lib/App/Logs.pm.in
+	- refactoring
+
 Wed Jul 23 08:00:19 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.1]:

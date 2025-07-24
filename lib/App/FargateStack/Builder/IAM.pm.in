@@ -8,7 +8,6 @@ use Data::Dumper;
 use Data::Compare;
 use English qw(-no_match_vars);
 
-use App::IAM;
 use App::FargateStack::Constants;
 
 use Role::Tiny;
@@ -24,47 +23,64 @@ sub build_iam_role {
 
   my $tasks = $config->{tasks};
 
-  my $iam = App::IAM->new( $self->get_global_options );
+  my $iam = $self->fetch_iam;
 
   my $default_name = $self->normalize_name( $config->{app}->{name} );
 
-  my $role_name = $self->create_fargate_role( $iam, $default_name );
+  my $role_name = $self->create_fargate_role($default_name);
 
   my $policy_name = $config->{policy_name};
   $policy_name //= sprintf 'Fargate%sPolicy', $default_name;
 
-  my $policy = $iam->get_role_policy( $role_name, $policy_name );
+  my $policy;
+  my $role_policy;
 
-  my @statement;
+  if ( !$self->get_cache || !$config->{role}->{policy_name} ) {
+    $policy = $iam->get_role_policy( $role_name, $policy_name );
+    $config->{role}->{policy_name} = $policy_name;
 
-  my $role_policy = {
-    Version   => $IAM_POLICY_VERSION,
-    Statement => \@statement,
-  };
+    my @statement;
 
-  push @statement, $self->add_ecr_policy();
+    $role_policy = {
+      Version   => $IAM_POLICY_VERSION,
+      Statement => \@statement,
+    };
 
-  push @statement, $self->add_efs_policy();  # force rebuild of policy
+    push @statement, $self->add_ecr_policy();
 
-  push @statement, $self->add_log_group_policy();
+    push @statement, $self->add_efs_policy();  # force rebuild of policy
 
-  if ( $config->{bucket} ) {
-    push @statement, $self->add_bucket_policy;
+    push @statement, $self->add_log_group_policy();
+
+    if ( $config->{bucket} ) {
+      push @statement, $self->add_bucket_policy;
+    }
+
+    if ( $config->{queue} ) {
+      push @statement, $self->add_queue_policy();
+    }
+
+    if ( my $secrets = $self->get_secrets ) {
+      push @statement, $self->add_secrets_policy($secrets);
+    }
   }
 
-  if ( $config->{queue} ) {
-    push @statement, $self->add_queue_policy();
-  }
-
-  if ( my $secrets = $self->get_secrets ) {
-    push @statement, $self->add_secrets_policy($secrets);
-  }
-
-  if ($policy) {
-    if ( Compare( $policy, $role_policy ) ) {
+  if ( $policy || $self->get_cache ) {
+    if ( ( $policy && Compare( $policy, $role_policy ) ) || $self->get_cache ) {
+      $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $self->get_cache || 'skipping' );
       $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
       return;
     }
+
+    $self->log_trace(
+      sub {
+        return Dumper(
+          [ existing_policy => $policy,
+            new_policy      => $role_policy
+          ]
+        );
+      }
+    );
 
     $self->log_info( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
   }
@@ -83,24 +99,26 @@ sub build_iam_role {
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
 
-  croak sprintf "ERROR: could not create policy %s for %s\n%s", $role_name, $policy_name, $iam->get_error
+  log_die( $self, "ERROR: could not create policy %s for %s\n%s", $role_name, $policy_name, $iam->get_error )
     if $iam->get_error;
 
   return;
 }
 
 ########################################################################
-sub create_fargate_role { return create_role( @_, 'ecs-tasks' ); }
+sub create_fargate_role { return shift->create_role( @_, 'ecs-tasks' ); }
 ########################################################################
 
 ########################################################################
 sub create_role {
 ########################################################################
-  my ( $self, $iam, $default_name, $type ) = @_;
+  my ( $self, $default_name, $type ) = @_;
 
   my $config = $self->get_config;
 
   my $dryrun = $self->get_dryrun;
+
+  my $iam = $self->fetch_iam;
 
   my $trust_policy = {
     Version   => $IAM_POLICY_VERSION,
@@ -128,8 +146,11 @@ sub create_role {
   $role_name //= sprintf '%s%sRole', ( $type eq 'events' ? 'Events' : 'Fargate' ), $default_name;
   $role_config->{name} = $role_name;
 
-  if ( my $role = $iam->role_exists($role_name) ) {
-    $self->get_logger->info( sprintf 'iam: role [%s] exists...skipping', $role_name );
+  my $role = $self->get_cache ? { Role => { Arn => $role_config->{arn} } } : $iam->role_exists($role_name);
+
+  if ($role) {
+    $self->log_info( 'iam: role [%s] exists...%s', $role_name, $self->get_cache || 'skipping' );
+
     $role_config->{arn} = $role->{Role}->{Arn};
     $self->inc_existing_resources( 'iam:role' => [ $role->{Role}->{Arn} ] );
 
@@ -150,11 +171,30 @@ sub create_role {
   if ( !$dryrun ) {
     $role_config->{arn} = $iam->create_role( $role_name, $trust_policy );
 
-    croak sprintf "ERROR: could not create role: %s\n%s", $role_name, $iam->get_error
+    log_die( $self, "ERROR: could not create role: %s\n%s", $role_name, $iam->get_error )
       if $iam->get_error;
   }
 
   return $role_name;
+}
+
+########################################################################
+sub fetch_iam {
+########################################################################
+  my ($self) = @_;
+
+  require App::IAM;
+
+  my $iam = $self->get_iam;
+
+  return $iam
+    if $iam;
+
+  $iam = App::IAM->new( $self->get_global_options );
+
+  $self->set_iam($iam);
+
+  return $iam;
 }
 
 1;

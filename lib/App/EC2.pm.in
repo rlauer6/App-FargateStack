@@ -42,19 +42,23 @@ sub new {
       ]
     );
 
-    croak "ERROR: could not find a default VPC\n"
+    log_die( $self, 'ERROR: could not find a default VPC' )
       if $vpc_id eq 'None';
 
     $self->set_vpc_id($vpc_id);
     $self->set_is_default_vpc(1);
   }
 
-  my $subnets = $self->describe_subnets( $self->get_vpc_id, 'Subnets' );
+  my $subnets = $self->get_subnets;
 
-  croak "ERROR: there are no subnets in %s\n", $self->get_vpc_id
-    if !@{$subnets};
+  if ( !$subnets ) {
+    my $result = $self->describe_subnets( $self->get_vpc_id, 'Subnets' );
 
-  $self->find_all_subnets;  # find private, public subnets
+    log_die( $self, "ERROR: there are no subnets in %s\n", $self->get_vpc_id )
+      if !@{$result};
+
+    $self->find_all_subnets;  # find private, public subnets
+  }
 
   return $self;
 }
@@ -105,7 +109,7 @@ sub find_public_subnets {
 ########################################################################
   my ($self) = @_;
 
-  return $self->_find_subnets('public');
+  return $self->get_subnets->{public} // $self->_find_subnets('public');
 }
 
 ########################################################################
@@ -113,7 +117,7 @@ sub find_private_subnets {
 ########################################################################
   my ($self) = @_;
 
-  return $self->_find_subnets('private');
+  return $self->get_subnets->{private} // $self->_find_subnets('private');
 }
 
 ########################################################################

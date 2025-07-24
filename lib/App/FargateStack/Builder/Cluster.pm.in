@@ -20,33 +20,54 @@ sub build_fargate_cluster {
 
   my $dryrun = $self->get_dryrun;
 
-  my $cluster_name = $config->{cluster}->{name};
-
   my $ecs = $self->get_ecs;
+
+  my $cluster_name = $config->{cluster}->{name};
 
   if ( !$cluster_name ) {
     $cluster_name = $config->{app}->{name} . '-cluster';
     $config->{cluster}->{name} = $cluster_name;
   }
 
-  if ( my $cluster_arn = $ecs->cluster_exists($cluster_name) ) {
-    $self->get_logger->info( sprintf 'cluster: [%s] exists...skipping', $cluster_name );
-    $self->inc_existing_resources( cluster => [$cluster_arn] );
-  }
-  else {
-    $self->get_logger->info( sprintf 'cluster: [%s] will be created...%s', $cluster_name, $dryrun );
-    $self->inc_required_resources(
-      cluster => sub {
-        my ($dryrun) = @_;
-        return $dryrun ? "arn:???/$cluster_name" : $config->{cluster}->{arn};
-      }
-    );
+  ## - cluster exists? -
 
-    if ( !$dryrun ) {
-      my $cluster = $ecs->create_cluster($cluster_name);
-      $self->get_logger->info( sprintf 'cluster: [%s] created...', $cluster_name );
-    }
+  my $cluster_arn = $config->{cluster}->{arn};
+
+  if ( !$cluster_arn || !$self->get_cache ) {
+    # - validate cluster arn
+    $cluster_arn = $ecs->cluster_exists($cluster_name);
   }
+
+  if ($cluster_arn) {
+    $self->log_info( sprintf 'cluster: [%s] exists...%s', $cluster_name, $self->get_cache );
+
+    $self->inc_existing_resources( cluster => [$cluster_arn] );
+    $config->{cluster}->{arn} = $cluster_arn;
+
+    return;
+  }
+
+  ## - create cluster -
+  $self->log_warn( sprintf 'cluster: [%s] will be created...%s', $cluster_name, $dryrun );
+
+  $self->inc_required_resources(
+    cluster => sub {
+      my ($dryrun) = @_;
+      return $dryrun ? "arn:???/$cluster_name" : $config->{cluster}->{arn};
+    }
+  );
+
+  return
+    if $dryrun;
+
+  my $cluster = $ecs->create_cluster($cluster_name);
+
+  log_die( $self, "ERROR: could not create cluster [%s]\n%s", $cluster_name, $ecs->get_error )
+    if !$cluster || $ecs->get_error;
+
+  $self->log_warn( sprintf 'cluster: [%s] created...', $cluster_name );
+
+  $config->{cluster}->{arn} = $cluster->{cluster}->{clusterArn};
 
   return $TRUE;
 }
@@ -75,9 +96,5 @@ sub add_ecr_policy {
     }
   );
 }
-
-########################################################################
-sub create_fargate_role { return create_role( @_, 'ecs-tasks' ); }
-########################################################################
 
 1;

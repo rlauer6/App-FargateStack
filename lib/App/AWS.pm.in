@@ -44,6 +44,8 @@ sub command {
 
   my $result = $self->execute( @cmd, @args );
 
+  $self->get_logger->trace( sub { return Dumper( [ result => $result ] ); } );
+
   return
     if !$result;
 
@@ -53,8 +55,8 @@ sub command {
 
   if ( !$obj && none { '--output' eq $_ } @args ) {
     # note that errors may occur when $result is just text, that's ok
-    $self->get_logger->error($EVAL_ERROR);
-    $self->get_logger->error( join q{ }, @cmd, @args );
+    $self->log_error($EVAL_ERROR);
+    $self->log_error( join q{ }, @cmd, @args );
   }
 
   return $obj ? $obj : $result;

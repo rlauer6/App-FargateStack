@@ -1,14 +1,21 @@
 package App::FargateStack;
 
+########################################################################
+# Copyright (C) 2025, TBC Development Group, LLC All rights reserved.  #
+# This is free software and may modified or redistributed under the    #
+# same terms as Perl itself.                                           #
+#                                                                      #
+# Repository: https://github.com/rlauer6/App-Fargate                   #
+########################################################################
+
 use strict;
 use warnings;
 
 use App::EC2;
 use App::ECS;
 use App::ElbV2;
-use App::ECR;
 use App::Route53;
-use App::STS;
+
 use App::FargateStack::Constants;
 
 use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
@@ -19,6 +26,7 @@ use English qw(no_match_vars);
 use Log::Log4perl;
 use Pod::Usage;
 use Scalar::Util qw(reftype);
+use Text::ASCIITable::EasyTable;
 use YAML qw(LoadFile);
 
 use Role::Tiny::With;
@@ -57,6 +65,9 @@ sub init {
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
 
+  my $cache = $self->get_cache;
+  $self->set_cache( $cache ? '(cached)' : $EMPTY );
+
   my $config = $self->_init_config;
 
   $self->_init_defaults($config);
@@ -94,6 +105,7 @@ sub init {
 
   $self->get_logger->info( sprintf 'init:            config: [%s]', $self->get_config_name );
   $self->get_logger->info( sprintf 'init:         log level: [%s]', $self->get_log_level );
+  $self->get_logger->info( sprintf 'init:             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
   $self->get_logger->info( sprintf 'init:           account: [%s]', $self->get_account );
   $self->get_logger->info( sprintf 'init:           profile: [%s]', $self->get_profile );
   $self->get_logger->info( sprintf 'init:            region: [%s]', $self->get_region );
@@ -103,7 +115,7 @@ sub init {
   $self->get_logger->info( sprintf 'init:  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
   $self->get_logger->info( sprintf 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
   $self->get_logger->info( sprintf '                 public: [%s]', join q{,}, @{ $subnets->{private} || [] } );
-  $self->get_logger->info( sprintf '                 private: [%s]', join q{,}, @{ $subnets->{public} || [] } );
+  $self->get_logger->info( sprintf '                private: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
 
   return $TRUE;
 }
@@ -144,6 +156,11 @@ sub _init_tasks {
   log_die( $self, 'ERROR: every task must have an image' )
     if @images != scalar keys %{$tasks};
 
+  return
+    if $self->get_cache;
+
+  require App::ECR;
+
   my $ecr = App::ECR->new( $self->get_global_options );
 
   $ecr->validate_images(@images);
@@ -156,11 +173,31 @@ sub _init_account {
 ########################################################################
   my ($self) = @_;
 
-  my $sts = App::STS->new( profile => $self->get_profile );
+  my $config = $self->get_config;
+
+  if ( $config->{account} && $self->get_cache ) {
+    $self->set_account( $config->{account} );
+    return;
+  }
+
+  require App::STS;
+
+  my $sts = App::STS->new( profile => $self->get_profile, %{ $self->get_global_options } );
 
   $self->set_sts($sts);
 
-  $self->set_account( $sts->get_caller_identity->{Account} );
+  $self->log_info('init: determining AWS account value...');
+
+  my $result = $sts->get_caller_identity;
+
+  log_die( $self, "ERROR: could not determine account\n%s", $sts->get_error )
+    if !$result;
+
+  $config->{account} = $result->{Account};
+  $self->log_info( 'init: AWS account: [%s]...', $config->{account} );
+
+  $self->set_account( $config->{account} );
+
   return;
 }
 
@@ -247,8 +284,12 @@ sub _init_ec2 {
 
   my $config = $self->get_config;
 
+  my $subnets = $config->{subnets};
+  $self->set_subnets($subnets);
+
   my $ec2 = App::EC2->new(
     vpc_id => $config->{vpc_id},
+    ( $self->get_cache && $subnets ) ? ( subnets => $subnets ) : (),
     %{ $self->get_global_options },
   );
 
@@ -261,9 +302,8 @@ sub _init_ec2 {
 
   # if we find subnets in the config...always validate in case they
   # got changed...
-  if ( my $subnets = $config->{subnets} ) {
+  if ( $subnets && !$self->get_cache ) {
     $ec2->validate_subnets($subnets);  # this will croak if any are invalid
-    $self->set_subnets($subnets);
   }
   else {
     my $subnets = $ec2->get_subnets;
@@ -549,19 +589,49 @@ sub help {
 ########################################################################
   my ($self) = @_;
 
-  my $subject = lc join $SPACE, @ARGV, $EMPTY;
+  my $subject = lc join $SPACE, $ARGV[-1];
 
   my $section = $HELP_SUBJECTS{$subject} // $EMPTY;
 
-  if ( !$section ) {
-    print {*STDERR} sprintf "'%s' is not one of these subjects:\n\t* %s\n\n", $subject, join "\n\t* ",
-      keys %HELP_SUBJECTS;
+  if ( ref $section ) {
+    $section = $section->[0];
   }
+
+  if ( !$section ) {
+    if ( $subject ne q{?} && $subject ne 'list' ) {
+      print {*STDERR} sprintf "'%s' is not a valid subject\n";
+    }
+
+    my @data;
+
+    foreach my $keyword ( sort keys %HELP_SUBJECTS ) {
+      my $description = $HELP_SUBJECTS{$keyword};
+      if ( ref $description ) {
+        $description = $description->[1];
+      }
+      push @data, { Keyword => $keyword, Description => $description };
+    }
+
+    my $table = easy_table(
+      columns       => [qw(Keyword Description)],
+      data          => \@data,
+      table_options => { headingText => 'Help Subjects' },
+    );
+
+    print {*STDOUT} $table;
+
+    return $SUCCESS;
+  }
+
+  eval {
+    require IO::Pager;
+    IO::Pager::open( *STDOUT, '|-:utf8', 'Unbuffered' );
+  };
 
   return pod2usage(
     -exitval => 1,
     ( -verbose => $section ? 99 : 1 ),
-    $section ? ( -sections => $section ) : ()
+    $section ? ( -sections => uc $section ) : ()
   );
 }
 
@@ -599,9 +669,12 @@ sub main {
     ecs
     efs
     elb
+    events
     existing_resources
     http
+    iam
     global_options
+    logs
     log_groups
     logger
     required_resources
@@ -625,6 +698,7 @@ sub main {
     skip-register
     update|u!
     unlink|U!
+    cache!
     version|v
     wait|w!
   );
@@ -632,10 +706,12 @@ sub main {
   my $fargate_stack = App::FargateStack->new(
     option_specs    => \@option_specs,
     default_options => {
-      'update' => $TRUE,
-      wait     => $TRUE,
-      unlink   => $TRUE,
-      color    => $TRUE
+      'update'    => $TRUE,
+      wait        => $TRUE,
+      unlink      => $TRUE,
+      color       => $TRUE,
+      cache       => $TRUE,
+      'log-level' => 'info',
     },  # set some defaults
     extra_options => \@extra_options,
     commands      => {
@@ -687,18 +763,18 @@ __END__
 
 =head1 NAME
 
-app-fargateStack
+App::FargateStack
 
 =head1 SYNOPSIS
 
- app-fargateStack Options Command
+ app-FargateStack Options Command
 
 =head2 Commands
 
- apply                          determines resource gaps and applie changes
+ help {subject}                 displays general help or help on a particular subject (see Note 2)
+ apply                          determines resources required and applies changes
  create{-service} task-name     create a new service
  delete{-service} task-name     delete an existing service
- help {subject}                 displays general help or help on a particular subject (see Note 2)
  plan
  register task-name
  run-task task-name
@@ -720,54 +796,182 @@ app-fargateStack
 
 =over 4
 
-=item 1. Use the --profile option ot override the profile defined in
+=item 1. Use the --profile option to override the profile defined in
 the configuration file.
 
 The Route53 service uses the same profile unless you specify a profile
 name in the C<route53> section of the configuraiton file.
 
-=item 2. You can get help program options using --help or use the help
+=item 2. You can get help using the C<--help> option or use the help
 command with a subject.
 
+ app-FargateStack help overview
+
 If you do not provide a subject then you will get the same information
-as C<--help>. Use help ? to get a list of subjects you can get help on.
+as C<--help>. Use C<help ?"> or C<help list> to get a list of available subjects.
 
 =back
-
-=head1 DESCRIPTION
 
 =head1 OVERVIEW
 
-The C<App::Fargate> framework is designed to make creating and
-launching Fargate based services as simple as possible. Using a YAML
-based configuration file you specify the services and resources
-required to create your services.
+The C<App::Fargate> framework, as its name implies provide developers
+with a way to create Fargate tasks and services. It has been designed
+to make creating and launching Fargate based services as simple as
+possible. Accordingly, it is opinionated and provides logical and
+pragmattic defaults. Using a YAML based configuration file, you specify
+the resources required to create your services.
 
-Features of the stack that can be built with this tool include:
+Using this framework you can:
 
 =over 4
 
-=item * Creation of either an internal or external facing HTTP service.
+=item * ...specify internal or external facing HTTP services that will:
 
-=item * Automatic creation of a certificate for external facing HTTP services.
+=over 8
 
-=item * Creation of an internal or external facing application load balancer.
+=item * ...automatically provision certificates for external facing web applications
 
-=over 10
 
-=item * Discovery of existing ALBs or ability to force creation of a new ALB
+=item * ...use existing or create new internal or external facing application load balancers (ALB).
 
-=item * Redirect listener rule that redirects port 80 requests to 443 
+=item * ...automatically create an alias record in Route 53 for your domain
+
+=item * ...create redirect listener rule to redirect port 80 requests to 443 
+
+=back
+
+=item * ...create queues and buckets to support your application
+
+=item * ...use the dryrun mode to examine what will be created before resources are built
+
+=item * ...run the script multiple times (idempotency)
+
+=item * ...create daemon services
+
+=item * ...create scheduled jobs
+
+=item * ...execute adhoc jobs
 
 =back
 
-=item * Creation of queues and buckets to support your application
+=head2 Minimal Configuration
 
-=item * Dryrun mode to examine what will created before resources are built
+Getting a Fargate task up and running requires that you provision and
+configure multiple AWS resources. Stitching it together using
+Terraform or CloudFormation can be tedious and time consuming, even if
+you know what resources to provision and how to stitch it together.
 
-=item * Idempotent behavior allows you to run script multiple times
+The motivation behind writing this framework was to take the drudgery
+of writing declarative resource generators for every resource
+required. Instead, we want a framework that covers 90% of our use
+cases and allows our development workflow to go something like:
+
+=over 4
+
+=item 1. Create a Docker image that implements our worker
+
+=item 2. Create a minimal configuration file that describes our worker
+
+=item 3. Execute the framework's script and create the necessary AWS infrastructure
+
+=item 4. Run the task, service or the scheduled job
 
 =back
+
+This is only a "good idea" if #2 is truly minimal, otherwise it becomes
+an exercise similar to using Terraform or CloudFormation. So what is
+the minimum amount of configuration to inform our framework for
+creating our Fargate worker? How 'bout this:
+
+ ---
+ app:
+   name: my-stack
+ tasks:
+   my-worker:
+     type: task
+     image: my-worker:latest
+     schedule: cron(50 12 * * * *)
+
+Using this minimal configuration and running the script like this:
+
+ app-Fargate -c --profile prod minimal.yml plan
+
+...would create the following resources in your default VPC:
+
+=over 8
+
+=item * a cluster name C<my-stack-cluster>
+
+=item * a security group for the cluster
+
+=item * an IAM role for the the cluster
+
+=item * an IAM  policy that has permissions enabling your worker
+
+=item * an ECS task definition for your work with defaults
+
+=item * a CloudWatch log group
+
+=item * an EventBridge target event
+
+=item * an IAM role for EventBridge
+
+=item * an IAM policy for EventBridget
+
+=item * an EventBridge rule that schedules the worker
+
+=back
+
+...so as you can see this can be a daunting task which becomes even
+more annoying when you want your worker to be able to access other AWS
+resources like buckets, queues or EFS directories.
+
+=head2 Adding More Resources
+
+Adding more resources for my worker should also be easy. Updating the
+infrastrucutre should just be a matter of updating the configuration
+and re-running the framework's script.
+
+Currently the framework supports adding a single SQS queue, a single
+S3 bucket, volumes using EFS mount points and, environment variables
+that can be injected from AWS SecretsManager.
+
+ my-worker:
+   image: my-worker:latest
+   command: /usr/local/bin/my-worker.pl
+   type: task
+   schedule: cron(00 15 * * * * )   
+   bucket:
+     name: my-worker-bucket
+   queue:
+     name: my-worker-queue
+   environment:
+     ENVIRONMENT=prod
+   secrets:
+     db_passord:DB_PASSWORD
+   efs:
+     id: fs-abcde12355
+     path: /
+     mount_point: /mnt/my-worker
+
+Adding new resources would normally require you to update your
+policies to allow your worker to access these resource. However, the
+framework automatically detects that the policy needs to be updated
+when new resoures are added (even secrets) and takes care of that for
+you.
+
+See C<app-Fargate help configuration> for more information about
+resources and options.
+
+=head2 Configuration as State
+
+The framework attempts to be as transparent as possible regarding what
+it is doing, how long it takes, what the result was and most
+importantly I<what defaults it has used to configure the resources it
+has provisioned>. Every time the framework is run, the configuration
+file is updated based on any new resources provisioned or configured.
+
+This gives you a single view into your Fargate application.
 
 =head1 IAM PERMISSIONS
 
@@ -785,7 +989,7 @@ stack by creating a F<.yml> file with the minimum required elements.
 
  app:
    name: my-stack
- services:
+ tasks:
    my-stack-daemon-1:
      command: /usr/local/bin/start-daemon
      image: my-stack-daemon:latest
@@ -834,7 +1038,7 @@ If multiple ALBs exist, the script will terminate and display a list
 of ALBs. The user should then pick one and set C<alb_arn> in the
 configuration file.
 
-=item 2. C<domain> is required if service type is C<http" or C<https>
+=item 2. C<domain> is required if service type is C<http> or C<https>
 
 =item 3. A certificate will be created for the domain if the service
 type is C<https> and no certificate for that domain currently exists.
@@ -865,6 +1069,26 @@ provisioned.
  Hint: Add "alb_arn" to your config to reuse an existing ALB.
 
 =back
+
+=head1 TO DO
+
+=over 4
+
+=item * destroy {task-name}
+
+Destroy all resources for all tasks or for one task. Buckets and queues will not be deleted.
+
+=item * test example http, daemon services
+
+=item * update and organize documentation
+
+=item * stop, start services
+
+=item * enable/disable task
+
+=item * list-tasks
+
+=item * check for config changes
 
 =back
 

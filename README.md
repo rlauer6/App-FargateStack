@@ -1,17 +1,17 @@
 # NAME
 
-app-fargateStack
+App::FargateStack
 
 # SYNOPSIS
 
-    app-fargateStack Options Command
+    app-FargateStack Options Command
 
 ## Commands
 
-    apply                          determines resource gaps and applie changes
+    help {subject}                 displays general help or help on a particular subject (see Note 2)
+    apply                          determines resources required and applies changes
     create{-service} task-name     create a new service
     delete{-service} task-name     delete an existing service
-    help {subject}                 displays general help or help on a particular subject (see Note 2)
     plan
     register task-name
     run-task task-name
@@ -31,37 +31,141 @@ app-fargateStack
 
 ## Notes
 
-- 1. Use the --profile option ot override the profile defined in
+- 1. Use the --profile option to override the profile defined in
 the configuration file.
 
     The Route53 service uses the same profile unless you specify a profile
     name in the `route53` section of the configuraiton file.
 
-- 2. You can get help program options using --help or use the help
+- 2. You can get help using the `--help` option or use the help
 command with a subject.
 
-    If you do not provide a subject then you will get the same information
-    as `--help`. Use help ? to get a list of subjects you can get help on.
+        app-FargateStack help overview
 
-# DESCRIPTION
+    If you do not provide a subject then you will get the same information
+    as `--help`. Use `help ?"` or `help list` to get a list of available subjects.
 
 # OVERVIEW
 
-The `App::Fargate` framework is designed to make creating and
-launching Fargate based services as simple as possible. Using a YAML
-based configuration file you specify the services and resources
-required to create your services.
+The `App::Fargate` framework, as its name implies provide developers
+with a way to create Fargate tasks and services. It has been designed
+to make creating and launching Fargate based services as simple as
+possible. Accordingly, it is opinionated and provides logical and
+pragmattic defaults. Using a YAML based configuration file, you specify
+the resources required to create your services.
 
-Features of the stack that can be built with this tool include:
+Using this framework you can:
 
-- Creation of either an internal or external facing HTTP service.
-- Automatic creation of a certificate for external facing HTTP services.
-- Creation of an internal or external facing application load balancer.
-    - Discovery of existing ALBs or ability to force creation of a new ALB
-    - Redirect listener rule that redirects port 80 requests to 443 
-- Creation of queues and buckets to support your application
-- Dryrun mode to examine what will created before resources are built
-- Idempotent behavior allows you to run script multiple times
+- ...specify internal or external facing HTTP services that will:
+    - ...automatically provision certificates for external facing web applications
+    - ...use existing or create new internal or external facing application load balancers (ALB).
+    - ...automatically create an alias record in Route 53 for your domain
+    - ...create redirect listener rule to redirect port 80 requests to 443 
+- ...create queues and buckets to support your application
+- ...use the dryrun mode to examine what will be created before resources are built
+- ...run the script multiple times (idempotency)
+- ...create daemon services
+- ...create scheduled jobs
+- ...execute adhoc jobs
+
+## Minimal Configuration
+
+Getting a Fargate task up and running requires that you provision and
+configure multiple AWS resources. Stitching it together using
+Terraform or CloudFormation can be tedious and time consuming, even if
+you know what resources to provision and how to stitch it together.
+
+The motivation behind writing this framework was to take the drudgery
+of writing declarative resource generators for every resource
+required. Instead, we want a framework that covers 90% of our use
+cases and allows our development workflow to go something like:
+
+- 1. Create a Docker image that implements our worker
+- 2. Create a minimal configuration file that describes our worker
+- 3. Execute the framework's script and create the necessary AWS infrastructure
+- 4. Run the task, service or the scheduled job
+
+This is only a "good idea" if #2 is truly minimal, otherwise it becomes
+an exercise similar to using Terraform or CloudFormation. So what is
+the minimum amount of configuration to inform our framework for
+creating our Fargate worker? How 'bout this:
+
+    ---
+    app:
+      name: my-stack
+    tasks:
+      my-worker:
+        type: task
+        image: my-worker:latest
+        schedule: cron(50 12 * * * *)
+
+Using this minimal configuration and running the script like this:
+
+    app-Fargate -c --profile prod minimal.yml plan
+
+...would create the following resources in your default VPC:
+
+- a cluster name `my-stack-cluster`
+- a security group for the cluster
+- an IAM role for the the cluster
+- an IAM  policy that has permissions enabling your worker
+- an ECS task definition for your work with defaults
+- a CloudWatch log group
+- an EventBridge target event
+- an IAM role for EventBridge
+- an IAM policy for EventBridget
+- an EventBridge rule that schedules the worker
+
+...so as you can see this can be a daunting task which becomes even
+more annoying when you want your worker to be able to access other AWS
+resources like buckets, queues or EFS directories.
+
+## Adding More Resources
+
+Adding more resources for my worker should also be easy. Updating the
+infrastrucutre should just be a matter of updating the configuration
+and re-running the framework's script.
+
+Currently the framework supports adding a single SQS queue, a single
+S3 bucket, volumes using EFS mount points and, environment variables
+that can be injected from AWS SecretsManager.
+
+    my-worker:
+      image: my-worker:latest
+      command: /usr/local/bin/my-worker.pl
+      type: task
+      schedule: cron(00 15 * * * * )   
+      bucket:
+        name: my-worker-bucket
+      queue:
+        name: my-worker-queue
+      environment:
+        ENVIRONMENT=prod
+      secrets:
+        db_passord:DB_PASSWORD
+      efs:
+        id: fs-abcde12355
+        path: /
+        mount_point: /mnt/my-worker
+
+Adding new resources would normally require you to update your
+policies to allow your worker to access these resource. However, the
+framework automatically detects that the policy needs to be updated
+when new resoures are added (even secrets) and takes care of that for
+you.
+
+See `app-Fargate help configuration` for more information about
+resources and options.
+
+## Configuration as State
+
+The framework attempts to be as transparent as possible regarding what
+it is doing, how long it takes, what the result was and most
+importantly _what defaults it has used to configure the resources it
+has provisioned_. Every time the framework is run, the configuration
+file is updated based on any new resources provisioned or configured.
+
+This gives you a single view into your Fargate application.
 
 # IAM PERMISSIONS
 
@@ -79,7 +183,7 @@ stack by creating a `.yml` file with the minimum required elements.
 
     app:
       name: my-stack
-    services:
+    tasks:
       my-stack-daemon-1:
         command: /usr/local/bin/start-daemon
         image: my-stack-daemon:latest
@@ -119,7 +223,7 @@ type is http or https.
     of ALBs. The user should then pick one and set `alb_arn` in the
     configuration file.
 
-- 2. `domain` is required if service type is `` http" or `https` ``
+- 2. `domain` is required if service type is `http` or `https`
 - 3. A certificate will be created for the domain if the service
 type is `https` and no certificate for that domain currently exists.
 - 4. If an ALB is required and no `type` is defined in the
@@ -142,6 +246,19 @@ provisioned.
         
         Hint: Add "alb_arn" to your config to reuse an existing ALB.
 
+# TO DO
+
+- destroy {task-name}
+
+    Destroy all resources for all tasks or for one task. Buckets and queues will not be deleted.
+
+- test example http, daemon services
+- update and organize documentation
+- stop, start services
+- enable/disable task
+- list-tasks
+- check for config changes
+
 # SEE ALSO
 
 [IPC::Run](https://metacpan.org/pod/IPC%3A%3ARun)
@@ -153,15 +270,3 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 839:
-
-    Unterminated C<...> sequence
-
-- Around line 871:
-
-    &#x3d;back without =over

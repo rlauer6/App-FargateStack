@@ -103,9 +103,10 @@ sub execute {
 ########################################################################
   my ( $self, @cmd ) = @_;
 
-  $self->get_logger->debug( Dumper( [ cmd => \@cmd ] ) );
+  $self->get_logger->debug( 'execute: ' . join q{ }, @cmd );
 
   my $out = $EMPTY;
+
   my $err = $EMPTY;
 
   $self->set_last_command( \@cmd );
@@ -115,7 +116,7 @@ sub execute {
   my $error_code = $CHILD_ERROR >> 8;
 
   if ( $err && $self->get_print_error ) {
-    $self->get_logger->error( sprintf 'execute(%d): %s', $error_code, $err );
+    $self->log_error( 'execute: exit code:[%d]: error: [%s]', $error_code, $err );
   }
 
   $self->set_error($err);

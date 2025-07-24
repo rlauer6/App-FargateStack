@@ -7,7 +7,6 @@ use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
 use JSON;
-use App::EFS;
 
 use App::FargateStack::Constants;
 
@@ -23,19 +22,27 @@ sub add_volumes {
 
   require App::EFS;
 
-  my $efs = App::EFS->new( $self->get_global_options );
+  my $efs        = App::EFS->new( $self->get_global_options );
+  my $efs_config = $task->{efs};
 
-  my ( $id, $path, $mount_points ) = @{ $task->{efs} }{qw(id path mount_point)};
+  my ( $id, $path, $mount_point ) = @{$efs_config}{qw(id path mount_point)};
 
-  croak "no id set for EFS volume\n"
+  my ( $arn, $readonly ) = @{$efs_config}{qw(arn readonly)};
+
+  log_die( $self, 'ERROR: no id set for EFS volume' )
     if !$id;
 
-  my $file_system = $efs->describe_file_systems( $id, 'FileSystems' );
+  # - validate id -
+  if ( !$arn || !$self->get_cache ) {
+    $self->log_info( 'task: validating EFS id: [%s]...', $id );
 
-  croak "no such EFS file system ($id) found\n"
-    if !$file_system;
+    my $file_system = $efs->describe_file_systems( $id, 'FileSystems' );
 
-  $task->{efs}->{arn} = $file_system->[0]->{FileSystemArn};
+    log_die( $self, "ERROR: no such EFS file system (%s) found\n", $id )
+      if !$file_system;
+
+    $arn = $efs_config->{arn} = $file_system->[0]->{FileSystemArn};
+  }
 
   return (
     [ { name                   => 'efs-volume',
@@ -47,8 +54,8 @@ sub add_volumes {
       }
     ],
     [ { sourceVolume  => 'efs-volume',
-        containerPath => $mount_points // '/mnt',
-        readOnly      => JSON::false,
+        containerPath => $mount_point // '/mnt',
+        readOnly      => defined $readonly && $readonly ? $JSON::true : $JSON::false,
       }
     ]
   );
