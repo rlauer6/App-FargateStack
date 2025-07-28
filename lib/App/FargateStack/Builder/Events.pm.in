@@ -8,6 +8,7 @@ use Data::Dumper;
 use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die);
 
 use Role::Tiny;
 
@@ -39,7 +40,7 @@ sub build_events {
 
     my $schedule = $task->{schedule};
 
-    croak sprintf "no schedule for event [%s]\n", $task_name
+    log_die( $self, sprintf "no schedule for event [%s]\n", $task_name )
       if !$schedule;
 
     my $valid_schedule = $event->validate_schedule($schedule);

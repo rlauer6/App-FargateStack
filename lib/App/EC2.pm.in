@@ -18,7 +18,6 @@ use parent 'App::Command';
 __PACKAGE__->follow_best_practice;
 __PACKAGE__->mk_accessors(
   qw(
-    is_default_vpc
     profile
     region
     security_group_name
@@ -35,19 +34,18 @@ sub new {
   my $self = $class->SUPER::new(@args);
 
   if ( !$self->get_vpc_id ) {
+    my @eligible_vpcs = $self->find_eligible_vpcs;
 
-    my $vpc_id = $self->command(
-      'describe-vpcs' => [
-        '--query'  => 'Vpcs[?IsDefault == `true`]|[0].VpcId',
-        '--output' => 'text'
-      ]
-    );
+    croak 'ERROR: could not find a Fargate-compatible VPC'
+      if !@eligible_vpcs;
 
-    log_die( $self, 'ERROR: could not find a default VPC' )
-      if $vpc_id eq 'None';
+    croak sprintf "ERROR: found more than one Fargate-compatible VPC:\n%s", join "\n  - ", q{}, @eligible_vpcs
+      if @eligible_vpcs > 1;
 
-    $self->set_vpc_id($vpc_id);
-    $self->set_is_default_vpc(1);
+    $self->get_logger->warn( sprintf 'WARNING: no vpc_id set in config, using compatible VPC: [%s]',
+      $eligible_vpcs[0] );
+
+    $self->set_vpc_id( $eligible_vpcs[0] );
   }
 
   my $subnets = $self->get_subnets;
@@ -101,6 +99,34 @@ END_OF_WARNING
 }
 
 ########################################################################
+sub find_eligible_vpcs {
+########################################################################
+  my ($self) = @_;
+
+  my $result = $self->describe_internet_gateways('InternetGateways[].Attachments[]');
+
+  my @vpcs_with_igw = map { $_->{VpcId} } @{ $result || [] };
+  my @vpcs_with_natgw;
+
+  my $query = 'NatGateways[?State==`available`][{VpcId: VpcId}][].VpcId';
+
+  foreach my $vpc_id (@vpcs_with_igw) {
+    my $gateways = $self->describe_nat_gateways( vpc_id => $vpc_id, query => $query );
+    push @vpcs_with_natgw, @{$gateways};
+  }
+
+  return @vpcs_with_natgw;
+}
+
+########################################################################
+sub describe_internet_gateways {
+########################################################################
+  my ( $self, $query ) = @_;
+
+  return $self->command( 'describe-internet-gateways' => [ $query ? ( '--query' => $query ) : () ] );
+}
+
+########################################################################
 sub find_security_group_name {
 ########################################################################
   my ( $self, $group_id ) = @_;
@@ -142,9 +168,32 @@ sub is_sg_authorized {
 ########################################################################
 sub describe_nat_gateways {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, %args ) = @_;
 
-  my $vpc_id = $self->get_vpc_id;
+  my ( $vpc_id, $query, $output ) = @args{qw(vpc_id query output)};
+
+  my $filters = $vpc_id ? sprintf 'Name=vpc-id,Values=%s', $vpc_id : $EMPTY;
+
+  my $result = $self->command(
+    'describe-nat-gateways' => [
+      $filters ? ( '--filter' => $filters ) : (),
+      $query   ? ( '--query'  => $query )   : (),
+      $output  ? ( '--output' => $output )  : (),
+    ]
+  );
+
+  croak sprintf "could not describe NAT gateway\n%s", $self->get_error
+    if !$result;
+
+  return $result;
+}
+
+########################################################################
+sub describe_vpc_nat_gateways {
+########################################################################
+  my ( $self, $vpc_id ) = @_;
+
+  $vpc_id //= $self->get_vpc_id;
 
   my $filters = sprintf 'Name=vpc-id,Values=%s', $vpc_id;
 

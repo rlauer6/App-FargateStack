@@ -797,30 +797,30 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 1246:
+- Around line 1243:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1435:
+- Around line 1432:
 
     Expected '=item \*'
 
-- Around line 1475:
+- Around line 1472:
 
     Non-ASCII character seen before =encoding in 'bucket—not'. Assuming UTF-8
 
-- Around line 1733:
+- Around line 1730:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1751:
+- Around line 1748:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1830:
+- Around line 1827:
 
     &#x3d;back without =over
 
-- Around line 1854:
+- Around line 1851:
 
     &#x3d;back without =over

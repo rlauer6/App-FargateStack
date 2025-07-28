@@ -1,3 +1,22 @@
+Mon Jul 28 15:52:08 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.5]:
+	* README.md
+	* VERSION
+	* lib/App/EC2.pm.in
+	(new): find eligible VPC if no vpc_id
+	(find_eligible_vpcs): new
+	(describe_internet_gateways): new
+	(describe_vpc_nat_gateways): new
+	(describe_nat_gateways): refactored
+	* lib/App/FargateStack.pm.in
+	(_init_ec2): no longer using default VPC
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events)
+	- log_die
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	(build_log_groups): look for group again if arn is missing
+
 Mon Jul 28 13:24:03 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.4]:

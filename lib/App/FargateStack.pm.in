@@ -546,10 +546,7 @@ sub _init_ec2 {
 
   $self->set_ec2($ec2);
 
-  if ( $ec2->get_is_default_vpc ) {
-    $self->log_warn( 'init: found a default VPC...%s', $ec2->get_vpc_id );
-    $config->{vpc_id} = $ec2->get_vpc_id;
-  }
+  $config->{vpc_id} = $ec2->get_vpc_id;
 
   # if we find subnets in the config...always validate in case they
   # got changed...

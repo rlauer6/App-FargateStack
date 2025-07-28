@@ -31,9 +31,10 @@ sub build_log_groups {
 
     my $task = $tasks->{$task_name};
 
-    my $log_group = $self->get_cache ? {} : $logs->log_group_exists($group);
+    my $log_group = $self->get_cache && $task->{log_group}->{arn} ? {} : $logs->log_group_exists($group);
 
-    my $arn = $self->get_cache ? $task->{log_group}->{arn} : $log_group->{logGroupArn};
+    my $arn
+      = $self->get_cache && $task->{log_group}->{arn} ? $task->{log_group}->{arn} : $log_group->{logGroupArn};
 
     if ($arn) {
       $self->log_info( 'logs: [%s] exists...%s', $group, $self->get_cache || 'skipping' );
