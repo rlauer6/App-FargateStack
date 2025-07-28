@@ -9,6 +9,7 @@ use English qw(-no_match_vars);
 
 use App::Events;
 use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die);
 
 use Role::Tiny;
 
@@ -32,11 +33,23 @@ sub build_security_group {
 
   $config->{security_groups}->{fargate}->{group_name} = $security_group_name;
 
+  $self->log_trace(
+    sub {
+      return Dumper(
+        [ security_group_name => $security_group_name,
+          security_group_id   => $security_group_id
+        ]
+      );
+    }
+  );
+
   if ( !$self->get_cache || !$security_group_id ) {
     my ($security_group) = $ec2->describe_security_group($security_group_name);
 
+    $self->log_debug( Dumper( [ 'security-group:' => $security_group ] ) );
+
     if ( !$security_group ) {
-      $self->log_info( 'security-group: [%s] will be created...%s', $security_group_name, $dryrun );
+      $self->log_warn( 'security-group: [%s] will be created...%s', $security_group_name, $dryrun );
 
       $self->inc_required_resources( security_groups => [$security_group_name] );
 
@@ -53,6 +66,9 @@ sub build_security_group {
         # authorize ingress when/if we have an ALB
         $self->log_info( 'security-group: [%s] id: [%s] created', $security_group_name, $security_group_id );
       }
+    }
+    else {
+      $config->{security_groups}->{fargate}->{group_id} = $security_group->{GroupId};
     }
   }
   else {

@@ -32,20 +32,16 @@ sub build_certificate {
   my $arn;
 
   if ($cert) {
-    $self->get_logger->info( sprintf 'certificate: [%s] certificate exists...skipping', $domain );
-
-    $arn = $cert->{CertificateArn};
-
     my $status = $cert->{Status};
 
-    $self->get_logger->info( sprintf "\tarn: %s",    $arn );
-    $self->get_logger->info( sprintf "\tstatus: %s", $status );
+    $self->log_info( 'certificate: [%s] certificate exists, status: [%s]...skipping', $domain, $status );
+
+    $arn = $cert->{CertificateArn};
 
     $self->inc_existing_resources( certificate => $arn );
   }
   else {
-    $self->get_logger->info( sprintf 'certificate: certificate for [%s] will be created...%s',
-      $domain, $dryrun );
+    $self->log_warn( 'certificate: certificate for [%s] will be created...%s', $domain, $dryrun );
 
     $self->inc_required_resources(
       certificate => sub {
@@ -62,7 +58,7 @@ sub build_certificate {
       my $dns_record
         = $acm->describe_certificate( $arn, 'Certificate.DomainValidationOptions[0].ResourceRecord' );
 
-      croak "ERROR: no DNS record found yet for $arn\n"
+      log_die( $self, 'ERROR: no DNS record found yet for %s', $arn )
         if !$dns_record;
 
       my ( $name, $type, $value ) = @{$dns_record}{qw(Name Type Value)};
@@ -82,7 +78,7 @@ sub build_certificate {
 
       $route53->set_change_batch($change_batch);
 
-      $self->get_logger->info( Dumper( [ result => $route53->change_resource_record_sets ] ) );
+      $self->log_info( Dumper( [ result => $route53->change_resource_record_sets ] ) );
     }
   }
 

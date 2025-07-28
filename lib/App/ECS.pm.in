@@ -3,6 +3,7 @@ package App::ECS;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
 use Carp;
 use Data::Dumper;
 use File::Temp qw(tempfile);
@@ -214,6 +215,12 @@ sub create_service {
   croak "security_groups is required and must be an array\n"
     if !$security_groups || reftype($security_groups) ne 'ARRAY';
 
+  croak "no security groups defined\n"
+    if !@{$security_groups};
+
+  croak "service-name is required\n"
+    if !$service_name;
+
   my $network_configuration = {
     awsvpcConfiguration => {
       subnets        => $subnets,
@@ -224,6 +231,8 @@ sub create_service {
 
   my ( $target_group_arn, $container_name, $container_port )
     = @args{qw(target_group_arn container_name container_port)};
+
+  $container_port //= $DEFAULT_PORT;
 
   my $load_balancers;
 

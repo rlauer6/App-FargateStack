@@ -9,6 +9,7 @@ use Data::Compare;
 use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die choose);
 
 use Role::Tiny;
 
@@ -35,9 +36,16 @@ sub build_iam_role {
   my $policy;
   my $role_policy;
 
-  if ( !$self->get_cache || !$config->{role}->{policy_name} ) {
+  # NOTE: we may need to invalidate the role by removing the ARN and
+  # forcing the role policy to be replaced. 'put-role-policy' will
+  # allow overwriting a policy with the same name.
+
+  if ( !$self->get_cache || !$config->{role}->{arn} || !$config->{role}->{policy_name} ) {
     $policy = $iam->get_role_policy( $role_name, $policy_name );
-    $config->{role}->{policy_name} = $policy_name;
+
+    if ($policy) {
+      $config->{role}->{policy_name} = $policy_name;
+    }
 
     my @statement;
 
@@ -65,7 +73,7 @@ sub build_iam_role {
     }
   }
 
-  if ( $policy || $self->get_cache ) {
+  if ( $config->{role}->{arn} ) {
     if ( ( $policy && Compare( $policy, $role_policy ) ) || $self->get_cache ) {
       $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $self->get_cache || 'skipping' );
       $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
@@ -82,7 +90,7 @@ sub build_iam_role {
       }
     );
 
-    $self->log_info( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
+    $self->log_warn( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
   }
 
   $self->inc_required_resources( 'iam:policy' => [$policy_name] );
@@ -98,6 +106,8 @@ sub build_iam_role {
   $self->log_warn( 'iam:policy: creating policy [%s] for role [%s]...', $policy_name, $role_name );
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
+
+  $self->log_trace( sub { return Dumper( [ 'iam:policy' => $role_policy ] ); } );
 
   log_die( $self, "ERROR: could not create policy %s for %s\n%s", $role_name, $policy_name, $iam->get_error )
     if $iam->get_error;
@@ -124,31 +134,39 @@ sub create_role {
     Version   => $IAM_POLICY_VERSION,
     Statement => [
       { Effect    => 'Allow',
-        Principal => { Service => sprintf '%s.amazonaws.com', $type eq 'events' ? 'events' : 'ecs-task' },
+        Principal => { Service => $AWS_SERVICE_DOMAINS{$type} },
         Action    => 'sts:AssumeRole'
       }
     ]
   };
 
-  my $role_config;
-
-  if ( $type eq 'events' ) {
-    $config->{events_role} //= {};
-    $role_config = $config->{events_role};
-  }
-  else {
-    $config->{role} //= {};
-    $role_config = $config->{role};
-  }
+  my $role_config = sub {
+    if ( $type eq 'events' ) {
+      $config->{events_role} //= {};
+      return $config->{events_role};
+    }
+    else {
+      $config->{role} //= {};
+      return $config->{role};
+    }
+    }
+    ->();
 
   my $role_name = $role_config->{name};
 
   $role_name //= sprintf '%s%sRole', ( $type eq 'events' ? 'Events' : 'Fargate' ), $default_name;
   $role_config->{name} = $role_name;
 
-  my $role = $self->get_cache ? { Role => { Arn => $role_config->{arn} } } : $iam->role_exists($role_name);
+  my $role = choose {
+    return { Role => { Arn => $role_config->{arn} } }
+      if $self->get_cache && $role_config->{arn};
 
-  if ($role) {
+    return $iam->role_exists($role_name);
+  };
+
+  $self->log_trace( sub { return Dumper( [ role => $role ] ) } );
+
+  if ( $role->{Role}->{Arn} ) {
     $self->log_info( 'iam: role [%s] exists...%s', $role_name, $self->get_cache || 'skipping' );
 
     $role_config->{arn} = $role->{Role}->{Arn};
@@ -166,10 +184,12 @@ sub create_role {
     ]
   );
 
-  $self->get_logger->info( sprintf 'iam: [%s] will be created...%s', $role_name, $self->get_dryrun );
+  $self->log_warn( 'iam: [%s] will be created...%s', $role_name, $self->get_dryrun );
 
   if ( !$dryrun ) {
     $role_config->{arn} = $iam->create_role( $role_name, $trust_policy );
+
+    $self->log_trace( sub { return Dumper( [ 'iam: policy' => $trust_policy ] ); } );
 
     log_die( $self, "ERROR: could not create role: %s\n%s", $role_name, $iam->get_error )
       if $iam->get_error;

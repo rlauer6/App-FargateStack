@@ -6,8 +6,11 @@ use warnings;
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
+use List::Util qw(none any);
+use JSON;
 
 use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die);
 
 use Role::Tiny;
 
@@ -27,11 +30,18 @@ sub build_http_service {
   my $fargate_sg = $config->{security_groups}->{fargate}->{group_id} // 'sg-???';
   my $alb_sg     = $config->{security_groups}->{alb}->{group_id}     // 'sg-???';
 
-  $self->get_logger->info(
-    sprintf 'http-service:security-group-ingress: authorizing Fargate: [%s] from ALB: [%s]...%s',
-    $fargate_sg, $alb_sg, $dryrun );
-
   my $ec2 = $self->get_ec2;
+
+  if ( $ec2->is_sg_authorized( $fargate_sg, $alb_sg ) ) {
+    $self->log_info(
+      q{http-service:security-group-ingress: ALB's security group: [%s] already authorized...skipping},
+      $alb_sg );
+  }
+  else {
+    $self->log_warn(
+      q{http-service:security-group-ingress: ALB's security group: [%s] will be authorized to Fargate's: [%s]...%s},
+      $alb_sg, $fargate_sg, $dryrun );
+  }
 
   if ( !$dryrun ) {
     $ec2->authorize_security_group_ingress( group_id => $fargate_sg, source_group => $alb_sg );
@@ -43,7 +53,70 @@ sub build_http_service {
   $self->create_listeners();
   $self->benchmark('http-service:create-listeners');
 
+  if ( $self->is_https ) {
+    $self->attach_certificate();
+  }
+
   return $TRUE;
+}
+
+########################################################################
+sub attach_certificate {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $domain = $config->{domain};
+
+  my $alb_arn = $config->{alb}->{arn};
+
+  my $elb = $self->get_elb;
+
+  if ( !$alb_arn || $alb_arn =~ /[?]{3}/xsm ) {
+    $self->log_warn('http-service: no ALB created yet, cannot attach certificate');
+    return;
+  }
+
+  my $listener = $elb->describe_listeners( $alb_arn, 'Listeners[?Port == `443`]' );
+  log_die( $self, 'ERROR: could not find a 443 listener for ALB: [%s]', $alb_arn )
+    if !$listener || !@{$listener};
+
+  my $listener_arn = $listener->[0]->{ListenerArn};
+
+  my $certificates = $elb->list_certificates($listener_arn);
+
+  log_die( $self, 'ERROR: could not list certificates for ALB: [%s]', $alb_arn )
+    if !$certificates;
+
+  $self->log_trace( sub { return Dumper( [ certificates => $certificates ] ); } );
+
+  my $certificate_arn = $config->{certificate_arn};
+
+  log_die( $self, 'ERROR: no certificate ARN' )
+    if !$certificate_arn;
+
+  if ( any { $_ eq $certificate_arn } @{$certificates} ) {
+    $self->log_info( 'http-service: certificate for [%s] already attached to listener...skipping', $domain );
+    return;
+  }
+
+  $self->log_warn( 'http-service: certificate for [%s] will be added to listener...%s', $domain, $dryrun );
+
+  return
+    if $dryrun;
+
+  my $result = $elb->add_listener_certificate( $listener_arn, $certificate_arn );
+
+  log_die( $self, "ERROR: could not add certificate [%s] to ALB [%s]\n%s",
+    $certificate_arn, $alb_arn, $elb->get_error )
+    if !$result;
+
+  $self->log_warn( 'http-service: successfully added certificate for [%s] to ALB', $domain );
+
+  return;
 }
 
 ########################################################################
@@ -71,8 +144,12 @@ sub create_listeners {
 
   my ( $alb_arn, $alb_type, $alb_port, $alb_redirect ) = @{ $config->{alb} }{qw(arn type port redirect_80)};
 
+  if ( !defined $alb_redirect && $self->is_https ) {
+    $config->{arn}->{redirect_80} = $alb_redirect = $TRUE;
+  }
+
   if ( !$alb_arn ) {
-    $self->get_logger->info( sprintf 'networking: deferring listener creation, no ALB yet...%s', $dryrun );
+    $self->log_info( 'http-service: deferring listener creation, no ALB yet...%s', $dryrun );
     return;
   }
 
@@ -82,9 +159,10 @@ sub create_listeners {
 
   my %listeners_by_port = $self->fetch_listeners_by_port($alb_arn);
 
-  my %default_actions = (
-    $alb_port => [ { Type => 'forward', 'TargetGroupArn' => $target_group_arn } ],
-    80        => [
+  my %default_actions = ( $alb_port => [ { Type => 'forward', 'TargetGroupArn' => $target_group_arn } ] );
+
+  if ( $self->is_https && $alb_redirect ) {
+    $default_actions{80} = [
       { Type           => 'redirect',
         RedirectConfig => {
           Protocol   => 'HTTPS',
@@ -92,12 +170,11 @@ sub create_listeners {
           StatusCode => 'HTTP_301'
         }
       }
-    ],
-  );
+    ];
+  }
 
   my $domain = $config->{domain};
-
-  my @ports = ( $alb_port, $alb_redirect ? '80' : () );
+  my @ports  = keys %default_actions;
 
   my $needs_cert = $self->has_https_service;
 
@@ -106,8 +183,7 @@ sub create_listeners {
 
     # create listener returns listener configuration (uses --query)
     if ( !$listeners_by_port{$port} ) {
-      $self->get_logger->info( sprintf 'networking: listener for port [%s] will be created...%s',
-        $port, $dryrun );
+      $self->log_warn( 'http-service: listener for port [%s] will be created...%s', $port, $dryrun );
 
       $self->inc_resource_required(
         listeners => [
@@ -130,12 +206,12 @@ sub create_listeners {
       }
     }
     else {
-      $self->get_logger->info( sprintf 'networking: listener for port [%s] exists...skipping', $port );
+      $self->log_info( 'http-service: listener for port [%s] exists...skipping', $port );
       $self->inc_existing_resources( listeners => [ $listeners_by_port{$port}->{ListenerArn} ] );
 
       # add certificate...https
       if ( $needs_cert && !$dryrun ) {
-        $elb->add_certficate( $listeners_by_port{$port}->{ListenerArn}, $config->{certificate_arn} );
+        $elb->add_listener_certificate( $listeners_by_port{$port}->{ListenerArn}, $config->{certificate_arn} );
       }
     }
   }
@@ -146,8 +222,10 @@ sub create_listeners {
 
     my $rules = $elb->fetch_rules_by_domain( $domain, $listener->{ListenerArn} );
 
+    $self->log_trace( sub { return Dumper( [ rules => $rules ] ); } );
+
     if ( $rules && @{$rules} ) {
-      $self->get_logger->info( sprintf 'networking: listener rule for port: [%s] exists...skipping', $port );
+      $self->log_info( 'http-service: listener rule for port: [%s] exists...skipping', $port );
       $self->inc_existing_resources( listener_rules => [ map { $_->{RuleArn} } @{$rules} ] );
       next;
     }
@@ -160,7 +238,7 @@ sub create_listeners {
 
     my $priority = @priorities ? $priorities[-1] + 1 : 100;
 
-    $self->get_logger->info( sprintf 'networking: listener rule for [%s] on port: [%s] will be created...%s',
+    $self->log_warn( 'http-service: listener rule for [%s] on port: [%s] will be created...%s',
       $domain, $port, $dryrun );
 
     $self->inc_required_resources(
@@ -171,7 +249,7 @@ sub create_listeners {
           return 'arn:???'
             if $dryrun;
 
-          my $rules = $self->fetch_rule_arns_by( $domain, $listener->{ListenerArn} );
+          my $rules = $elb->fetch_rule_arns_by_domain( $domain, $listener->{ListenerArn} );
 
           return q{}
             if !$rules;
@@ -208,42 +286,74 @@ sub create_target_group {
   my $elb = $self->get_elb;
 
   # we would not be here unless we have an HTTP service
-  my $service = $config->{tasks}->{ $self->get_http };
+  my $task = $config->{tasks}->{ $self->get_http };
 
-  my $target_group_name = $service->{target_group_name};
+  my $target_group_name = $task->{target_group_name};
 
   if ( !$target_group_name ) {
     $target_group_name = sprintf '%s-tg', $config->{app}->{name};
 
-    $service->{target_group_name} = $target_group_name;
+    $task->{target_group_name} = $target_group_name;
   }
 
   if ( my $target_group = $elb->target_group_exists($target_group_name) ) {
-    $self->get_logger->info( sprintf 'networking: [%s] exists...skipping', $target_group_name );
+    $self->log_info( 'http-service: target group [%s] exists...skipping', $target_group_name );
 
-    $service->{target_group_arn} = $target_group->{TargetGroupArn};
-    $self->get_logger->info( sprintf "\tarn: %s", $service->{target_group_arn} );
+    $task->{target_group_arn} = $target_group->{TargetGroupArn};
 
-    $self->inc_existing_resources( target_group => $service->{target_group_arn} );
+    $self->inc_existing_resources( target_group => $task->{target_group_arn} );
   }
   else {
-    $self->get_logger->info( sprintf 'networking: [%s] will be created...%s', $target_group_name, $dryrun );
+    $self->log_warn( 'http-service: target group [%s] will be created...%s', $target_group_name, $dryrun );
 
     $self->inc_required_resources(
       target_group => sub {
         my ($dryrun) = @_;
-        return $dryrun ? "arn:???/$target_group_name" : $service->{target_group_arn};
+        return $dryrun ? "arn:???/$target_group_name" : $task->{target_group_arn};
       }
     );
+
+    my $health_check = $task->{health_check} // {};
+
+    if ( !defined $task->{health_check} || $health_check->{enabled} ) {
+      $health_check->{enabled} //= $JSON::true;
+      $health_check->{port}    //= $task->{port};
+      $health_check->{path}    //= q{/};
+
+      $health_check->{interval_seconds} //= $DEFAULT_HEALTH_CHECK_INTERVAL;
+      $health_check->{timeout_seconds}  //= $DEFAULT_HEALTH_CHECK_TIMEOUT;
+      $health_check->{healthy_threshold_count}   = $DEFAULT_HEALTH_HEALTHY_CHECK_THRESHOLD;
+      $health_check->{unhealthy_threshold_count} = $DEFAULT_HEALTH_UNHEALTHY_CHECK_THRESHOLD;
+
+      $health_check->{matcher} = '200';
+    }
+    else {
+      log_die( $self, 'ERROR: health checks must be enabled' );
+    }
+
+    $task->{health_check} = $health_check;
+
+    $self->log_debug( sub { return Dumper( [ health_check => $health_check ] ); } );
+
     if ( !$dryrun ) {
-      $service->{target_group_arn} = $elb->create_target_group( name => $target_group_name );
-      $self->get_logger->info( sprintf "\tarn: %s", $service->{target_group_arn} );
+
+      $task->{target_group_arn} = $elb->create_target_group(
+        name         => $target_group_name,
+        health_check => $health_check,
+      );
+
+      log_die( $self, "ERROR: could not create target group:[%s]\n%s", $target_group_name, $elb->get_error )
+        if !$task->{target_group_arn};
+
+      $self->log_info( "\tarn: %s", $task->{target_group_arn} );
     }
   }
 
   return;
 }
 
+########################################################################
+sub is_https { goto &has_https_service; }
 ########################################################################
 sub has_https_service {
 ########################################################################
@@ -274,13 +384,19 @@ sub create_alb {
   if ( $config->{alb}->{arn} ) {
     my $alb = $elb->describe_load_balancer( $config->{alb}->{arn} );
 
-    croak sprintf "ERROR: %s is not a valid load balancer ARN\n"
-      if !$alb;
+    log_die(
+      $self,
+      "ERROR: could not describe load balancer: [%s]\n%s",
+      $config->{alb}->{arn},
+      $elb->get_error
+    ) if !$alb;
 
     $alb = $alb->{LoadBalancers}->[0];
     $self->set_alb($alb);
 
-    $self->get_logger->info( sprintf 'http-service: load balancer [%s] defined in config...skipping',
+    $self->log_trace( sub { return Dumper( [ alb => $alb ] ); } );
+
+    $self->log_info( 'http-service: load balancer [%s] defined in config and verified...skipping',
       $alb->{LoadBalancerName} );
 
     $self->inc_existing_resources( alb => $alb->{LoadBalancerArn} );
@@ -290,7 +406,8 @@ sub create_alb {
     my $alb_sg = $config->{security_groups}->{alb}->{group_id};
 
     if ( !$alb_sg ) {
-      $self->get_logger->info('http-service: no ALB security group in configuration...looking...');
+      $self->log_info('http-service: no ALB security group in configuration...looking...');
+
       # find the security group that allows 443 ingress
       my $ec2 = $self->get_ec2;
 
@@ -301,24 +418,26 @@ sub create_alb {
 
         next if !@{$sg};
 
-        $alb_sg = $sg->[0]->{GroupId};
+        $alb_sg = $sg->[0]->{GroupId};  # or $group_id
         last;
+      }
+
+      if ($alb_sg) {
+        $self->log_warn( 'http-service: found a security group for ALB [%s] with 443 ingress, using [%s]',
+          $alb->{LoadBalancerName}, $alb_sg );
       }
     }
 
     if ( !$alb_sg ) {
       $alb_sg = $security_groups->[0];
-      $self->get_logger->warn(
-        sprintf 'http-service: could not find a security group for ALB [%s] with 443 ingress, using [%s]',
-        $alb->{LoadBalancerName}, $alb_sg );
-    }
-    else {
-      $self->get_logger->warn(
-        sprintf 'http-service: found a security group for ALB [%s] with 443 ingress, using [%s]',
+      $self->log_warn(
+        'http-service: could not find a security group for ALB [%s] with 443 ingress, using [%s]',
         $alb->{LoadBalancerName}, $alb_sg );
     }
 
     $config->{security_groups}->{alb}->{group_id} = $alb_sg;
+
+    $config->{security_groups}->{alb}->{name} = $self->get_ec2->find_security_group_name($alb_sg);
 
     $self->inc_existing_resources( security_groups => [$alb_sg] );
 
@@ -329,18 +448,32 @@ sub create_alb {
   if ( !$self->get_create_alb ) {
     my $alb_type = $config->{alb}->{type};
 
-    $self->get_logger->info(
-      sprintf 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB', $alb_type );
+    $self->log_warn( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB',
+      $alb_type );
 
-    my ( $alb_arn, $security_group ) = eval { return $elb->find_alb($alb_type); };
+    my ( $alb_arn, $security_group_id ) = eval { return $elb->find_alb($alb_type); };
 
-    if ( $alb_arn && $elb->validate_alb($alb_arn) ) {
+    $self->log_trace(
+      sub {
+        return Dumper(
+          [ alb_arn        => $alb_arn,
+            security_group => $security_group_id
+          ]
+        );
+      }
+    );
+
+    my $security_group_name = $self->get_ec2->find_security_group_name($security_group_id);
+
+    if ( $alb_arn
+      && $elb->validate_alb( arn => $alb_arn, scheme => $self->is_https ? 'internet-facing' : 'internal' ) ) {
       # set this for later
       $self->set_alb( $elb->get_alb );
 
-      $self->get_logger->info( sprintf "\tarn: %s", $alb_arn );
+      $self->log_info( "\tarn: %s", $alb_arn );
 
-      $config->{security_groups}->{alb}->{group_id} = $security_group;
+      $config->{security_groups}->{alb}->{group_id} = $security_group_id;
+
       $config->{alb}->{arn} = $alb_arn;
 
       $config->{alb}->{name} = $self->get_alb->{LoadBalancerName};
@@ -356,7 +489,7 @@ sub create_alb {
       my $fargate_sg = $config->{security_groups}->{fargate}->{group_id} // 'not-provisioned-yet';
 
       if ( none { $_ eq $fargate_sg } @{$alb_security_groups} ) {
-        $self->get_logger->info( sprintf 'http-service: will add security group %s to load balancer...%s',
+        $self->log_warn( 'http-service: will add security group %s to load balancer...%s',
           $fargate_sg, $dryrun );
 
         if ( !$dryrun ) {
@@ -364,7 +497,7 @@ sub create_alb {
         }
       }
       else {
-        $self->get_logger->info( 'http-service: security group %s already attached...skipping', $fargate_sg );
+        $self->log_info( 'http-service: security group %s already attached...skipping', $fargate_sg );
       }
 
       return;
@@ -372,8 +505,7 @@ sub create_alb {
   }
 
   # create an alb
-  $self->get_logger->info(
-    sprintf 'http-service: WARNING - no ALB ARN defined and no usable ALB found...will create...%s', $dryrun );
+  $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
 
   my $alb_sg = $self->create_alb_security_group;
 
@@ -418,8 +550,7 @@ sub create_alb_security_group {
   my $sg_name = sprintf '%s-alb-sg', $config->{app}->{name};
   $self->inc_required_resources( security_groups => [$sg_name] );
 
-  $self->get_logger->info( sprintf 'http-service: ALB security group [%s] will be created...%s',
-    $sg_name, $dryrun );
+  $self->log_info( 'http-service: ALB security group [%s] will be created...%s', $sg_name, $dryrun );
 
   my $sg_description = sprintf 'allow in-bound 443 & 80 to %s-alb', $config->{app}->{name};
 
@@ -448,21 +579,59 @@ sub create_alias {
 
   my $config = $self->get_config;
 
+  my $domain = $config->{domain};
+
+  my $zone_id = $config->{route53}->{zone_id};
+
   return
-    if !$config->{domain};
+    if !$domain;
 
   my $dryrun = $self->get_dryrun;
 
   my $route53 = $self->get_route53;
 
-  $self->get_logger->info( sprintf 'route53: will create alias for [%s]...%s', $config->{domain}, $dryrun );
+  return
+    if $dryrun;
 
-  if ( !$dryrun ) {
-    $route53->create_alias(
-      domain  => $config->{domain},
-      alb_arn => $config->{alb}->{arn},
-    );
+  my $alb_arn = $config->{alb}->{arn};
+
+  my $elb = $self->get_elb;
+
+  my $alb = $elb->describe_load_balancer( $alb_arn, 'LoadBalancers[0]' );
+
+  my ( $alb_dns_name, $alb_zone_id ) = @{$alb}{qw(DNSName CanonicalHostedZoneId)};
+
+  my $result = $route53->find_alias_record(
+    zone_id     => $zone_id,
+    dns_name    => $alb_dns_name,
+    domain_name => $domain
+  );
+
+  if ( $result && @{$result} ) {
+    $self->log_info( 'http-service: alias record for [%s] exists...skipping', $domain );
+    return;
   }
+
+  $self->log_warn( 'route53: alias for [%s] will be created...%s', $domain, $dryrun );
+
+  return
+    if $dryrun;
+
+  log_die( $self, "ERROR: could not determine if an alias record exist for [%s]\n%s",
+    $domain, $route53->get_error )
+    if !$result;
+
+  $result = $route53->create_alias(
+    domain       => $domain,
+    zone_id      => $zone_id,
+    alb_dns_name => $alb_dns_name,
+    alb_zone_id  => $alb_zone_id,
+  );
+
+  log_die( $self, "ERROR: could not create alias record for [%s]\n%s", $domain, $route53->get_error )
+    if !$result;
+
+  $self->log_warn( 'http-service: successfully create alias record for [%s]', $domain );
 
   return;
 }

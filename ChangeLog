@@ -1,3 +1,158 @@
+Sun Jul 27 15:56:28 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.3]:
+	* Makefile
+	- build lib/App/FargateStack.pm separately
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	- get_logger, not log_error
+	* lib/App/Command.pm.in
+	- log4perl_conf may not be available so eval
+	* lib/App/EC2.pm.in
+	(is_sg_authorized): new
+	(find_security_group_name): new
+	* lib/App/ECS.pm.in
+	- require servic_name, security_groups
+	- set container port to default
+	* lib/App/ElbV2.pm.in
+	(create_target_group): add health checks
+	(_create_health_check_options): new
+	(list_certificates): new
+	- removed add_certficate since we have add_listener_certificates()
+	* lib/App/FargateStack.pm.in
+	- pod updates
+	(show_config): new
+	(init)
+	- trace level for Dumper messages
+	- don't allow --no-update and apply because we need to record some state
+	- use log_info
+	- add route53_profile, profile_source, update-config, dryrun settings to init messages
+	(init_tasks)
+	- dump images, tasks if some task does not have an image
+	- fix log_die message
+	(_init_defaults):
+	- set profile source
+	- update route53 config
+	(_init_route53)
+	- trace level for Dumper messages
+	- dump alb, http setting in debug mode
+	- display hosted zones if zone invalid
+	- find the zone if it is not provided
+	(cmd_list_zones): new
+	(display_hosted_zones): new
+	(_init_ec2): log_warn
+	(_init_config): log_info
+	(cmd_run_task): -sprintf
+	(cmd_create_service): likewise
+	(cmd_register): -likewise
+	(help)
+	- fix subject parsing
+	- can't use ?, use help list
+	- regex matching
+	(cmd_plan): new
+	(cmd_apply): new
+	(cmd_update_target): new
+	(main)
+	- + profile_source
+	- move default options to %default_options
+	- move commands to %commands
+	(create_rule): log debug message
+	(validate_alb)
+	- validate the alb by scheme
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- log_info, log_warn
+	- log if we update the config
+	(configure_alb)
+	- set ALB type based on task type (http or https)
+	* lib/App/FargateStack/Builder/Certificate.pm.in
+	- log_info, log_warn
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(build_http_service)
+	- log_warn
+	- attach_certificate() if is_https
+	- check to see if we need to authorize ingress
+	(attach_certificate): new
+	(create_listeners)
+	- trace level for Dumper messages
+	- don't redirect unless secure and redirect_80 set
+	- log_info, log_warn
+	- add_listener_certificates(), not add_certificate()
+	- $elb->fetch_rule_arns_by_arn
+	(create_target_group)
+	- add health checks
+	- task, not service
+	- log_info, log_warn
+	(create_alb)
+	- log_info, log_warn, log_die
+	- better die message if we can't describe alb
+	- update alb security group name
+	- moved message about finding sg with ingress
+	- trace level for Dumper messages
+	(create_alias)
+	- log_info, log_warn
+	- don't create alias record if one exists
+	* lib/App/FargateStack/Builder/LogGroups.pm.in
+	(build_log_groups):
+	- update log group name from arn if needed
+	- fix log group arn when first creating
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- trace level for Dumper messages
+	- check policy if we don't see a name in the config
+	- if we have an ARN for the role we probably created the policy
+	- log_warn
+	- add debug logging
+	(create_role)
+	- trace level for Dumper messages
+	- use %AWS_SERVICE_DOMAINS instead of constructing service
+	- refactoring using choose(), sub {}
+	- log_warn
+	- add debug logging
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in
+	(build_security_group)
+	- trace level for Dumper messages
+	- log_die
+	- add debug logging
+	- make sure group_id gets set in config
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service)
+	- service_name, not task_name
+	- specify container port
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(create_taskdef_files)
+	- update port values in config
+	(register_task_definition)
+	- log_warn, log_die, log_info
+	- cpu, memory must be string
+	(compare_task_definition)
+	- set to false if no current task definition exists
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(choose): new
+	(dmp): new
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_HEALTH_CHECK_*
+	- + %AWS_SERVICE_DOMAINS
+	- remove load balancers, one shot
+	- add scheduled jobs, environment variables, secrets, queues, buckets
+	- add log groups, efs support, filesystem support
+	* lib/App/Route53.pm.in
+	- + unlink
+	(find_hosted_zone): new
+	(create_alias)
+	- required ALB DNS name and ALB zone now instead of find using ALB ARN
+	- fix Changes payload
+	(change_resource_record_sets)
+	- die instead of croak
+	- use unlink
+	- payload already includes Changes
+	(list_hosted_zones): new
+	(validate_hosted_zones)
+	- die instead of croak
+	(find_alias_record): new
+	* my-stack-minimal.yml
+
 Thu Jul 24 14:50:31 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.2]:

@@ -109,11 +109,12 @@ sub build {
   }
 
   # -- finished --
-  $self->get_logger->info( sprintf 'build completed in %ds', $self->benchmark('elapsed_time') );
-  $self->get_logger->info( sprintf "\t%d resources will be created.\n",
+  $self->log_info( 'builder: build completed in %ds', $self->benchmark('elapsed_time') );
+
+  $self->log_info( 'builder: %d resources will be created.',
     scalar keys %{ $self->get_required_resources // {} } // 0 );
 
-  $self->get_logger->info( sprintf "\t%d resources already exist\n",
+  $self->log_info( 'builder: %d resources already exist',
     scalar keys %{ $self->get_existing_resources // {} } // 0 );
 
   $self->section_break;
@@ -130,7 +131,7 @@ sub build {
     table_options => { headingText => 'Benchmarks' },
   );
 
-  $self->get_logger->info("\n$table");
+  $self->log_info("\n$table");
 
   # -- resources --
   foreach my $p ( pairs Required => $self->get_required_resources, Existing => $self->get_existing_resources ) {
@@ -157,7 +158,7 @@ sub build {
       $self->get_logger->$level("\n$table");
     }
     else {
-      $self->get_logger->info( sprintf 'summary: no %s resources', lc $p->[0] );
+      $self->log_warn( 'builder: no %s resources', lc $p->[0] );
     }
   }
 
@@ -200,11 +201,16 @@ sub update_config_id {
   my ($self) = @_;
 
   $Data::Dumper::Sortkeys = $TRUE;
+
   my $config = $self->get_config;
+
   delete $config->{id};
   delete $config->{last_updated};
+
   my $md5_hex = md5_hex( Dumper( $self->get_config ) );
-  $config->{id}           = $md5_hex;
+
+  $config->{id} = $md5_hex;
+
   $config->{last_updated} = scalar localtime;
 
   return $config;
@@ -214,6 +220,12 @@ sub update_config_id {
 sub update_config {
 ########################################################################
   my ($self) = @_;
+
+  $self->log_warn(
+    'builder: config file %s %s be updated',
+    $self->get_config_name,
+    $self->get_update ? 'will' : 'will not'
+  );
 
   return
     if !$self->get_update;
@@ -240,10 +252,12 @@ sub configure_alb {
 
   my $config = $self->get_config;
 
+  my $is_secure = $self->has_https_service;
+
   # default ALB type is private with a listener on port 80
   my $alb_config = $config->{alb} // {
-    type => 'private',
-    port => '80'
+    type => $is_secure ? 'public' : 'private',
+    port => $is_secure ? '443'    : '80',
   };
 
   # if it was already defined as public w/o a port, then 443 and

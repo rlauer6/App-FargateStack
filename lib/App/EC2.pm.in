@@ -3,6 +3,7 @@ package App::EC2;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
 use Carp;
 use Data::Dumper;
 use File::Temp qw(tempfile);
@@ -61,6 +62,45 @@ sub new {
   }
 
   return $self;
+}
+
+########################################################################
+sub find_security_group_name {
+########################################################################
+  my ( $self, $group_id ) = @_;
+
+  my $query = 'SecurityGroups[].GroupName';
+
+  return $self->command(
+    'describe-security-groups' => [
+      '--group-ids' => $group_id,
+      '--output'    => 'text',
+      '--query'     => $query,
+    ]
+  );
+}
+
+########################################################################
+sub is_sg_authorized {
+########################################################################
+  my ( $self, $group_id, $source_group ) = @_;
+
+  croak "usage: is_sg_authorized(group-id, source-group-id)\n"
+    if !$group_id || !$source_group;
+
+  my $query = sprintf 'SecurityGroups[].IpPermissions[].UserIdGroupPairs[?GroupId==`%s`][]', $source_group;
+
+  my $result = $self->command(
+    'describe-security-groups' => [
+      '--group-ids' => $group_id,
+      '--query'     => $query
+    ]
+  );
+
+  croak sprintf "could not describe-security-groups for [%s]\n%s", $group_id, $self->get_error
+    if !$result;
+
+  return @{$result} ? $TRUE : $FALSE;
 }
 
 ########################################################################

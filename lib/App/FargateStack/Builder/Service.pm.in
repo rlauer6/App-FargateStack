@@ -6,6 +6,7 @@ use warnings;
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
+use List::Util qw(any);
 
 use App::FargateStack::Constants;
 
@@ -53,7 +54,9 @@ sub build_service {
 
     if ( !$dryrun ) {
       $ecs->create_service(
-        task_name       => $task_name,
+        service_name    => $task_name,
+        container_name  => $task_name,
+        container_port  => $DEFAULT_PORT,
         cluster_name    => $config->{cluster}->{name},
         task_definition => $task_name,
         desired_count   => $task->{desired_count} // 1,

@@ -37,9 +37,10 @@ sub build_log_groups {
 
     if ($arn) {
       $self->log_info( 'logs: [%s] exists...%s', $group, $self->get_cache || 'skipping' );
+      my $log_group_name = ( split /:/xsm, $arn )[-1];
 
-      # update config
-      $task->{log_group}->{name} //= $log_group->{logGroupName};
+      # update config - make sure name is set!
+      $task->{log_group}->{name} //= $log_group->{logGroupName} // $log_group_name;
       $task->{log_group}->{arn}  //= $log_group->{logGroupArn};
 
       $self->inc_existing_resources( log_group => $task->{log_group}->{arn} );
@@ -51,7 +52,7 @@ sub build_log_groups {
     $self->inc_required_resources(
       log_group => sub {
         my ($dryrun) = @_;
-        return $dryrun ? "arn:???/$group" : $task->{log_group}->{arn};
+        return $dryrun ? "arn:???$group" : $task->{log_group}->{arn};
       }
     );
 

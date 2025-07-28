@@ -3,16 +3,15 @@ package App::FargateStack::Builder::TaskDefinition;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die);
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
 use File::Basename qw(fileparse);
 use Data::Compare;
 use List::Util qw(uniq);
-
 use JSON;
-
-use App::FargateStack::Constants;
 
 use Role::Tiny;
 
@@ -48,7 +47,7 @@ sub register_task_definition {
 
     my $task_definition = sprintf 'taskdef-%s.json', $task_name;
 
-    $self->get_logger->warn( sprintf 'task: [%s] changed or does not exists...will be created...%s',
+    $self->log_warn( 'task: task definition for [%s] changed or does not exists...will be created...%s',
       $task_name, $dryrun );
 
     if ( !$dryrun ) {
@@ -56,7 +55,7 @@ sub register_task_definition {
 
       my $result = $ecs->register_task_definition($task_definition);
 
-      croak sprintf "ERROR: unable to register task definition: [%s]\n%s", $task_definition, $ecs->get_error
+      log_die( $self, "ERROR: unable to register task definition: [%s]\n%s", $task_definition, $ecs->get_error )
         if !$result;
 
       $tasks->{$task_name}->{arn} = $result->{taskDefinition}->{taskDefinitionArn};
@@ -64,7 +63,7 @@ sub register_task_definition {
 
   }
   else {
-    $self->get_logger->info( sprintf 'task: [%s] unchanged...skipping', $task_name );
+    $self->log_info( 'task: [%s] unchanged...skipping', $task_name );
 
     $tasks->{$task_name}->{arn} = $task_definitions[-1];
 
@@ -128,13 +127,16 @@ sub create_taskdef_files {
     my @portMappings;
 
     if ( $task->{type} =~ /^http/xsm ) {
+
       # use port or specify container_port, host_port - pick your poison
       my $default_port = $task->{port} // $DEFAULT_PORT;
+      $task->{port} = $default_port;
+      $task->{container_port} //= $DEFAULT_PORT;
 
       @portMappings = (
         { protocol      => 'tcp',
-          containerPort => 0 + ( $task->{container_port} // $default_port ),
-          hostPort      => 0 + ( $task->{host_port}      // $default_port ),
+          containerPort => 0 + $task->{container_port},
+          hostPort      => 0 + $task->{port},
         }
       );
     }
@@ -165,7 +167,7 @@ sub create_taskdef_files {
 
     my $taskdef = {
       executionRoleArn     => $self->task_execution_role( $config->{role}->{name} // $task_name ),
-      memory               => $task->{memory},
+      memory               => "$task->{memory}",
       containerDefinitions => [
         { logConfiguration => {
             options => {
@@ -185,7 +187,7 @@ sub create_taskdef_files {
           mountPoints => $mount_points // [],
         }
       ],
-      cpu                     => $task->{cpu},
+      cpu                     => "$task->{cpu}",
       requiresCompatibilities => [q{FARGATE}],
       networkMode             => q{awsvpc},
       family                  => $task->{family},
@@ -235,9 +237,13 @@ sub compare_task_definition {
 
   my $current_taskdef = $ecs->describe_task_definition( $task_name, 'taskDefinition' );
 
-  if ($current_taskdef) {
-    $config->{tasks}->{$task_name}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
+  if ( !$current_taskdef ) {
+    $taskdef_status->{$task_name} = $FALSE;
+    $self->set_taskdef_status($taskdef_status);
+    return;
   }
+
+  $config->{tasks}->{$task_name}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
 
   my $status = -s $taskdef_file ? $TRUE : $FALSE;
 

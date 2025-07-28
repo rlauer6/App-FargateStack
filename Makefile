@@ -72,6 +72,11 @@ FARGATE_DEPS = \
 
 lib/App/FargateStack.pm: $(FARGATE_DEPS)
 
+lib/App/FargateStack/Builder/IAM.pm: \
+    lib/App/FargateStack/Constants.pm \
+    $(GAWS_PERL_MODULES) \
+    lib/App/FargateStack/Builder/Utils.pm
+
 lib/App/FargateStack/Builder/Events.pm: lib/App/FargateStack/Constants.pm $(GAWS_PERL_MODULES)
 
 $(GAWS_PERL_MODULES): $(AWS_PERL_MODULES) lib/App/Command.pm lib/App/FargateStack/Constants.pm

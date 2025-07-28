@@ -71,6 +71,21 @@ sub modify_listener_certificate {
 }
 
 ########################################################################
+sub list_certificates {
+########################################################################
+  my ( $self, $listener_arn ) = @_;
+
+  my $query = 'Certificates[].CertificateArn';
+
+  return $self->command(
+    'describe-listener-certificates' => [
+      '--listener-arn' => $listener_arn,
+      '--query'        => $query,
+    ]
+  );
+}
+
+########################################################################
 sub create_load_balancer {
 ########################################################################
   my ( $self, %args ) = @_;
@@ -93,19 +108,6 @@ sub create_load_balancer {
       '--subnets'         => $subnets,
       '--security-groups' => $security_groups,
       $tags ? ( '--tags' => $self->format_tags($tags) ) : ()
-    ]
-  );
-}
-
-########################################################################
-sub add_certficate {
-########################################################################
-  my ( $self, $listener_arn, $certificate_arn ) = @_;
-
-  return $self->command(
-    'add-listener-certificates' => [
-      '--listener-arn'    => $listener_arn,
-      '--certificate-arn' => $certificate_arn,
     ]
   );
 }
@@ -205,6 +207,8 @@ sub _find_alb_of_type {
 
   my $albs = $self->describe_load_balancers($query);
 
+  $self->get_logger->debug( Dumper( [ albs => $albs ] ) );
+
   croak "no ALBs of type: $type\n"
     if !$no_error && !$albs || !@{$albs};
 
@@ -256,49 +260,21 @@ sub create_rule {
 ########################################################################
 sub validate_alb {
 ########################################################################
-  my ( $self, $alb_arn, $vpc_id ) = @_;
+  my ( $self, %args ) = @_;
+
+  my ( $alb_arn, $scheme ) = @args{qw(arn scheme)};
 
   croak "usage: validate_alb(alb-arn, [ vpc-id ])\n"
     if !$alb_arn;
 
-  $vpc_id //= $self->get_vpc_id;
+  my $query = sprintf 'LoadBalancers[?LoadBalancerArn == `%s` && Scheme == `%s`]', $alb_arn, $scheme;
 
-  croak "no vpc_id found\n"
-    if !$vpc_id;
+  my $albs = $self->describe_load_balancers($query);
 
-  my $alb;
-  my $alb_subnets;
+  croak "ERROR: unable to find ALB: %s\n%s", $alb_arn, $self->get_error
+    if !$albs;
 
-  if ( !$vpc_id ) {
-    my $query = sprintf "LoadBalancers[?LoadBalancerArn == `%s`]|[0]", $alb_arn;
-
-    $alb = $self->describe_load_balancers($query);
-
-    croak "unable to find ALB: $alb_arn\n"
-      if !$alb || !ref $alb;
-
-    $vpc_id      = $alb->{VpcId};
-    $alb_subnets = [ map { $_->{SubnetId} } @{ $alb->{AvailabilityZones} } ];
-  }
-
-  $alb_subnets //= $self->find_alb_subnets($alb_arn);
-
-  my $ec2 = $self->get_ec2 // App::EC2->new( profile => $self->profile, vpc_id => $vpc_id );
-
-  my $public_subnets = $ec2->find_public_subnets();
-
-  return
-    if !$public_subnets;
-
-  return
-    if !$alb_subnets || !@{$alb_subnets};
-
-  foreach my $id ( @{$alb_subnets} ) {
-    return $id
-      if any { $id eq $_ } @{$public_subnets};
-  }
-
-  return;
+  return $albs;
 }
 
 ########################################################################
@@ -344,7 +320,8 @@ sub create_target_group {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ( $port, $protocol, $name, $vpc_id, $target_type ) = @args{qw(port protocol name vpc_id target_type)};
+  my ( $port, $protocol, $name, $vpc_id, $target_type, $health_check )
+    = @args{qw(port protocol name vpc_id target_type health_check)};
 
   $port        //= '80';
   $protocol    //= 'HTTP';
@@ -352,6 +329,18 @@ sub create_target_group {
   $vpc_id      //= $self->get_vpc_id;
 
   my $tags = $self->format_tags;
+
+  my @health_check_options = _create_health_check_options($health_check);
+
+  $self->get_logger->trace(
+    sub {
+      return Dumper(
+        [ health_check         => $health_check,
+          health_check_options => \@health_check_options
+        ]
+      );
+    }
+  );
 
   return $self->command(
     'create-target-group' => [
@@ -361,9 +350,45 @@ sub create_target_group {
       '--vpc-id'      => $vpc_id,
       '--target-type' => $target_type,
       $tags ? ( '--tags' => $tags ) : (),
-      '--query' => 'TargetGroups[0].TargetGroupArn'
+      '--query' => 'TargetGroups[0].TargetGroupArn',
+      @health_check_options,
     ]
   );
+}
+
+########################################################################
+sub _create_health_check_options {
+########################################################################
+  my ($health_check) = @_;
+
+  return
+    if !$health_check || !keys %{$health_check};
+
+  my @health_check_options;
+
+  if ( $health_check && $health_check->{enabled} ) {
+    push @health_check_options, '--health-check-enabled';
+
+    my @args = qw(port interval_seconds timeout_seconds matcher);
+    my @normalized_args;
+
+    foreach ( @args, qw(healthy_threshold_count unhealthy_threshold_count) ) {
+      my $k = $_;
+      $k =~ s/_/-/gxsm;
+
+      if ( !/threshold|matcher/xsm ) {
+        $k = "health-check-$k";
+      }
+
+      my $value = /matcher/xsm ? "HttpCode=$health_check->{$_}" : $health_check->{$_};
+      push @health_check_options, "--$k" => $value;
+    }
+  }
+  else {
+    push @health_check_options, '--no-health-check-enabled';
+  }
+
+  return @health_check_options;
 }
 
 ########################################################################

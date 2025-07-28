@@ -10,6 +10,17 @@ use JSON;
 use Scalar::Util qw(reftype);
 
 use Role::Tiny;
+use parent qw(Exporter);
+
+our @EXPORT = qw(log_die choose dmp);
+
+########################################################################
+sub choose (&) { return $_[0]->(); }
+########################################################################
+
+########################################################################
+sub dmp { return print {*STDERR} Dumper( [@_] ); }
+########################################################################
 
 ########################################################################
 sub _inc {
@@ -91,8 +102,8 @@ sub log_info  { return _log( shift->get_logger, 'info',   @_ ) }
 sub log_debug { return _log( shift->get_logger, 'debug',  @_ ) }
 sub log_warn  { return _log( shift->get_logger, 'warn',   @_ ) }
 sub log_error { return _log( shift->get_logger, 'error',  @_ ) }
-sub log_fatal { return _log( shift->get_logger, 'fatal',  @_ ) }
 sub log_die   { return _log( shift->get_logger, 'logdie', @_ ) }
 sub log_trace { return _log( shift->get_logger, 'trace',  @_ ) }
+sub log_fatal { return _log( shift->get_logger, 'fatal',  @_ ) }
 
 1;

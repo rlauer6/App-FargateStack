@@ -21,8 +21,10 @@ use App::FargateStack::Constants;
 use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
 use CLI::Simple;
 use Carp;
+
 use Data::Dumper;
 use English qw(no_match_vars);
+use File::Basename qw(basename);
 use Log::Log4perl;
 use Pod::Usage;
 use Scalar::Util qw(reftype);
@@ -65,6 +67,9 @@ sub init {
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
 
+  log_die( $self, 'ERROR: when applying changes --no-update is not allowed' )
+    if !$dryrun && !$self->get_update;
+
   my $cache = $self->get_cache;
   $self->set_cache( $cache ? '(cached)' : $EMPTY );
 
@@ -99,25 +104,49 @@ sub init {
     $self->_init_route53();
   }
 
-  $self->get_logger->trace( Dumper( [ config => $config ] ) );
+  $self->get_logger->trace( sub { return Dumper( [ config => $config ] ); } );
 
-  my $subnets = $self->get_subnets;
-
-  $self->get_logger->info( sprintf 'init:            config: [%s]', $self->get_config_name );
-  $self->get_logger->info( sprintf 'init:         log level: [%s]', $self->get_log_level );
-  $self->get_logger->info( sprintf 'init:             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
-  $self->get_logger->info( sprintf 'init:           account: [%s]', $self->get_account );
-  $self->get_logger->info( sprintf 'init:           profile: [%s]', $self->get_profile );
-  $self->get_logger->info( sprintf 'init:            region: [%s]', $self->get_region );
-  $self->get_logger->info( sprintf 'init:          app name: [%s]', $config->{app}->{name} );
-  $self->get_logger->info( sprintf 'init:       app version: [%s]', $config->{app}->{version} // q{-} );
-  $self->get_logger->info( sprintf 'init:     https service: [%s]', $self->get_http           // q{-} );
-  $self->get_logger->info( sprintf 'init:  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
-  $self->get_logger->info( sprintf 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
-  $self->get_logger->info( sprintf '                 public: [%s]', join q{,}, @{ $subnets->{private} || [] } );
-  $self->get_logger->info( sprintf '                private: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
+  $self->show_config;
 
   return $TRUE;
+}
+
+########################################################################
+sub show_config {
+########################################################################
+  my ($self) = @_;
+
+  my $config  = $self->get_config;
+  my $subnets = $self->get_subnets;
+
+  $self->log_info( 'init:           account: [%s]', $self->get_account );
+  $self->log_info( 'init:           profile: [%s]', $self->get_profile );
+  $self->log_info( 'init:    profile source: [%s]', $self->get_profile_source );
+  $self->log_info( 'init:            region: [%s]', $self->get_region );
+  $self->section_break;
+
+  $self->log_info( 'init:   route53 profile: [%s]', $config->{route53}->{profile} );
+  $self->log_info( 'init:   route53 zone_id: [%s]', $config->{route53}->{zone_id} );
+  $self->section_break;
+
+  $self->log_info( 'init:          app name: [%s]', $config->{app}->{name} );
+  $self->log_info( 'init:       app version: [%s]', $config->{app}->{version} // q{-} );
+  $self->log_info( 'init:     https service: [%s]', $self->get_http           // q{-} );
+  $self->log_info( 'init:  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
+  $self->section_break;
+
+  $self->log_info( 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
+  $self->log_info( '                 public: [%s]', join q{,}, @{ $subnets->{private} || [] } );
+  $self->log_info( '                private: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
+  $self->section_break;
+
+  $self->log_info( 'init:            config: [%s]', $self->get_config_name );
+  $self->log_info( 'init:         log level: [%s]', $self->get_log_level );
+  $self->log_info( 'init:             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
+  $self->log_warn( 'init:     update config: [%s]', $self->get_update ? 'yes' : 'no' );
+  $self->log_warn( 'init:            dryrun: [%s]', $self->get_dryrun ? 'yes' : 'no' );
+
+  return;
 }
 
 ########################################################################
@@ -144,16 +173,14 @@ sub _init_tasks {
   if ($http_service) {
     $self->configure_alb();
 
-    log_die( $self, "ERROR: when provisioning an http service type, domain is required\n" )
+    log_die( $self, "ERROR: when provisioning an http task, domain is required\n" )
       if !$config->{domain};
 
-    log_die( $self, "ERROR: when provisioning an http service route53->zone_id is required\n" )
-      if !$config->{route53}->{zone_id};
   }
 
   my @images = map { $tasks->{$_}->{image} // () } keys %{$tasks};
 
-  log_die( $self, 'ERROR: every task must have an image' )
+  log_die( $self, "ERROR: every task must have an image\n" . Dumper( [ images => \@images, tasks => $tasks ] ) )
     if @images != scalar keys %{$tasks};
 
   return
@@ -222,14 +249,14 @@ sub _init_defaults {
   }
 
   if ( !$profile ) {
-    $profile = 'default';
-    $self->log_info( 'init: no profile found, using [%s]', $profile );
-  }
-  else {
-    $self->log_info( 'init: using profile [%s] from [%s]', $profile, $profile_source );
+    $profile        = 'default';
+    $profile_source = 'default';
   }
 
   $self->set_profile($profile);
+  $config->{profile} = $profile;
+
+  $self->set_profile_source($profile_source);
 
   $config->{default_log_group} //= sprintf '/ecs/' . $config->{app}->{name};
 
@@ -253,9 +280,18 @@ sub _init_route53 {
 
   my $config = $self->get_config;
 
+  $self->log_trace( sub { return Dumper( [ alb => $config->{alb}, $self->get_http ] ) } );
+
   my $alb_type = $config->{alb}->{type};
 
   my ( $route53_config, $domain ) = @{$config}{qw(route53 domain)};
+
+  if ( !$route53_config ) {
+    $route53_config = {};
+    $config->{route53} = $route53_config;
+  }
+
+  $route53_config->{profile} //= $self->get_profile;
 
   my ( $zone_id, $profile ) = @{$route53_config}{qw(zone_id profile)};
 
@@ -263,18 +299,101 @@ sub _init_route53 {
     hosted_zone_id => $zone_id,
     elb            => $self->get_elb,
     %{ $self->get_global_options },
-    profile => $profile // $self->get_profile
+    profile => $profile,
   );
 
   $self->set_route53($route53);
 
-  $route53->validate_hosted_zone(
-    zone_id  => $zone_id,
-    domain   => $domain,
-    alb_type => $alb_type,
-  );
+  if ( !$zone_id ) {
+    my $zone_type = $self->is_https ? 'public' : 'private';
+
+    $self->log_warn( 'init: zone_id is required when creating a task of type: [%s]',
+      $self->is_https ? 'https' : 'http' );
+
+    $self->log_warn( 'init: ...attempting to find a [%s] hosted zone', $zone_type );
+
+    my $hosted_zone = $route53->find_hosted_zone( $domain, $zone_type );
+    $self->benchmark('route53');
+
+    log_die( $self, 'init: ERROR: no hosted zone of type [%s] found in this account for domain: [%s]',
+      $zone_type, $domain )
+      if !$hosted_zone || !@{$hosted_zone};
+
+    $zone_id = basename( $hosted_zone->[0]->{Id} );
+    $route53_config->{zone_id} = $zone_id;
+  }
+
+  my $zone = eval {
+    return $route53->validate_hosted_zone(
+      zone_id  => $zone_id,
+      domain   => $domain,
+      alb_type => $alb_type,
+    );
+  };
+
+  if ( !$zone || $EVAL_ERROR ) {
+    my $err = $EVAL_ERROR;
+
+    # output a helpful table of hosted zones for this domain
+    $self->log_warn( "\n" . $self->display_hosted_zones($domain) );
+
+    ($err) = split /\n/, $err;
+
+    die 'ERROR: ' . $err;
+  }
 
   return;
+}
+
+########################################################################
+sub cmd_list_zones {
+########################################################################
+  my ($self) = @_;
+
+  my ($domain) = $self->get_args;
+
+  croak sprintf "usage: %s list-zones domain\n", $ENV{SCRIPT_PATH}
+    if !$domain;
+
+  print {*STDOUT} $self->display_hosted_zones($domain);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub display_hosted_zones {
+########################################################################
+  my ( $self, $domain ) = @_;
+
+  my $hosted_zones = $self->get_route53->list_hosted_zones;
+
+  return
+    if !$hosted_zones || !@{ $hosted_zones->{HostedZones} };
+
+  my @zones = @{ $hosted_zones->{HostedZones} };
+
+  my @data;
+
+  foreach my $zone (@zones) {
+    my $name = $zone->{Name};
+    $name =~ s/[.]$//xsm;
+
+    next if $domain !~ /$name/xsm;
+
+    my ($zone_id) = ( split /\//xsm, $zone->{Id} )[-1];
+
+    push @data, { 'Zone Id' => $zone_id, Name => $zone->{Name} };
+  }
+
+  my $title = sprintf 'Hosted Zones (%s)', $domain;
+
+  my $table = easy_table(
+    data          => [@data],
+    table_options => { headingText => $title },
+    columns       => [ 'Zone Id', 'Name' ],
+  );
+
+  return $table;
 }
 
 ########################################################################
@@ -296,7 +415,7 @@ sub _init_ec2 {
   $self->set_ec2($ec2);
 
   if ( $ec2->get_is_default_vpc ) {
-    $self->get_logger->warn( sprintf 'init: found a default VPC...%s', $ec2->get_vpc_id );
+    $self->log_warn( 'init: found a default VPC...%s', $ec2->get_vpc_id );
     $config->{vpc_id} = $ec2->get_vpc_id;
   }
 
@@ -331,7 +450,7 @@ sub _init_config {
 
   $self->section_break;
 
-  $self->get_logger->info( sprintf '%s %s (c) Copyright 2025 TBC Development Group, LLC', ref $self, $VERSION );
+  $self->log_info( '%s %s (c) Copyright 2025 TBC Development Group, LLC', ref $self, $VERSION );
   $self->section_break;
 
   my $config = LoadFile($config_file);
@@ -350,12 +469,12 @@ sub cmd_run_task {
 
   my ($task_name) = $self->get_args;
 
-  log_die( $self, sprintf "usage: %s run-task task-name\n", $ENV{SCRIPT_PATH} )
+  log_die( $self, "usage: %s run-task task-name\n", $ENV{SCRIPT_PATH} )
     if !$task_name;
 
   my $task = $config->{tasks}->{$task_name};
 
-  log_die( $self, sprintf "ERROR: no such task [%s] defined in config\n", $task_name )
+  log_die( $self, "ERROR: no such task [%s] defined in config\n", $task_name )
     if !$task;
 
   my @subnets = @{ $self->get_subnets->{private} // [] };
@@ -383,12 +502,12 @@ sub cmd_run_task {
     network_configuration => $network_configuration,
   );
 
-  log_die( $self, sprintf "ERROR: could not run task [%s]\n%s\n", $task_name, $self->get_ecs->get_error )
+  log_die( $self, "ERROR: could not run task [%s]\n%s\n", $task_name, $self->get_ecs->get_error )
     if !$result;
 
   my @failures = @{ $result->{failures} };
 
-  log_die( $self, sprintf 'ERROR: task failed to launch: %s', Dumper( \@failures ) )
+  log_die( $self, 'ERROR: task failed to launch: %s', Dumper( \@failures ) )
     if @failures;
 
   my ($tasks) = @{ $result->{tasks} };
@@ -445,10 +564,10 @@ sub cmd_create_service {
 
   my $config = $self->get_config;
 
-  log_die( $self, sprintf "usage: $ENV{SCRIPT_NAME} create-service task-name\n" )
+  log_die( $self, "usage: $ENV{SCRIPT_NAME} create-service task-name\n" )
     if !$task_name;
 
-  log_die( $self, sprintf "no such task defined in config [%s]\n", $task_name )
+  log_die( $self, "no such task defined in config [%s]\n", $task_name )
     if !$config->{tasks}->{$task_name};
 
   return $self->build_service($task_name);
@@ -506,7 +625,7 @@ sub cmd_register {
 
   my $action = $self->get_skip_register ? 'update-target' : 'register';
 
-  log_die( $self, sprintf 'usage: %s %s task-name', $action, $ENV{SCRIPT_PATH} )
+  log_die( $self, 'usage: %s %s task-name', $action, $ENV{SCRIPT_PATH} )
     if !$task_name;
 
   my $ecs = $self->get_ecs;
@@ -589,17 +708,36 @@ sub help {
 ########################################################################
   my ($self) = @_;
 
-  my $subject = lc join $SPACE, $ARGV[-1];
+  my $subject = lc join $SPACE, @ARGV;
+  $subject =~ s/\s+$//xsm;
 
   my $section = $HELP_SUBJECTS{$subject} // $EMPTY;
 
-  if ( ref $section ) {
+  if ( !$section ) {
+    my @possible_subjects = grep {/$subject/xsmi} keys %HELP_SUBJECTS;
+
+    if ( @possible_subjects == 1 ) {
+      $section = $HELP_SUBJECTS{ $possible_subjects[0] };
+    }
+    elsif (@possible_subjects) {
+      print {*STDERR} sprintf "'%s' was not found in the help index.\n\nPossible matches:\n\t* %s\n", $subject,
+        join "\n\t* ",
+        @possible_subjects;
+      exit 1;
+    }
+  }
+
+  if ( $section && ref $section ) {
     $section = $section->[0];
+  }
+  else {  # a help subject alias
+    my $reference = $HELP_SUBJECTS{$section};
+    $section = $reference->[0];
   }
 
   if ( !$section ) {
-    if ( $subject ne q{?} && $subject ne 'list' ) {
-      print {*STDERR} sprintf "'%s' is not a valid subject\n";
+    if ( $subject ne 'list' ) {
+      print {*STDERR} sprintf "'%s' is not a valid subject\n", $subject;
     }
 
     my @data;
@@ -658,6 +796,36 @@ sub init_logger {
 }
 
 ########################################################################
+sub cmd_plan {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  $self->set_dryrun('(dryrun)');
+
+  return $self->build(@args);
+}
+
+########################################################################
+sub cmd_apply {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  $self->set_dryrun($EMPTY);
+
+  return $self->build(@args);
+}
+
+########################################################################
+sub cmd_update_target {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  $self->set_skip_register($TRUE);
+
+  return $self->cmd_register(@args);
+}
+
+########################################################################
 sub main {
 ########################################################################
 
@@ -677,6 +845,7 @@ sub main {
     logs
     log_groups
     logger
+    profile_source
     required_resources
     route53
     sts
@@ -703,51 +872,38 @@ sub main {
     wait|w!
   );
 
+  my %default_options = (
+    'update'    => $TRUE,
+    wait        => $TRUE,
+    unlink      => $TRUE,
+    color       => $TRUE,
+    cache       => $TRUE,
+    'log-level' => 'info',
+  );
+
+  my %commands = (
+    'create-service' => \&cmd_create_service,
+    'delete-service' => \&cmd_delete_service,
+    'run-task'       => \&cmd_run_task,
+    'start-service'  => \&cmd_start_service,
+    'stop-service'   => \&cmd_stop_service,
+    'update-target'  => \&cmd_update_target,
+    apply            => \&cmd_apply,
+    default          => \&cmd_explain,
+    help             => \&help,
+    'list-zones'     => \&cmd_list_zones,
+    plan             => \&cmd_plan,
+    register         => \&cmd_register,
+    start            => \&cmd_start_service,
+    stop             => \&cmd_stop_service,
+    version          => \&cmd_version,
+  );
+
   my $fargate_stack = App::FargateStack->new(
+    commands        => \%commands,
+    default_options => \%default_options,
+    extra_options   => \@extra_options,
     option_specs    => \@option_specs,
-    default_options => {
-      'update'    => $TRUE,
-      wait        => $TRUE,
-      unlink      => $TRUE,
-      color       => $TRUE,
-      cache       => $TRUE,
-      'log-level' => 'info',
-    },  # set some defaults
-    extra_options => \@extra_options,
-    commands      => {
-      plan => sub {
-        my ( $self, @args ) = @_;
-
-        $self->set_dryrun('(dryrun)');
-
-        return $self->build(@args);
-      },
-      apply => sub {
-        my ( $self, @args ) = @_;
-
-        $self->set_dryrun($EMPTY);
-
-        return $self->build(@args);
-      },
-      'create-service' => \&cmd_create_service,
-      'delete-service' => \&cmd_delete_service,
-      'start-service'  => \&cmd_start_service,
-      'stop-service'   => \&cmd_stop_service,
-      'run-task'       => \&cmd_run_task,
-      create           => \&cmd_create_service,
-      default          => \&cmd_explain,
-      delete           => \&cmd_delete_service,
-      help             => \&help,
-      start            => \&cmd_start_service,
-      register         => \&cmd_register,
-      'update-target'  => sub {
-        my ( $self, @args ) = @_;
-        $self->set_skip_register(1);
-        return $self->cmd_register(@args);
-      },
-      stop    => \&cmd_stop_service,
-      version => \&cmd_version,
-    }
   );
 
   $fargate_stack->run();
@@ -772,11 +928,12 @@ App::FargateStack
 =head2 Commands
 
  help {subject}                 displays general help or help on a particular subject (see Note 2)
- apply                          determines resources required and applies changes
- create{-service} task-name     create a new service
- delete{-service} task-name     delete an existing service
- plan
- register task-name
+ apply                          reads config and creates resources
+ create-service task-name       create a new service (see Note 4)
+ delete-service task-name       delete an existing service
+ list-zones domain              list the hosted zones for a domain
+ plan                           reads config and reports on resource creation
+ register task-name        
  run-task task-name
  update-target task-name
  version                        show version number
@@ -784,12 +941,14 @@ App::FargateStack
 =head2 Options
 
  -h, --help                 help
- -c, --config               path to the .yml config file
+ -c, --config               path to the .yml configuration
  -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
  -d, --dryrun               just report actions, do not apply
  --color, --no-color        default: color
+ --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info
  -p, --profile              AWS profile (see Note 1)
  -u, --update, --no-update  update config
+ -w, --wait, --no-wait      wait for tasks to complete and dump log
  -v, --version              script version
 
 =head2 Notes
@@ -799,7 +958,7 @@ App::FargateStack
 =item 1. Use the --profile option to override the profile defined in
 the configuration file.
 
-The Route53 service uses the same profile unless you specify a profile
+The Route 53 service uses the same profile unless you specify a profile
 name in the C<route53> section of the configuraiton file.
 
 =item 2. You can get help using the C<--help> option or use the help
@@ -808,43 +967,56 @@ command with a subject.
  app-FargateStack help overview
 
 If you do not provide a subject then you will get the same information
-as C<--help>. Use C<help ?"> or C<help list> to get a list of available subjects.
+as C<--help>. Use C<help list> to get a list of available subjects.
+
+=item 3. You must log at least at the 'info' level to report progress.
+
+=item 4. By default an ECS service is NOT created for you by default for daemon
+and http tasks.
 
 =back
 
 =head1 OVERVIEW
 
+I<NOTE: This is a brief overview of C<App::FargateStack>. To see a 
+list of topics providing more detail use the C<help list> command.>
+
 The C<App::Fargate> framework, as its name implies provide developers
-with a way to create Fargate tasks and services. It has been designed
+with a tool to create Fargate tasks and services. It has been designed
 to make creating and launching Fargate based services as simple as
-possible. Accordingly, it is opinionated and provides logical and
-pragmattic defaults. Using a YAML based configuration file, you specify
-the resources required to create your services.
+possible. Accordingly, it provides logical and pragmatic defaults
+based on the common uses for Fargate based applications. You can
+however customize many of the resources being built by the
+script.
+
+Using a YAML based configuration file, you specify the your required
+resources and their attributes, run the C<app-FargateStack> script and
+launch your application.
 
 Using this framework you can:
 
 =over 4
 
-=item * ...specify internal or external facing HTTP services that will:
+=item * ...build internal or external facing HTTP services that:
 
 =over 8
 
 =item * ...automatically provision certificates for external facing web applications
 
-
-=item * ...use existing or create new internal or external facing application load balancers (ALB).
+=item * ...use an existing or create a new internal or external facing application load balancer (ALB).
 
 =item * ...automatically create an alias record in Route 53 for your domain
 
-=item * ...create redirect listener rule to redirect port 80 requests to 443 
+=item * ...create a redirect listener rule to redirect port 80 requests to 443 
 
 =back
 
 =item * ...create queues and buckets to support your application
 
-=item * ...use the dryrun mode to examine what will be created before resources are built
+=item * ...use a dryrun mode to report the resources that will built
+before building them
 
-=item * ...run the script multiple times (idempotency)
+=item * ...run C<app-FargateStack> multiple times (idempotency)
 
 =item * ...create daemon services
 
@@ -854,34 +1026,54 @@ Using this framework you can:
 
 =back
 
+=head2 Additional Features
+
+=over 4
+
+=item - inject secrets into the container's environment using a simple syntax (See L</SECRETS MANAGEMENT>)
+
+=item - detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
+
+=item - automatic IAM role and policy generation based on configured resources
+
+=item - define an launch multiple independent Fargate tasks and services under a single stack
+
+=item - automatic creation of log groups with customizable retention period
+
+=item - discovery of existing environment to intelligently populate configuration defaults
+
+back
+
 =head2 Minimal Configuration
 
 Getting a Fargate task up and running requires that you provision and
 configure multiple AWS resources. Stitching it together using
-Terraform or CloudFormation can be tedious and time consuming, even if
-you know what resources to provision and how to stitch it together.
+B<Terraform> or B<CloudFormation> can be tedious and time consuming,
+even if you know what resources to provision AND how to stitch it
+together.
 
 The motivation behind writing this framework was to take the drudgery
-of writing declarative resource generators for every resource
-required. Instead, we want a framework that covers 90% of our use
-cases and allows our development workflow to go something like:
+of writing declarative resource generators for all of the resources required
+to run a simple task, create basic web applications or RESTful
+APIs. Instead, we wanted a framework that covered 90% of our use cases
+while allowing our development workflow to go something like:
 
 =over 4
 
-=item 1. Create a Docker image that implements our worker
+=item 1. Create a Docker image that implements our worker, web app or API
 
-=item 2. Create a minimal configuration file that describes our worker
+=item 2. Create a minimal configuration file that describes our application
 
 =item 3. Execute the framework's script and create the necessary AWS infrastructure
 
-=item 4. Run the task, service or the scheduled job
+=item 4. Launch the http server, daemon, scheduled job, or adhoc worker
 
 =back
 
-This is only a "good idea" if #2 is truly minimal, otherwise it becomes
-an exercise similar to using Terraform or CloudFormation. So what is
-the minimum amount of configuration to inform our framework for
-creating our Fargate worker? How 'bout this:
+Of course, this is only a "good idea" if #2 is truly minimal,
+otherwise it becomes an exercise similar to using Terraform or
+CloudFormation. So what is the minimum amount of configuration to
+inform our framework for creating our Fargate worker? How 'bout this:
 
  ---
  app:
@@ -892,9 +1084,9 @@ creating our Fargate worker? How 'bout this:
      image: my-worker:latest
      schedule: cron(50 12 * * * *)
 
-Using this minimal configuration and running the script like this:
+Using this minimal configuration and running C<app-FargateStack>t like this:
 
- app-Fargate -c --profile prod minimal.yml plan
+ app-FargateStack -c --profile prod minimal.yml plan
 
 ...would create the following resources in your default VPC:
 
@@ -916,7 +1108,7 @@ Using this minimal configuration and running the script like this:
 
 =item * an IAM role for EventBridge
 
-=item * an IAM policy for EventBridget
+=item * an IAM policy for EventBridge
 
 =item * an EventBridge rule that schedules the worker
 
@@ -926,11 +1118,58 @@ Using this minimal configuration and running the script like this:
 more annoying when you want your worker to be able to access other AWS
 resources like buckets, queues or EFS directories.
 
-=head2 Adding More Resources
+=head2 Web Applications
 
-Adding more resources for my worker should also be easy. Updating the
-infrastrucutre should just be a matter of updating the configuration
-and re-running the framework's script.
+Creating a web application using a minimal configuration works too. To
+build a web application you can start with this minimal configuration:
+
+ ---
+ app:
+   name: my-web-app
+ domain: my-web-app.example.com
+ route53:
+   zone_id: Z3YYX2RBQJTYM
+ tasks:
+   apache:
+     type: https
+     image: my-web-app:latest
+
+This will create an externally facing web application for you with
+these resources:
+
+=over 4
+
+=item *  A certificate for your domain
+
+=item * A Fargate cluster
+
+=item * IAM roles and policies
+
+=item * A listener and listener rules
+
+=item * A CloudWatch log group
+
+=item * Security groups
+
+=item * A target group
+
+=item * A task definition
+
+=item * An ALB if one is not detected
+
+=back
+
+Once again, launching a Fargate service requires a
+lot of fiddling with AWS resources! Getting all of the plumbing
+installed and working requires a lot of what and how knowledge.
+
+=head2 Adding or Changing Resources
+
+Adding or updating resources for an existing application should also be
+easy. Updating the infrastrucutre should just be a matter of updating
+the configuration and re-running the framework's script. When you
+update the configuration the script will detect changes and update the
+necessary resources.
 
 Currently the framework supports adding a single SQS queue, a single
 S3 bucket, volumes using EFS mount points and, environment variables
@@ -940,7 +1179,7 @@ that can be injected from AWS SecretsManager.
    image: my-worker:latest
    command: /usr/local/bin/my-worker.pl
    type: task
-   schedule: cron(00 15 * * * * )   
+   schedule: cron(00 15 * * * *)   
    bucket:
      name: my-worker-bucket
    queue:
@@ -957,7 +1196,7 @@ that can be injected from AWS SecretsManager.
 Adding new resources would normally require you to update your
 policies to allow your worker to access these resource. However, the
 framework automatically detects that the policy needs to be updated
-when new resoures are added (even secrets) and takes care of that for
+when new resources are added (even secrets) and takes care of that for
 you.
 
 See C<app-Fargate help configuration> for more information about
@@ -967,31 +1206,161 @@ resources and options.
 
 The framework attempts to be as transparent as possible regarding what
 it is doing, how long it takes, what the result was and most
-importantly I<what defaults it has used to configure the resources it
-has provisioned>. Every time the framework is run, the configuration
-file is updated based on any new resources provisioned or configured.
+importantly I<what defaults were used during resource
+provisioning>. Every time the framework is run, the configuration file
+is updated based on any new resources provisioned or configured.
 
 This gives you a single view into your Fargate application.
 
+=head1 CLOUDWATCH LOG GROUPS
+
+A CloudWatch log group is automatically provisioned for each
+application stack. By default, the log group name is
+/ecs/<application-name>, and log streams are created per task.
+
+For example, given the following configuration:
+
+ app:
+   name: my-stack
+ ...
+ tasks:
+   apache:
+     type: https
+
+The framework will:
+
+=over 4
+
+=item * Create a log group named /ecs/my-stack
+
+=item Configure the apache task to write log streams with a prefix
+like my-stack/apache/*
+
+=back
+
+By default, the log group is set to retain logs for 14 days. You can
+override this by specifying a custom retention period using the
+C<retention_days> key in the task's log_group section:
+
+ log_group:
+   retention_days: 30
+
+=head2 Notes
+
+=over 4
+
+=item * The log group is reused if it already exists.
+
+=item * Only numeric values accepted by CloudWatch are valid for
+retention_days (e.g., 1, 3, 5, 7, 14, 30, 60, 90, etc.).
+
+=item * You can customize the log group name by setting the name in the C<log_group:> section.
+
+ log_group:
+   retention_days: 14
+   name: /ecs/my-stack
+
+=back
+
 =head1 IAM PERMISSIONS
 
-This framework uses a single IAM role for all defined tasks in a
-given application stack. The assumption is that all services defined
-in a stack operate on shared infrastructure and can be trusted
-equally. This simplifies IAM management while maintaining a secure
-boundary around the stack as a whole.
+This framework uses a single IAM role for all tasks defined within an
+application stack.  The assumption is that services within the stack
+share a trust boundary and operate on shared infrastructure.  This
+simplifies IAM management while maintaining strict isolation between
+stacks.
+
+IAM roles and policies are automatically created based on your
+configuration.  Only the minimum required permissions are granted.
+For example, if your configuration defines an S3 bucket, the ECS task
+role will be permitted to access only that specific bucket—not all
+buckets in your account.
+
+=head1 SECURITY GROUPS
+
+A security group is automatically provisioned for your Fargate
+cluster.  If you define a task of type C<http> or C<https>, the
+security group attached to your Application Load Balancer (ALB) is
+automatically authorized for ingress to your Fargate task.
+
+
+=head1 FILESYSTEM SUPPORT
+
+EFS volumes are defined per task and mounted according to the task
+definition. This design provides fine-grained control over EFS usage,
+rather than treating it as a global, stack-level resource.
+
+Each task that requires EFS support must include both a volume and
+mountPoint configuration. The ECS task role is automatically updated
+to allow EFS access based on your specification.
+
+To specify EFS support in a task:
+
+ efs:
+   id: fs-1234567b
+   mount_point: /mnt/my-stack
+   path: /
+   readonly:
+
+=head2 Field Descriptions
+
+=over 4
+
+=item id:
+
+The ID of an existing EFS filesystem. The framework does not provision
+the EFS, but will validate its existence in the current AWS account
+and region.
+
+=item mount_point:
+
+The container path to which the EFS volume will be mounted.
+
+=item path:
+
+The path on the EFS filesystem to map to your container's mount point.
+
+=item readonly:
+
+Optional. Set to C<true> to mount the EFS as read-only. Defaults to
+C<false>.
+
+=back
+
+=head2 Additional Notes
+
+=over 4
+
+=item * The ECS role's policy for your task is automatically modified
+to allow read/write EFS access. Set C<readonly:> in your task's
+C<efs:> section to false if only want read support.
+
+=item * Your EFS security group must allow access from private subnets
+where the Fargate tasks are placed.
+
+=item * No changes are made to the EFS security group; the framework
+assumes access is already configured
+
+=item * Only one EFS volume is currently supported per task configuration.
+
+=item * EFS volumes are task-scoped and reused only where explicitly configured.
+
+=item * The framework does not automatically provision an EFS
+filesystem for you. The framework does however validate that the
+filesystem exists in the current account and region.
+
+=back
 
 =head1 CONFIGURATION
 
 The C<App::Fargate> framework maintains your application stack's state
 using a YAML configuration file. Start the process of building your
-stack by creating a F<.yml> file with the minimum required elements.
+stack by creating a YAML file with the minimum required elements.
 
  app:
    name: my-stack
  tasks:
    my-stack-daemon-1:
-     command: /usr/local/bin/start-daemon
      image: my-stack-daemon:latest
      type: daemon
 
@@ -1004,73 +1373,420 @@ deploy. In this minimal configuration we are provisioning:
 
 =item * ...one service that will run a daemon
 
-=item * ...a service that run in the default VPC in a private
-subnet (or public subnet if that is the only subnet available)
+=item * ...a service that runs in the default VPC in a private
+subnet
 
-=item * ...resources using the default AWS profile (or the one specified
-by the environment variable AWS_PROFILE)
+=item * ...any required resources using the default AWS profile (or the
+one specified by the environment variable AWS_PROFILE)
 
 =back
 
-Running C<app-Fargate -c my-stack.yml plan> will analyze you
+Running C<appFargateStack -c my-stack.yml plan> will analyze your
 configuration file and report on the resources about to be created. It
 will also update the configuration file with the defaults it used when
-deciding what to do. Run C<app-Fargate -c my-stack.yml apply> to build
-the stack.
+discovering the resources that need to be provisioned. You run
+C<app-FargateStack -c my-stack.yml apply> to actually build the stack.
 
-=head1 LOAD BALANCERS
+=head2 Environment Discovery
 
-When you provision an http service whether it is secure or not we will
-place the service behind a load balancer. The framework will provision
-an ALB for you or you can use an ALB currently in your VPC.
+If you do not provide some configurtion values C<app-FargateStack>
+will inspect your AWS account to automatically set certain
+configuration values. For example, if you do not set the C<vpc_id:>
+key, the script will look for a default VPC. Your VPC must contain at
+least 1 private subnet which will be used to place your Fargate task.
+
+=head2 Configuration Details
+
+The configuration is a YAML formatted file with various elements that
+describe your application, its resources and their attributes.  Many
+of these elements are optional when you first run the
+C<app-FargateStack> script. You must provide at least these sections:
+
+ app:
+   name: app-name
+ tasks
+   image: image-name
+   type: daemon|task|http|https
+
+For task type C<http> or C<https> you must also provide a domain name
+for your HTTP service.
+
+ domain: domain-name
+
+Configuration schema is show below. All element are optional except
+those noted above.
+
+---
+account:
+alb:
+  arn:
+  name:
+  port:
+  type:
+app:
+  name:
+  version:
+certificate_arn:
+cluster:
+  arn:
+  name:
+default_log_group:
+domain:
+id:
+last_updated:
+region:
+role:
+  arn:
+  name:
+  policy_name:
+route53:
+  profile:
+  zone_id:
+security_groups:
+  alb:
+    group_id:
+    group_name:
+  fargate:
+    group_id:
+    group_name:
+subnets:
+  private:
+  public:
+tasks:
+  apache:
+    arn:
+    cpu:
+    family:
+    image:
+    log_group:
+      arn:
+      name:
+      retention_days:
+    memory:
+    name:
+    target_group_arn:
+    target_group_name:
+    task_definition_arn:
+    type:
+vpc_id:
+
+
+=head3 
+
+=head1 ENVIRONMENT VARIABLES
+
+You specify environment variable and their values in the
+C<environment:> section of your task's configuration.
+
+Example:
+
+ task:
+   apache:
+     environment:
+       ENVIRONMENT: prod
+
+=head2 Inject Secrets from SecretsManager Into the Environment
+
+To inject secrets from SecretsManager into your environment add a
+section name "secrets" to you task's configuration. Specify the path
+and environment variable name as C<path:enviroment-variable-name>.
+
+Example:
+
+ secrets:
+   /my-stack/mysql-password:DB_PASSWORD
+
+This would inject the secret value for C</my-stack/mysql-password>
+into the environment variable "DB_PASSWORD".
+
+=head1 SQS QUEUES
+
+=head2 Customizing Queue Attributes
+
+=head1 S3 BUCKETS
+
+=head2 Adding a Bucket Policy
+
+=head1 SCHEDULED JOBS
+
+=head2 Scheduling A Job
+
+=head2 Running an Adhoc Job
+
+=head1 HTTP SERVICES
+
+=head2 Overview
+
+To create a Fargate HTTP service set the C<type:> key in your task's
+configuration section to "http" or "https".
+
+The task type ("http" or "https") determines:
+
+=over 4 
+
+=item *  the B<type of load balancer> that will be used or created
+
+=item * whether a B<certificate will be used or created>
+
+=item * what B<default port> will be configured in your ALB's listener
+rule
+
+=head2 Key Assumptions When Creating HTTP Services
 
 =over 4
 
-=item 1. An ALB will be created if no usable ALB exists when the service
-type is http or https.
+=item * Your domain is managed in Route 53 and your profile can create
+Route 53 record sets.
 
-If no ALB is defined in the configuration and the service type is
-C<http> or C<https> then the script will look for an internal or
-inter-facing ALB depending on the service type. If no ALB is found,
-one will be provisioned.
+I<Note: If your domain is managed in a different AWS account, set a
+separate `profile` in the `route53:` section with sufficient
+permissions to update the relevant hosted zone.>
 
-If multiple ALBs exist, the script will terminate and display a list
-of ALBs. The user should then pick one and set C<alb_arn> in the
-configuration file.
+=item * Your Fargate task will be deployed in a private subnet and
+will listen on port 80.
 
-=item 2. C<domain> is required if service type is C<http> or C<https>
+=item * No certificate will be provisioned for internal facing
+applications. Traffic by default to internal facing applications
+(those that use an internal ALB) will be insecure.
 
-=item 3. A certificate will be created for the domain if the service
-type is C<https> and no certificate for that domain currently exists.
+=head2 Architecture
 
-=item 4. If an ALB is required and no C<type> is defined in the
-configuration it assumed to be an internal ALB for service type
-C<http> and internet-facing for service type C<https>
+When you set your task type to C<http> or C<https> a default
+architecture depicted below will be provisioned.
 
-=item 5. If no port is defined for the ALB port 443 will be used for
-service type C<https> and 80 for service type C<http>.
+                            (optional)
+                        +------------------+
+                        |  Internet Client |
+                        +--------+---------+
+                                 |
+                      [only if ALB is external]
+                                 |
+                    +------------v--------------+
+                    |  Route 53 Hosted Zone     |
+                    |  Alias: myapp.example.com |
+                    |     --> ALB DNS Name      |
+                    +----------+----------------+
+                                 |
+                      +----------v----------+
+                      | Application Load    |
+                      | Balancer (ALB)      |
+                      | [internal or        |
+                      |  internet-facing]   |
+                      |                     |
+                      | Listeners:          |
+                      |   - Port 80         |
+                      |   - Port 443 w/ TLS |
+                      |     + ACM Cert      |
+                      |       (TLS/SSL)     |
+                      |     [if external]   |
+                      +----------+----------+
+                                 |
+                          +------v-------+
+                          | Target Group |
+                          +------+-------+
+                                 |
+                         +-------v---------+
+                         | ECS Service     |
+                         | (Fargate Task)  |
+                         +-------+---------+
+                                 |
+                       +---------v----------+
+                       | VPC Private Subnet |
+                       +--------------------+
+
+This default architecture provides a repeatable, production-ready
+deployment pattern for HTTP services with minimal configuration and
+robust discovery.
+
+=head2 Behavior by Task Type
 
 
-=item 6. If C<redirect_80> is not explicitly set and the ALB port is
-443, a listener rule to redirect 80 to 443 will automatically be
-provisioned.
+For HTTP services, you set the task type to either "http" or "https"
+(these are the only options that will trigger a task to be configured
+for HTTP services). The table below summarizes the configurations by
+task type.
 
-=item 7. You can set the port for the ALB to any valid custom value.
+ +-------+----------+-------------+-----------+---------------+
+ | Type  | ALB type | Certificate |    Port   |  Hosted Zone  |
+ +-------+----------+-------------+-----------+---------------+
+ | http  | internal |    No       |    80     |   private     |
+ | https | external |   Yes       |   443     |   public      |
+ |       |          |             | 80 => 443 |               |
+ +-------+----------+-------------+-----------+---------------+
 
+I<NOTE: You must provide a domain name for both an internal and
+external facing HTTP service. This also implies you must have a
+private hosted zone for internal services and a public hosted zone for
+you domain for external services.>
 
- ERROR: Multiple ALBs found in region us-east-1 for this VPC.
- Please specify the ALB ARN in your configuration to continue.
- 
- Candidate ALBs:
-   - my-alb-1 [arn:aws:elasticloadbalancing:...]
-   - my-alb-2 [arn:aws:elasticloadbalancing:...]
-   - internal-service-alb [arn:aws:elasticloadbalancing:...]
- 
- Hint: Add "alb_arn" to your config to reuse an existing ALB.
+Your task type will also determine where the script looks for an
+existing ALB to use (private vs public subnet). If you want to force
+the creation of a new ALB use the C<--create-alb> option.
+
+If you do not provide a hosted zone id in your initial configuration,
+the framework the framework searches for a hosted zone in Route 53
+corresponding to your domain. If the task type is C<https>, the script
+looks for a public zone, otherwise it looks for a private zone.
 
 =back
 
-=head1 TO DO
+=head2 ACM Certificate Management
+
+If the task type is "https" and no ACM certificate currently exists
+for your domain, the framework will automatically provision one. The
+certificate will be created in the same region as the ALB and issued
+via AWS Certificate Manager. 
+
+If the ALB is internet-facing, the certificate is issued via DNS
+validation and automatically attached to the listener on port 443.
+
+=head2 Port and Listener Rules
+
+For external-facing apps, a separate listener on port 80 is
+created. It forwards traffic to port 443 using a default redirect rule
+(301).
+
+If you want your internal application to listen on a port other than
+80, set C<port> to your custom port value in the task's configuration
+section. This only changes the container port exposed to the target
+group; the listener on the ALB will still forward based on its own
+rule.
+
+=back 
+
+=head2 Example Minimal Configuration
+
+ app:
+   name: http-test
+ domain: http-test.example.com
+ task:
+   apache:
+     type: http
+     image: http-test:latest
+
+Based on this minimal configuration C<app-FargateStack> will enrich
+the configuration with appropriate defaults and proceed to provision
+your HTTP service. In order to do that, the framework attempts to
+discover some of the resources required for your service. If your
+environment is not compatible with creating the service, the framework
+will provide helpful error messages and abort the process.
+
+Given this minimal configuration for an internal ("type: http") or
+external ("type: https") HTTP service, discovery entails:
+
+=over 4
+
+=item 1. ...determining your VPC ID
+
+=item 2. ...finding the private subnet IDs
+
+=item 3. ...looking for an existing load balancer
+
+=item 4. ...finding your load balancer's security group (if an ALB exists)
+
+=item 5. ...looking for a listener rule on port 80 (and 443 if "type:
+https"), including a default forwarding redirect rule
+
+=item 6. ...looking for a hosted zone in Route 53 that supports your domain
+
+=item 7. ...setting other defaults for other resources to be built (log
+groups, cluster, target group, etc)
+
+=item 8. ...determining if an ACM certificate exists for your domain
+(type "https" only)
+
+=back
+
+I<Note: Discovery of these resources is only done when they are
+missing from your configuration. If you have multiple VPCs for example
+you can set C<vpc_id:> in the configuration to identify the target
+VPC.  Likewise with other resources like subnets, ALBs, Route 53,
+etc. As C<app-FargateStack> finds your resources it fills out the
+sections in the configuration giving you complete insight into how it
+will provision resources. See L<CONFIGURATION> for complete details on
+resource configurations.>
+
+Your environment will be considered valid only if:
+
+=over 4
+
+=item * You have at least 1 private subnet available for deployment
+
+=item * You have a hosted zone for your domain of the appropriate type
+(private for type "http", public for type "https")
+
+=back
+
+As discovery progresses, existing and required resources are logged
+and updated in the configuration file. If you are NOT running in
+dryrun mode, resources will be created immediately as they are
+discovered to be missing from your environment.
+
+=head2 Application Load Balancer
+
+When you provision an http service whether or not it is secure we will
+place the service behind an application load balancer. Your Fargate
+service is created in private subnets, so your VPC must contain at
+least one private subnet.  Your load balancer can either be internally
+or externally facing. 
+
+By default, the framework looks for a load balancer with the correct
+scheme (internal or internet-facing), in a subnet aligned with your
+task type, and reuses it if found. Otherwise, a new ALB is
+provisioned. When creating a new ALB, C<app-FargateStack> will also
+create the necessary listeners for the ports you have configured.
+
+While it is possible to avoid the use or creation of a load balancer
+for your service, the framework forces one to be created for two
+reasons. Firstly, the IP address of your service may not be stable and
+is not friendly for development or production purposes. The framework
+is, after all trying its best to grease the wheels and prevent you
+from having to think too hard.
+
+Secondly, it is almost guaranteed that you will eventually want to use
+a domain name for your production service - whether it is an
+internally facing microservice or an externally facing web
+application.
+
+Creating an alias in Route 53 for your domain to the ALB ensures you
+don't need to update configurations with the service's dynamic IP
+address. Additionally, using a load balancer might be useful for
+creating custom routing rules to your service and of course for
+support traffic management  as you scale your containers.
+
+Therefore the framework's decision was to force the use of ALB and
+create an alias record (A) for your domain in AWS for both internal
+and external facing services.
+
+=head2 Roadmap for HTTP Services
+
+=over 4
+
+=item * path based routing on ALB listeners
+
+=item * ECS service health check configuration
+
+=item * Auto-scaling policies
+
+=back
+
+=head1 LIMITATIONS
+
+=over 4
+
+=item * Support for only 1 http services
+
+=item * Limited configuration options for some resources
+
+=item * Some out of band infrastructure changes may break the ability
+to re-run C<app-FargateStack> without manually updating the
+configuration
+
+=item * Support for only 1 EFS filesystem per task
+
+=back
+
+=head1 ROADMAP
 
 =over 4
 
@@ -1078,23 +1794,19 @@ provisioned.
 
 Destroy all resources for all tasks or for one task. Buckets and queues will not be deleted.
 
-=item * test example http, daemon services
-
-=item * update and organize documentation
-
 =item * stop, start services
 
 =item * enable/disable task
 
-=item * list-tasks
+=item * health check configuration
 
-=item * check for config changes
+=item * scaling configuration
 
 =back
 
 =head1 SEE ALSO
 
-L<IPC::Run>
+L<IPC::Run>, L<App::Command>, L<App::AWS>, L<CLI::Simple>
 
 =head1 AUTHOR
 

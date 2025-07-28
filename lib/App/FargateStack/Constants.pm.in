@@ -34,11 +34,21 @@ Readonly::Scalar our $QUEUE_ARN_TEMPLATE           => 'arn:aws:sqs:%s:%s:%s';
 Readonly::Scalar our $S3_BUCKET_ARN_TEMPLATE       => 'arn:aws:s3:::%s';
 Readonly::Scalar our $ECR_ARN_TEMPLATE             => 'arn:aws:ecr:%s:%s:repository/%s';
 
+Readonly::Scalar our $DEFAULT_HEALTH_CHECK_INTERVAL            => 30;
+Readonly::Scalar our $DEFAULT_HEALTH_CHECK_TIMEOUT             => 5;
+Readonly::Scalar our $DEFAULT_HEALTH_HEALTHY_CHECK_THRESHOLD   => 5;
+Readonly::Scalar our $DEFAULT_HEALTH_UNHEALTHY_CHECK_THRESHOLD => 2;
+
 Readonly::Scalar our $CLOUDWATCH_LOGS_RETENTION_DAYS =>
   [ 1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653, ];
 
 Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
   'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
+
+Readonly::Hash our %AWS_SERVICE_DOMAINS => (
+  events => 'events.amazonaws.com',
+  task   => 'ecs-tasks.amazonaws.com',
+);
 
 Readonly::Hash our %HELP_SUBJECTS => (
   'tbd' => [
@@ -52,33 +62,68 @@ END_OF_TEXT
 An overview of the App::FargateStack framework.
 END_OF_TEXT
   ],
-  'load balancers' => [
-    'CREATING A LOAD BALANCER' => <<'END_OF_TEXT'
-A description of how the framework provisions Application Load
-Balancer for http services.
-END_OF_TEXT
-  ],
   'daemon services' => [
     'DAEMON SERVICES' => <<'END_OF_TEXT'
 Information on how to create long running daemon services using this
 framework.
 END_OF_TEXT
   ],
-  'one shot' => [
-    'ONE SHOT WORKLOADS' => <<'END_OF_TEXT'
-A description of using the framework to execute single run workloads.
+  'scheduled jobs' => [
+    'SCHEDULED JOBS' => <<'END_OF_TEXT'
+A description of using the framework to create scheduled and one-shot workloads.
 END_OF_TEXT
   ],
+
   'http services' => [
     'HTTP SERVICES' => <<'END_OF_TEXT'
 A description of how the framework can provision a fully functional
 web application using Fargate.
 END_OF_TEXT
   ],
+
+  'log groups' => [
+    'CLOUDWATCH LOG GROUPS' => <<'END_OF_TEXT'
+Information on how log groups are provisioned and configure.
+END_OF_TEXT
+  ],
   'iam permissions' => [
     'IAM PERMISSIONS' => <<'END_OF_TEXT'
 A discussion of how the framework creates IAM roles and policies for
 the resources used in your tasks.
+END_OF_TEXT
+  ],
+  'environment variables' => [
+    'ENVIRONMENT VARIABLES' => <<'END_OF_TEXT'
+How to injecting environment variables into your container. Also
+include information on using secrets fromSecretsManager in your
+environment.
+END_OF_TEXT
+  ],
+  'queues' => [
+    'SQS QUEUES' => <<'END_OF_TEXT'
+How to create and configure SQS queues for your application.
+END_OF_TEXT
+  ],
+  'efs support' => [
+    'FILESYSTEM SUPPORT' => <<'END_OF_TEXT'
+Configuring support for EFS files systems inside your container.
+END_OF_TEXT
+  ],
+  'filesystem support' => 'efs support',
+  'queues'             => [
+    'S3 BUCKETS' => <<'END_OF_TEXT'
+Creating and configuring S3 buckets.
+END_OF_TEXT
+  ],
+  'networking' => [
+    'NETWORKING' => <<'END_OF_TEXT'
+Explanation of how the framework recognizes and uses your networking
+resources.
+END_OF_TEXT
+  ],
+  'security groups' => [
+    'SECURITY GROUPS' => <<'END_OF_TEXT'
+How the framework provisions and configures security groups.
 END_OF_TEXT
   ],
 );
@@ -100,6 +145,7 @@ END_OF_CONF
 our @EXPORT = (
   qw(
     $ACM_REQUEST_SLEEP_TIME
+    %AWS_SERVICE_DOMAINS
     $CLOUDWATCH_LOGS_RETENTION_DAYS
     $DASH
     $DEFAULT_CPU_SIZE
@@ -115,6 +161,12 @@ our @EXPORT = (
     $SPACE
     $TRUE
     %HELP_SUBJECTS
+  ),
+  qw(
+    $DEFAULT_HEALTH_CHECK_INTERVAL
+    $DEFAULT_HEALTH_CHECK_TIMEOUT
+    $DEFAULT_HEALTH_HEALTHY_CHECK_THRESHOLD
+    $DEFAULT_HEALTH_UNHEALTHY_CHECK_THRESHOLD
   ),
   qw(
     $CLUSTER_ARN_TEMPLATE
