@@ -23,6 +23,7 @@ use CLI::Simple;
 use Carp;
 
 use Data::Dumper;
+use Date::Parse qw(str2time);
 use English qw(no_match_vars);
 use File::Basename qw(basename);
 use Log::Log4perl;
@@ -125,8 +126,8 @@ sub show_config {
   $self->log_info( 'init:            region: [%s]', $self->get_region );
   $self->section_break;
 
-  $self->log_info( 'init:   route53 profile: [%s]', $config->{route53}->{profile} );
-  $self->log_info( 'init:   route53 zone_id: [%s]', $config->{route53}->{zone_id} );
+  $self->log_info( 'init:   route53 profile: [%s]', $config->{route53}->{profile} // q{-} );
+  $self->log_info( 'init:   route53 zone_id: [%s]', $config->{route53}->{zone_id} // q{-} );
   $self->section_break;
 
   $self->log_info( 'init:          app name: [%s]', $config->{app}->{name} );
@@ -346,6 +347,135 @@ sub _init_route53 {
 }
 
 ########################################################################
+sub cmd_logs {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my ( $task_name, $start, $end ) = $self->get_args;
+
+  my $task  = $config->{tasks}->{$task_name};
+  my $tasks = $config->{tasks};
+
+  croak sprintf "ERROR: %s is not a valid task\ntasks:%s\n", $task_name, join keys %{$tasks}
+    if !$task;
+
+  my ( $start_time, $end_time ) = normalize_time_range( $start, $end );
+
+  require App::Logs;
+
+  my $logs = App::Logs->new( $self->get_global_options );
+
+  my $query = 'logStreams[0]|{name: logStreamName, timestamp: firstEventTimestamp}';
+
+  my $log_group = $task->{log_group}->{name};
+
+  my $stream = $logs->command(
+    'describe-log-streams' => [
+      '--log-group-name' => $log_group,
+      '--query'          => $query,
+    ]
+  );
+
+  croak "ERROR: could not describe log group [%s]\n%s\n", $log_group, $logs->get_error
+    if !$stream;
+
+  my %options = (
+    '--log-group-name'  => $log_group,
+    '--log-stream-name' => $stream->{name},
+  );
+
+  $start_time //= $stream->{timestamp};
+
+  my $events = $logs->command(
+    'get-log-events' => [
+      %options,
+      $start_time ? ( '--start-time' => $start_time ) : (),
+      $end_time   ? ( '--end-time'   => $end_time )   : (),
+    ]
+  );
+
+  EVENT:
+  while ( $events && @{ $events->{events} } ) {
+    my @log_events = @{ $events->{events} };
+
+    foreach my $e (@log_events) {
+      my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
+      $timestamp = $self->get_log_time ? scalar localtime $timestamp / 1000 : $EMPTY;
+
+      print {*STDOUT} sprintf "%s%s\n", $timestamp, $message;
+    }
+
+    my $token = $events->{nextForwardToken};
+
+    while ($TRUE) {
+      $events = $logs->command( 'get-log-events', [ %options, '--next-token' => $token ] );
+
+      if ( !$events || !@{ $events->{events} } ) {
+        last EVENT
+          if !$self->get_log_wait;
+
+        sleep $DEFAULT_LOG_POLL_TIME;
+      }
+      else {
+        last;
+      }
+    }
+  }
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub normalize_time_range {
+########################################################################
+  my ( $start, $end ) = @_;
+
+  return
+    if !$start;
+
+  my $now = time;
+
+  my $start_epoch = _to_epoch( $start, $now );
+  my $end_epoch   = defined $end ? _to_epoch( $end, $now ) : undef;
+
+  croak 'start is in the future' if $start_epoch > $now;
+  croak 'end is in the future'   if defined $end_epoch && $end_epoch > $now;
+  croak 'start > end'            if defined $end_epoch && $start_epoch > $end_epoch;
+
+  return ( $start_epoch * 1000, defined $end_epoch ? $end_epoch * 1000 : undef );
+}
+
+########################################################################
+sub _to_epoch {
+########################################################################
+  my ( $value, $now ) = @_;
+
+  # Duration syntax (e.g. 5d, 30m, 2h)
+  if ( $value =~ /^(\d+)([dmh])$/xsmi ) {
+    my ( $n, $unit ) = ( $1, lc $2 );
+    croak 'duration cannot be zero' if $n == 0;
+
+    my %span = (
+      d => $SEC_PER_DAY,
+      h => $SEC_PER_HOUR,
+      m => $SEC_PER_MIN,
+    );
+
+    return $now - $n * $span{$unit};
+  }
+
+  # Date string ‑ let Date::Parse do the heavy lifting
+  my $epoch = str2time($value);
+
+  croak "unrecognized date format: [$value]"
+    if !defined $epoch;
+
+  return $epoch;
+}
+
+########################################################################
 sub cmd_list_zones {
 ########################################################################
   my ($self) = @_;
@@ -404,13 +534,15 @@ sub _init_ec2 {
   my $config = $self->get_config;
 
   my $subnets = $config->{subnets};
-  $self->set_subnets($subnets);
 
   my $ec2 = App::EC2->new(
     vpc_id => $config->{vpc_id},
     ( $self->get_cache && $subnets ) ? ( subnets => $subnets ) : (),
     %{ $self->get_global_options },
   );
+
+  $subnets = $ec2->get_subnets;
+  $self->set_subnets($subnets);
 
   $self->set_ec2($ec2);
 
@@ -518,10 +650,12 @@ sub cmd_run_task {
 
   $self->log_warn( 'run-task: task [%s] launched. ARN: [%s]...%s', $task_name, $task_arn, $should_wait );
 
+  my $poll_limit = $self->get_task_timeout / $DEFAULT_ECS_POLL_TIME;
+
   if ($should_wait) {
     my $poll_count = 0;
 
-    while ( $poll_count++ < 12 ) {  # $DEFAULT_ECS_POLL_LIMIT
+    while ( $poll_count++ < $poll_limit ) {
       my $query = 'tasks[0].{Status:lastStatus, Exit:containers[0].exitCode, Reason:stoppedReason}';
 
       my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
@@ -531,25 +665,40 @@ sub cmd_run_task {
 
       last if $result->{Status} eq 'STOPPED';
 
-      sleep 5;  # $DEFAULT_ECS_POLL_TIME;
+      sleep $DEFAULT_ECS_POLL_TIME;
     }
-
-    my $logs = App::Logs->new( $self->get_global_options );
 
     my $log_group = $config->{tasks}->{$task_name}->{log_group}->{name};
 
     # by convention our log groups are named after our app
     my $log_stream = sprintf '%s/%s/%s', $config->{app}->{name}, $task_name, ( split /\//xsm, $task_arn )[-1];
 
-    my $query = 'events[*].message';
+    require App::Logs;
 
-    my $event_logs = $logs->get_log_event( $log_group, $log_stream, $query );
+    my $logs = App::Logs->new(
+      %{ $self->get_global_options },
+      log_group_name  => $log_group,
+      log_stream_name => $log_stream
+    );
+
+    my $events = $logs->get_log_events();
 
     log_die( $self, "run-task: unable to get logs from log group: [%s], stream: [%s]\n%s",
       $log_group, $log_stream, $logs->get_error )
-      if !$event_logs;
+      if !$events;
 
-    $self->log_warn( "run-task: logs:\n", join "\n", @{$event_logs} );
+    while ( $events && @{ $events->{events} } ) {
+
+      foreach my $e ( @{ $events->{events} } ) {
+
+        my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
+        $timestamp = scalar localtime $timestamp / 1000;
+
+        print {*STDOUT} sprintf "[%s] %s\n", $timestamp, $message;
+      }
+
+      $events = $logs->get_next_log_events( $events->{nextForwardToken} );
+    }
   }
 
   return $SUCCESS;
@@ -863,8 +1012,11 @@ sub main {
     force|f
     profile=s
     log-level=s
+    log-time!
+    log-wait!
     region=s
     skip-register
+    task-timeout
     update|u!
     unlink|U!
     cache!
@@ -873,12 +1025,15 @@ sub main {
   );
 
   my %default_options = (
-    'update'    => $TRUE,
-    wait        => $TRUE,
-    unlink      => $TRUE,
-    color       => $TRUE,
-    cache       => $TRUE,
-    'log-level' => 'info',
+    'update'       => $TRUE,
+    wait           => $TRUE,
+    unlink         => $TRUE,
+    color          => $TRUE,
+    cache          => $TRUE,
+    'log-level'    => 'info',
+    'log-time'     => $FALSE,
+    'log-wait'     => $TRUE,
+    'task-timeout' => $DEFAULT_ECS_POLL_LIMIT,
   );
 
   my %commands = (
@@ -892,6 +1047,7 @@ sub main {
     default          => \&cmd_explain,
     help             => \&help,
     'list-zones'     => \&cmd_list_zones,
+    logs             => \&cmd_logs,
     plan             => \&cmd_plan,
     register         => \&cmd_register,
     start            => \&cmd_start_service,
@@ -927,16 +1083,17 @@ App::FargateStack
 
 =head2 Commands
 
- help {subject}                 displays general help or help on a particular subject (see Note 2)
- apply                          reads config and creates resources
- create-service task-name       create a new service (see Note 4)
- delete-service task-name       delete an existing service
- list-zones domain              list the hosted zones for a domain
- plan                           reads config and reports on resource creation
+ help {subject}             displays general help or help on a particular subject (see Note 2)
+ apply                      reads config and creates resources
+ create-service task-name   create a new service (see Note 4)
+ delete-service task-name   delete an existing service
+ list-zones domain          list the hosted zones for a domain
+ logs task-name start end   display CloudWatch logs (see Note 5)
+ plan                       reads config and reports on resource creation
  register task-name        
  run-task task-name
  update-target task-name
- version                        show version number
+ version                     show version number
 
 =head2 Options
 
@@ -946,9 +1103,11 @@ App::FargateStack
  -d, --dryrun               just report actions, do not apply
  --color, --no-color        default: color
  --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info
+ --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
+ --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
  -p, --profile              AWS profile (see Note 1)
  -u, --update, --no-update  update config
- -w, --wait, --no-wait      wait for tasks to complete and dump log
+ -w, --wait, --no-wait      wait for tasks to complete and then dump the log
  -v, --version              script version
 
 =head2 Notes
@@ -971,8 +1130,48 @@ as C<--help>. Use C<help list> to get a list of available subjects.
 
 =item 3. You must log at least at the 'info' level to report progress.
 
-=item 4. By default an ECS service is NOT created for you by default for daemon
-and http tasks.
+=item 4. By default an ECS service is NOT created for you by default
+for daemon and http tasks.
+
+=item 5. You can tail logs or just dump logs for a task's log stream
+
+ app-Fargate [--log-wait] [--log-time] logs task-naem start end
+
+=over 8
+
+=item --log-wait --no-log-wait (optional)
+
+Continue to monitor stream and dump logs to STDOUT
+
+default: --log-wait
+
+=item --log-time, --no-log-time (optional)
+
+Output the CloudWatch timestamp of the message.
+
+default: --no-log-time
+
+=item task-name
+
+The name of the task whose logs you want to view.
+
+=item start
+
+Starting date and time of the log events to display. Format can be one
+of:
+
+ Nd => N days ago
+ Nm => N minutes ago
+ Nh => N hours ago
+
+ mm/dd/yyyy
+ mm/dd/yyyy hh:mm::ss
+
+=item end
+
+If provided both start and end must date-time strings.
+
+=back
 
 =back
 
@@ -1792,7 +1991,8 @@ configuration
 
 =item * destroy {task-name}
 
-Destroy all resources for all tasks or for one task. Buckets and queues will not be deleted.
+Destroy all resources for all tasks or for one task. Buckets and
+queues will not be deleted.
 
 =item * stop, start services
 

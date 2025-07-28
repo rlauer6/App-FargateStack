@@ -1,3 +1,43 @@
+Mon Jul 28 13:24:03 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.4]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/EC2.pm.in
+	(new)
+	- validate subnet ids against usable list
+	(describe_nat_gateways): new
+	(find_public_subnets): refactored
+	(find_private_subnets): likewise
+	(_find_subnets): likewise
+	(describe_route_tables): new
+	(list_route_table_associations): new
+	(categorize_subnets): rename from find_all_subnets()
+	* lib/App/FargateStack.pm.in
+	- pod updates
+	(show_config): zone_id // -
+	(cmd_logs): new
+	(normlize_time_range): new
+	(_to_epoch): new
+	(_init_ec2)
+	- don't set subnets until they are verified
+	(cmd_run_task)
+	- remove magic values, use constants
+	- iterate until no more message
+	- better formatting of messages
+	(main)
+	- + log-time, log-wait, task-timeout
+	- + logs command
+	* lib/App/FargateStack/Constants.pm.in
+	- +$DEFAULT_ECS*, $DEFAULT_LOG*, $SEC_*
+	* lib/App/Logs.pm.in
+	- +log_stream_name,
+	(get_log_events)
+	- renamed from get_log_event()
+	- use defaults
+	(get_next_log_events): new
+	* my-stack-minimal.yml
+
 Sun Jul 27 15:56:28 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.3]:

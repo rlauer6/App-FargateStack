@@ -8,16 +8,17 @@ App::FargateStack
 
 ## Commands
 
-    help {subject}                 displays general help or help on a particular subject (see Note 2)
-    apply                          reads config and creates resources
-    create-service task-name       create a new service (see Note 4)
-    delete-service task-name       delete an existing service
-    list-zones domain              list the hosted zones for a domain
-    plan                           reads config and reports on resource creation
+    help {subject}             displays general help or help on a particular subject (see Note 2)
+    apply                      reads config and creates resources
+    create-service task-name   create a new service (see Note 4)
+    delete-service task-name   delete an existing service
+    list-zones domain          list the hosted zones for a domain
+    logs task-name start end   display CloudWatch logs (see Note 5)
+    plan                       reads config and reports on resource creation
     register task-name        
     run-task task-name
     update-target task-name
-    version                        show version number
+    version                     show version number
 
 ## Options
 
@@ -27,9 +28,11 @@ App::FargateStack
     -d, --dryrun               just report actions, do not apply
     --color, --no-color        default: color
     --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info
+    --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
+    --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
     -p, --profile              AWS profile (see Note 1)
     -u, --update, --no-update  update config
-    -w, --wait, --no-wait      wait for tasks to complete and dump log
+    -w, --wait, --no-wait      wait for tasks to complete and then dump the log
     -v, --version              script version
 
 ## Notes
@@ -49,8 +52,43 @@ command with a subject.
     as `--help`. Use `help list` to get a list of available subjects.
 
 - 3. You must log at least at the 'info' level to report progress.
-- 4. By default an ECS service is NOT created for you by default for daemon
-and http tasks.
+- 4. By default an ECS service is NOT created for you by default
+for daemon and http tasks.
+- 5. You can tail logs or just dump logs for a task's log stream
+
+        app-Fargate [--log-wait] [--log-time] logs task-naem start end
+
+    - --log-wait --no-log-wait (optional)
+
+        Continue to monitor stream and dump logs to STDOUT
+
+        default: --log-wait
+
+    - --log-time, --no-log-time (optional)
+
+        Output the CloudWatch timestamp of the message.
+
+        default: --no-log-time
+
+    - task-name
+
+        The name of the task whose logs you want to view.
+
+    - start
+
+        Starting date and time of the log events to display. Format can be one
+        of:
+
+            Nd => N days ago
+            Nm => N minutes ago
+            Nh => N hours ago
+
+            mm/dd/yyyy
+            mm/dd/yyyy hh:mm::ss
+
+    - end
+
+        If provided both start and end must date-time strings.
 
 # OVERVIEW
 
@@ -735,7 +773,8 @@ configuration
 
 - destroy {task-name}
 
-    Destroy all resources for all tasks or for one task. Buckets and queues will not be deleted.
+    Destroy all resources for all tasks or for one task. Buckets and
+    queues will not be deleted.
 
 - stop, start services
 - enable/disable task
@@ -758,30 +797,30 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 1047:
+- Around line 1246:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1236:
+- Around line 1435:
 
     Expected '=item \*'
 
-- Around line 1276:
+- Around line 1475:
 
     Non-ASCII character seen before =encoding in 'bucket—not'. Assuming UTF-8
 
-- Around line 1534:
+- Around line 1733:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1552:
+- Around line 1751:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1631:
+- Around line 1830:
 
     &#x3d;back without =over
 
-- Around line 1655:
+- Around line 1854:
 
     &#x3d;back without =over

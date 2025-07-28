@@ -16,7 +16,7 @@ with 'App::AWS';
 use parent qw(App::Command);
 
 __PACKAGE__->follow_best_practice;
-__PACKAGE__->mk_accessors(qw(log_group_name region profile));
+__PACKAGE__->mk_accessors(qw(log_group_name log_stream_name region profile));
 
 ########################################################################
 sub describe_log_groups {
@@ -70,15 +70,42 @@ sub create_log_group {
 }
 
 ########################################################################
-sub get_log_event {
+sub get_log_events {
 ########################################################################
   my ( $self, $log_group, $log_stream, $query ) = @_;
+
+  $log_stream //= $self->get_log_stream_name;
+  $log_group  //= $self->get_log_group_name;
 
   return $self->command(
     'get-log-events' => [
       '--log-group-name' => $log_group,
       '--log-stream'     => $log_stream,
       $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
+########################################################################
+sub get_next_log_events {
+########################################################################
+  my ( $self, $token ) = @_;
+
+  my $log_stream = $self->get_log_stream_name;
+
+  my $log_group = $self->get_log_group_name;
+
+  croak "set log_stream_name and log_group_name first\n"
+    if !$log_stream || !$log_group;
+
+  croak "usage: get_next_log_events(token)\n"
+    if !$token;
+
+  return $self->command(
+    'get-log-events' => [
+      '--log-group-name' => $log_group,
+      '--log-stream'     => $log_stream,
+      '--next-token'     => $token,
     ]
   );
 }

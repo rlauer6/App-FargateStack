@@ -52,13 +52,49 @@ sub new {
 
   my $subnets = $self->get_subnets;
 
+  # if the caller did not send any subnets, find all usable public and
+  # private subnets
   if ( !$subnets ) {
     my $result = $self->describe_subnets( $self->get_vpc_id, 'Subnets' );
 
     log_die( $self, "ERROR: there are no subnets in %s\n", $self->get_vpc_id )
       if !@{$result};
 
-    $self->find_all_subnets;  # find private, public subnets
+    $subnets = $self->categorize_subnets;  # find private, public subnets
+    $self->set_subnets($subnets);
+  }
+  else {
+    my $usable_subnets = $self->categorize_subnets;
+
+    my @all_subnets = map { @{ $usable_subnets->{$_} || [] } } qw(public private);
+
+    $self->get_logger->trace(
+      sub {
+        return Dumper(
+          [ all_subnets    => \@all_subnets,
+            usable_subnets => $usable_subnets,
+            subnets        => $subnets,
+          ]
+        );
+      }
+    );
+
+    my $warning = <<'END_OF_WARNING';
+WARNING: %s is not in the list of subnets with a route to the internet.
+
+Tasks in private subnets require either:
+- A NAT gateway (for general internet access), or
+- Properly configured VPC endpoints for ECR, S3, STS, Logs, etc.
+
+Without one of these, your task may fail to start or access required services.
+END_OF_WARNING
+
+    foreach my $type (qw(public private)) {
+      foreach my $id ( @{ $subnets->{$type} || [] } ) {
+        next if any { $_ eq $id } @all_subnets;
+        $self->get_logger->warn( sprintf $warning, $id );
+      }
+    }
   }
 
   return $self;
@@ -101,6 +137,30 @@ sub is_sg_authorized {
     if !$result;
 
   return @{$result} ? $TRUE : $FALSE;
+}
+
+########################################################################
+sub describe_nat_gateways {
+########################################################################
+  my ($self) = @_;
+
+  my $vpc_id = $self->get_vpc_id;
+
+  my $filters = sprintf 'Name=vpc-id,Values=%s', $vpc_id;
+
+  my $query = 'NatGateways[*].{Id:NatGatewayId, SubnetId:SubnetId, State:State}';
+
+  my $result = $self->command(
+    'describe-nat-gateways' => [
+      '--filter' => $filters,
+      '--query'  => $query
+    ]
+  );
+
+  croak sprintf "could not describe NAT gateway for VPC: [%s]\n%s", $vpc_id, $self->get_error
+    if !$result;
+
+  return $result;
 }
 
 ########################################################################
@@ -149,7 +209,7 @@ sub find_public_subnets {
 ########################################################################
   my ($self) = @_;
 
-  return $self->get_subnets->{public} // $self->_find_subnets('public');
+  return $self->get_subnets->{public};
 }
 
 ########################################################################
@@ -157,7 +217,7 @@ sub find_private_subnets {
 ########################################################################
   my ($self) = @_;
 
-  return $self->get_subnets->{private} // $self->_find_subnets('private');
+  return $self->get_subnets->{private};
 }
 
 ########################################################################
@@ -165,46 +225,84 @@ sub _find_subnets {
 ########################################################################
   my ( $self, $type ) = @_;
 
-  my $subnets = $self->get_subnets // $self->find_all_subnets;
-  $self->set_subnets($subnets);
+  my $subnets = $self->get_subnets;
 
-  my $all_subnets = $self->find_all_subnets;
+  croak "subnets is not set\n"
+    if !$subnets;
 
-  return $all_subnets->{ lc $type };
+  return $subnets->{ lc $type };
 }
 
 ########################################################################
-sub find_all_subnets {
+sub describe_route_tables {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $query, $route_table_id ) = @args{qw(query route_table_id)};
+
+  my $vpc_id = $self->get_vpc_id;
+
+  my $result = $self->command(
+    'describe-route-tables' => [
+      '--filters' => 'Name=vpc-id,Values=' . $vpc_id,
+      $query          ? ( '--query'           => $query )                             : (),
+      $route_table_id ? ( '--route-table-ids' => ( split /\s/xsm, $route_table_id ) ) : ()
+    ]
+  );
+
+  croak sprintf "unable to describe-route-tables for [%s]\n%s", $route_table_id, $self->get_error
+    if !$result;
+
+  return $result;
+}
+
+########################################################################
+sub list_route_table_associations {
+########################################################################
+  my ($self) = @_;
+
+  my $vpc_id = $self->get_vpc_id;
+
+  my $query = 'RouteTables[].{RouteTableId:RouteTableId, Associations:Associations[].SubnetId}';
+
+  return $self->describe_route_tables( query => $query );
+}
+
+########################################################################
+sub categorize_subnets {
 ########################################################################
   my ( $self, $vpc_id ) = @_;
 
   $vpc_id //= $self->get_vpc_id;
 
-  my $result = $self->command( 'describe-route-tables' => [ '--filters' => 'Name=vpc-id,Values=' . $vpc_id, ] );
-
-  croak "unable to describe-route-tables\n"
-    if !$result;
+  my $result = $self->describe_route_tables( query => 'RouteTables' );
 
   my %subnets;
 
-  my @route_tables = @{ $result->{RouteTables} };
+  my @route_tables = @{$result};
 
   foreach my $r (@route_tables) {
-    my ($is_public) = any { $_->{GatewayId} && $_->{GatewayId} =~ /^igw/xsm } @{ $r->{Routes} };
+    my $has_igw = any {
+           exists $_->{DestinationCidrBlock}
+        && $_->{DestinationCidrBlock} eq '0.0.0.0/0'
+        && exists $_->{GatewayId}
+        && $_->{GatewayId} =~ /^igw/xsm
+    } @{ $r->{Routes} };
 
-    my $type = $is_public ? 'public' : 'private';
+    my $has_nat = any {
+           exists $_->{DestinationCidrBlock}
+        && $_->{DestinationCidrBlock} eq '0.0.0.0/0'
+        && exists $_->{NatGatewayId}
+        && $_->{NatGatewayId}
+    } @{ $r->{Routes} };
 
-    my @associations = @{ $r->{Associations} };
+    my $type = $has_igw ? 'public' : $has_nat ? 'private' : 'isolated';
 
-    foreach my $a (@associations) {
+    foreach my $a ( @{ $r->{Associations} } ) {
       next if !$a->{SubnetId};
-
-      $subnets{$type} //= [];
       push @{ $subnets{$type} }, $a->{SubnetId};
     }
   }
-
-  $self->set_subnets( \%subnets );
 
   return \%subnets;
 }
