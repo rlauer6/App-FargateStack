@@ -1,3 +1,25 @@
+Tue Jul 29 09:32:14 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.6]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack.pm.in
+	- pod updates
+	(init)
+	- die handler for keeping config file in sync
+	- force --no-cache if config file out of sync
+	(_init_route53): refactoring
+	(_init_defaults): moved setting of cache here
+	(cmd_stop_service): first implementation
+	(cmd_list_hosted_zones): SCRIPT_NAME no SCRIPT_PATH
+	(cmd_run_task): likewise
+	(cmd_register): likewise
+	(_init_config)
+	- likewise
+	- invalidate config object
+	- add config_name to configuration object
+	(display_hosted_zones): set route53 if not set
+
 Mon Jul 28 15:52:08 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.5]:

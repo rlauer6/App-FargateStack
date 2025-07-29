@@ -27,7 +27,7 @@ App::FargateStack
     -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
     -d, --dryrun               just report actions, do not apply
     --color, --no-color        default: color
-    --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info
+    --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
     --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
     --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
     -p, --profile              AWS profile (see Note 1)
@@ -56,7 +56,7 @@ command with a subject.
 for daemon and http tasks.
 - 5. You can tail logs or just dump logs for a task's log stream
 
-        app-Fargate [--log-wait] [--log-time] logs task-naem start end
+        app-Fargate [--log-wait] [--log-time] logs task-name start end
 
     - --log-wait --no-log-wait (optional)
 
@@ -89,6 +89,32 @@ for daemon and http tasks.
     - end
 
         If provided both start and end must date-time strings.
+
+- 6. The default logging level is 'info'. Logging at lower levels will prevent potential useful messages from being displayed. To see the AWS CLI commands being executed, log at the 'debug' level. The 'trace' level will output data objects and is mainly used for debugging.
+
+# COMMANDS
+
+## help {subject}             
+
+## apply                      
+
+## create-service task-name   
+
+## delete-service task-name   
+
+## list-zones domain          
+
+## logs task-name start end   
+
+## plan                       
+
+## register task-name        
+
+## run-task task-name
+
+## update-target task-name
+
+## version                    
 
 # OVERVIEW
 
@@ -797,30 +823,30 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 1243:
+- Around line 1324:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1432:
+- Around line 1513:
 
     Expected '=item \*'
 
-- Around line 1472:
+- Around line 1553:
 
     Non-ASCII character seen before =encoding in 'bucket—not'. Assuming UTF-8
 
-- Around line 1730:
+- Around line 1810:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1748:
+- Around line 1828:
 
     You forgot a '=back' before '=head2'
 
-- Around line 1827:
+- Around line 1907:
 
     &#x3d;back without =over
 
-- Around line 1851:
+- Around line 1931:
 
     &#x3d;back without =over

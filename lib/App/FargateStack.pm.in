@@ -71,9 +71,6 @@ sub init {
   log_die( $self, 'ERROR: when applying changes --no-update is not allowed' )
     if !$dryrun && !$self->get_update;
 
-  my $cache = $self->get_cache;
-  $self->set_cache( $cache ? '(cached)' : $EMPTY );
-
   my $config = $self->_init_config;
 
   $self->_init_defaults($config);
@@ -108,6 +105,24 @@ sub init {
   $self->get_logger->trace( sub { return Dumper( [ config => $config ] ); } );
 
   $self->show_config;
+
+  # only install die handler for apply - this makes sure we record any
+  # provisioned resources
+  if ( $self->get_command eq 'apply' ) {
+    $SIG{__DIE__} = sub {
+      my $msg = shift;
+
+      return if $^S;  # eval
+
+      # if config exists...we have removed last_updated and id
+      if ( $config && $config->{config_name} ) {
+        warn sprintf "Unclean shutdown - writing config file to [%s]\n", $config->{config_name};
+        eval { YAML::DumpFile( $config->{config_name}, $config ); };
+      }
+
+      die $msg;
+    };
+  }
 
   return $TRUE;
 }
@@ -271,6 +286,9 @@ sub _init_defaults {
 
   $self->set_global_options( \%global_options );
 
+  my $cache = $self->get_cache;
+  $self->set_cache( $cache && $config->{last_updated} ? '(cached)' : $EMPTY );
+
   return;
 }
 
@@ -322,7 +340,14 @@ sub _init_route53 {
 
     $zone_id = basename( $hosted_zone->[0]->{Id} );
     $route53_config->{zone_id} = $zone_id;
+
+    return;
   }
+
+  return
+    if $self->cached;
+
+  $self->log_warn( 'init: validating hosted zone id: [%s]', $zone_id );
 
   my $zone = eval {
     return $route53->validate_hosted_zone(
@@ -332,16 +357,17 @@ sub _init_route53 {
     );
   };
 
-  if ( !$zone || $EVAL_ERROR ) {
-    my $err = $EVAL_ERROR;
+  my $err = $EVAL_ERROR;
 
-    # output a helpful table of hosted zones for this domain
-    $self->log_warn( "\n" . $self->display_hosted_zones($domain) );
+  return
+    if $zone && !$err;
 
-    ($err) = split /\n/, $err;
+  # output a helpful table of hosted zones for this domain
+  $self->log_warn( "\n" . $self->display_hosted_zones($domain) );
 
-    die 'ERROR: ' . $err;
-  }
+  ($err) = split /\n/, $err;
+
+  log_die( $self, $err );
 
   return;
 }
@@ -482,7 +508,7 @@ sub cmd_list_zones {
 
   my ($domain) = $self->get_args;
 
-  croak sprintf "usage: %s list-zones domain\n", $ENV{SCRIPT_PATH}
+  croak sprintf "usage: %s list-zones domain\n", $ENV{SCRIPT_NAME}
     if !$domain;
 
   print {*STDOUT} $self->display_hosted_zones($domain);
@@ -494,6 +520,10 @@ sub cmd_list_zones {
 sub display_hosted_zones {
 ########################################################################
   my ( $self, $domain ) = @_;
+
+  if ( !$self->get_route53 ) {
+    $self->set_route53( App::Route53->new( $self->get_global_options ) );
+  }
 
   my $hosted_zones = $self->get_route53->list_hosted_zones;
 
@@ -569,7 +599,7 @@ sub _init_config {
 
   my $config_file = $self->get_config;
 
-  croak sprintf "usage: %s --config config-file command\n", $ENV{SCRIPT_PATH}
+  croak sprintf "usage: %s --config config-file command\n", $ENV{SCRIPT_NAME}
     if !$config_file;
 
   croak sprintf "ERROR: %s not found or is unreadable\n"
@@ -583,6 +613,11 @@ sub _init_config {
   $self->section_break;
 
   my $config = LoadFile($config_file);
+
+  delete $config->{last_updated};
+  delete $config->{id};
+
+  $config->{config_name} = $config_file;
 
   $self->set_config($config);
 
@@ -598,7 +633,7 @@ sub cmd_run_task {
 
   my ($task_name) = $self->get_args;
 
-  log_die( $self, "usage: %s run-task task-name\n", $ENV{SCRIPT_PATH} )
+  log_die( $self, "usage: %s run-task task-name\n", $ENV{SCRIPT_NAME} )
     if !$task_name;
 
   my $task = $config->{tasks}->{$task_name};
@@ -722,6 +757,26 @@ sub cmd_create_service {
 ########################################################################
 sub cmd_stop_service {
 ########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my $ecs = $self->get_ecs;
+
+  my ($task_name) = $self->get_args;
+
+  croak sprintf "usage: %s -c config stop-service task-name\n", $ENV{SCRIPT_NAME}
+    if !$task_name;
+
+  my $cluster_name = $config->{cluster}->{name};
+
+  my $result = $ecs->command(
+    'update-service' => [
+      '--cluster', $cluster_name,
+      '--service'       => $task_name,
+      '--desired-count' => 0
+    ]
+  );
 
   return $SUCCESS;
 }
@@ -771,7 +826,7 @@ sub cmd_register {
 
   my $action = $self->get_skip_register ? 'update-target' : 'register';
 
-  log_die( $self, 'usage: %s %s task-name', $action, $ENV{SCRIPT_PATH} )
+  log_die( $self, 'usage: %s %s task-name', $action, $ENV{SCRIPT_NAME} )
     if !$task_name;
 
   my $ecs = $self->get_ecs;
@@ -1099,7 +1154,7 @@ App::FargateStack
  -C, --create-alb           forces creation of a new ALB instead of using an existing ALB
  -d, --dryrun               just report actions, do not apply
  --color, --no-color        default: color
- --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info
+ --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
  --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
  -p, --profile              AWS profile (see Note 1)
@@ -1132,7 +1187,7 @@ for daemon and http tasks.
 
 =item 5. You can tail logs or just dump logs for a task's log stream
 
- app-Fargate [--log-wait] [--log-time] logs task-naem start end
+ app-Fargate [--log-wait] [--log-time] logs task-name start end
 
 =over 8
 
@@ -1170,7 +1225,33 @@ If provided both start and end must date-time strings.
 
 =back
 
+=item 6. The default logging level is 'info'. Logging at lower levels will prevent potential useful messages from being displayed. To see the AWS CLI commands being executed, log at the 'debug' level. The 'trace' level will output data objects and is mainly used for debugging.
+
 =back
+
+=head1 COMMANDS
+
+=head2  help {subject}             
+
+=head2  apply                      
+
+=head2  create-service task-name   
+
+=head2  delete-service task-name   
+
+=head2  list-zones domain          
+
+=head2  logs task-name start end   
+
+=head2  plan                       
+
+=head2  register task-name        
+
+=head2  run-task task-name
+
+=head2  update-target task-name
+
+=head2  version                    
 
 =head1 OVERVIEW
 
@@ -1665,7 +1746,6 @@ tasks:
     task_definition_arn:
     type:
 vpc_id:
-
 
 =head3 
 
