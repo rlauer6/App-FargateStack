@@ -18,14 +18,14 @@ use App::Route53;
 
 use App::FargateStack::Constants;
 
-use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
-use CLI::Simple;
 use Carp;
-
+use CLI::Simple;
+use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
 use Data::Dumper;
 use Date::Parse qw(str2time);
 use English qw(no_match_vars);
 use File::Basename qw(basename);
+use List::Util qw(none);
 use Log::Log4perl;
 use Pod::Usage;
 use Scalar::Util qw(reftype);
@@ -62,8 +62,15 @@ sub init {
 ########################################################################
   my ($self) = @_;
 
+  my $command = $self->command;
+
   return
-    if $self->command =~ /version|help/xsm;
+    if $command =~ /version|help/xsm;
+
+  if ( !$self->get_log_level ) {
+    my $log_level = $command =~ /logs|status|-service/xsm ? 'error' : 'info';
+    $self->get_logger->level( $LOG_LEVELS{$log_level} );
+  }
 
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
@@ -98,9 +105,7 @@ sub init {
   # the ALB if it is not set explicitly and check on required parameters
   $self->_init_tasks();
 
-  if ( $self->get_http ) {
-    $self->_init_route53();
-  }
+  $self->_init_route53();
 
   $self->get_logger->trace( sub { return Dumper( [ config => $config ] ); } );
 
@@ -108,7 +113,7 @@ sub init {
 
   # only install die handler for apply - this makes sure we record any
   # provisioned resources
-  if ( $self->get_command eq 'apply' ) {
+  if ( $self->command eq 'apply' ) {
     $SIG{__DIE__} = sub {
       my $msg = shift;
 
@@ -157,7 +162,7 @@ sub show_config {
   $self->section_break;
 
   $self->log_info( 'init:            config: [%s]', $self->get_config_name );
-  $self->log_info( 'init:         log level: [%s]', $self->get_log_level );
+  $self->log_info( 'init:         log level: [%s]', $self->get_log_level // 'info' );
   $self->log_info( 'init:             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
   $self->log_warn( 'init:     update config: [%s]', $self->get_update ? 'yes' : 'no' );
   $self->log_warn( 'init:            dryrun: [%s]', $self->get_dryrun ? 'yes' : 'no' );
@@ -249,6 +254,9 @@ sub _init_defaults {
 ########################################################################
   my ( $self, $config ) = @_;
 
+  my $last_updated = delete $config->{last_updated};
+  delete $config->{id};
+
   $config->{region} //= $self->get_region // $ENV{AWS_DEFAULT_REGION} // 'us-east-1';
   $self->set_region( $config->{region} );  # let's make sure we can use get_region()
 
@@ -287,7 +295,7 @@ sub _init_defaults {
   $self->set_global_options( \%global_options );
 
   my $cache = $self->get_cache;
-  $self->set_cache( $cache && $config->{last_updated} ? '(cached)' : $EMPTY );
+  $self->set_cache( $cache && $last_updated ? '(cached)' : $EMPTY );
 
   return;
 }
@@ -296,6 +304,16 @@ sub _init_defaults {
 sub _init_route53 {
 ########################################################################
   my ($self) = @_;
+
+  my $command = $self->command;
+
+  my @route53_commands = qw(apply plan list-hosted-zones);
+
+  return
+    if none { $command eq $_ } @route53_commands;
+
+  return
+    if !$self->get_http && $command =~ /apply|plan/xsm;
 
   my $config = $self->get_config;
 
@@ -345,7 +363,7 @@ sub _init_route53 {
   }
 
   return
-    if $self->cached;
+    if $self->get_cache;
 
   $self->log_warn( 'init: validating hosted zone id: [%s]', $zone_id );
 
@@ -381,11 +399,11 @@ sub cmd_logs {
 
   my ( $task_name, $start, $end ) = $self->get_args;
 
-  my $task  = $config->{tasks}->{$task_name};
+  $self->check_task($task_name);
+
   my $tasks = $config->{tasks};
 
-  croak sprintf "ERROR: %s is not a valid task\ntasks:%s\n", $task_name, join keys %{$tasks}
-    if !$task;
+  my $task = $tasks->{$task_name};
 
   my ( $start_time, $end_time ) = normalize_time_range( $start, $end );
 
@@ -400,7 +418,9 @@ sub cmd_logs {
   my $stream = $logs->command(
     'describe-log-streams' => [
       '--log-group-name' => $log_group,
-      '--query'          => $query,
+      '--order-by'       => 'LastEventTime',
+      '--descending',
+      '--query' => $query,
     ]
   );
 
@@ -430,7 +450,7 @@ sub cmd_logs {
       my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
       $timestamp = $self->get_log_time ? scalar localtime $timestamp / 1000 : $EMPTY;
 
-      print {*STDOUT} sprintf "%s%s\n", $timestamp, $message;
+      print {*STDOUT} sprintf "%s - %s\n", $timestamp, $message;
     }
 
     my $token = $events->{nextForwardToken};
@@ -572,6 +592,9 @@ sub _init_ec2 {
   );
 
   $subnets = $ec2->get_subnets;
+
+  $self->get_logger->trace( sub { return Dumper( [ subnets => $subnets ] ) } );
+
   $self->set_subnets($subnets);
 
   $self->set_ec2($ec2);
@@ -589,7 +612,42 @@ sub _init_ec2 {
     $config->{subnets} = $subnets;
   }
 
+  $self->get_logger->trace( sub { return Dumper( [ subnets => $subnets ] ) } );
+
   return $ec2;
+}
+
+########################################################################
+sub cmd_service_status {
+########################################################################
+  my ($self) = @_;
+
+  my ($service_name) = $self->get_args;
+
+  my $query
+    = 'services[0]|{running: runningCount, desired: desiredCount,status: status, pending: pendingCount,  events: events}';
+
+  my $result = $self->get_ecs->describe_services(
+    cluster_name => $self->get_config->{cluster}->{name},
+    service_name => $service_name,
+    query        => $query,
+  );
+
+  log_die( $self, "ERROR: could not describe service [%s]\n%s", $service_name, $self->get_ecs->get_error )
+    if !$result;
+
+  my $title = sprintf 'Service: %s Status:[%s] Running: [%s] Pending: [%s] Desired: [%s]', $service_name,
+    @{$result}{qw(status running pending desired)};
+
+  my @data = map { { 'Time' => $_->{createdAt}, Event => $_->{message} } } @{ $result->{events} };
+
+  print {*STDOUT} easy_table(
+    table_options => { headingText => $title },
+    data          => \@data,
+    columns       => [qw(Time Event)],
+  );
+
+  return $SUCCESS;
 }
 
 ########################################################################
@@ -613,9 +671,6 @@ sub _init_config {
   $self->section_break;
 
   my $config = LoadFile($config_file);
-
-  delete $config->{last_updated};
-  delete $config->{id};
 
   $config->{config_name} = $config_file;
 
@@ -726,7 +781,7 @@ sub cmd_run_task {
         my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
         $timestamp = scalar localtime $timestamp / 1000;
 
-        print {*STDOUT} sprintf "[%s] %s\n", $timestamp, $message;
+        print {*STDOUT} sprintf "%s - %s\n", $timestamp, $message;
       }
 
       $events = $logs->get_next_log_events( $events->{nextForwardToken} );
@@ -755,30 +810,24 @@ sub cmd_create_service {
 }
 
 ########################################################################
-sub cmd_stop_service {
+sub check_task {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, $task_name, $warn ) = @_;
+
+  my $level = $warn ? 'warn' : 'die';
 
   my $config = $self->get_config;
 
-  my $ecs = $self->get_ecs;
+  return $TRUE
+    if $task_name && $config->{tasks}->{$task_name};
 
-  my ($task_name) = $self->get_args;
+  log_die( $self, 'ERROR:  no such task [%s] defined in config', $task_name )
+    if $level eq 'die';
 
-  croak sprintf "usage: %s -c config stop-service task-name\n", $ENV{SCRIPT_NAME}
-    if !$task_name;
+  $self->get_logger->warn( 'WARNING: no such task [%s] defined in config...trying anyway  ¯\_(ツ)_/¯',
+    $task_name );
 
-  my $cluster_name = $config->{cluster}->{name};
-
-  my $result = $ecs->command(
-    'update-service' => [
-      '--cluster', $cluster_name,
-      '--service'       => $task_name,
-      '--desired-count' => 0
-    ]
-  );
-
-  return $SUCCESS;
+  return;
 }
 
 ########################################################################
@@ -788,13 +837,12 @@ sub cmd_delete_service {
 
   my ($task_name) = $self->get_args;
 
-  croak "usage: $ENV{SCRIPT_NAME} delete-service task-name\n"
+  croak "usage: %s delete-service task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name;
 
   my $config = $self->get_config;
 
-  log_die( $self, "ERROR: no such task defined in config [$task_name]\n" )
-    if !$config->{tasks}->{$task_name};
+  $self->check_task( $task_name, 'warn' );
 
   my $ecs = $self->get_ecs;
 
@@ -807,10 +855,57 @@ sub cmd_delete_service {
 }
 
 ########################################################################
-sub cmd_start_service {
+sub _update_task_count {
 ########################################################################
+  my ( $self, $task_name, $desired_count ) = @_;
 
-  return $SUCCESS;
+  my $config = $self->get_config;
+
+  my $ecs = $self->get_ecs;
+
+  my $cluster_name = $config->{cluster}->{name};
+
+  my $result = $ecs->command(
+    'update-service' => [
+      '--cluster'       => $cluster_name,
+      '--service'       => $task_name,
+      '--desired-count' => $desired_count,
+    ]
+  );
+
+  log_die( $self, "ERROR: could not update service: [%s]\n%s", $task_name, $ecs->get_error )
+    if !$result;
+
+  return $result;
+}
+
+########################################################################
+sub cmd_update_service {
+########################################################################
+  my ($self) = @_;
+
+  my ( $task_name, $count ) = $self->get_args;
+
+  if ( $self->command eq 'start-service' ) {
+    $count ||= 1;
+  }
+  else {
+    $count = 0;
+  }
+
+  $self->check_task( $task_name, 'warn' );
+
+  if ( !$task_name ) {
+    if ( $count == 0 ) {
+      croak sprintf "usage: %s -c config-name stop-service task-name\n", $ENV{SCRIPT_NAME};
+    }
+
+    croak sprintf "usage: %s -c config-name start-service task-name [count]\n", $ENV{SCRIPT_NAME};
+  }
+
+  my $result = $self->_update_task_count( $task_name, $count );
+
+  return $self->cmd_service_status;
 }
 
 ########################################################################
@@ -991,7 +1086,7 @@ sub init_logger {
 
   my $level = $self->get_log_level;
 
-  $self->get_logger->level( $LOG_LEVELS{$level} );
+  $self->get_logger->level( $LOG_LEVELS{ $level // 'info' } );
 
   return;
 }
@@ -1082,8 +1177,7 @@ sub main {
     unlink         => $TRUE,
     color          => $TRUE,
     cache          => $TRUE,
-    'log-level'    => 'info',
-    'log-time'     => $FALSE,
+    'log-time'     => $TRUE,
     'log-wait'     => $TRUE,
     'task-timeout' => $DEFAULT_ECS_POLL_LIMIT,
   );
@@ -1092,8 +1186,9 @@ sub main {
     'create-service' => \&cmd_create_service,
     'delete-service' => \&cmd_delete_service,
     'run-task'       => \&cmd_run_task,
-    'start-service'  => \&cmd_start_service,
-    'stop-service'   => \&cmd_stop_service,
+    'start-service'  => \&cmd_update_service,
+    'stop-service'   => \&cmd_update_service,
+    status           => \&cmd_service_status,
     'update-target'  => \&cmd_update_target,
     apply            => \&cmd_apply,
     default          => \&cmd_explain,

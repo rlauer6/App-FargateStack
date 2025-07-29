@@ -80,6 +80,25 @@ sub delete_service {
 }
 
 ########################################################################
+sub describe_services {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $cluster_name, $service_name, $query ) = @args{qw(cluster_name service_name query)};
+
+  croak "usage: describe_servicess(cluster-name, service-name, [query])\n"
+    if !$cluster_name || !$service_name;
+
+  return $self->command(
+    'describe-services' => [
+      '--services' => $service_name,
+      '--cluster'  => $cluster_name,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
+########################################################################
 sub describe_tasks {
 ########################################################################
   my ( $self, $cluster_name, $task_arn, $query ) = @_;

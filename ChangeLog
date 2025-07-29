@@ -1,3 +1,43 @@
+Tue Jul 29 16:14:46 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.7]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/ECS.pm.in
+	(describe_services): new
+	* lib/App/FargateStack.pm.in
+	(init)
+	- call _init_route53() unconditionally and let it figure it out
+	- set log-level to error for commands that shouldn't log
+	- command(), not get_command()
+	(show_config): log_level may not be initialized yet?
+	(_init_defaults):
+	- save last_updated and delete last_updated and id from config
+	- force cache off if config was invalidated
+	(_init_route53)
+	- return if not a command that needs route53
+	- get_cache, not cache()
+	(cmd_logs)
+	- refactoring
+	- order-by, descending (need most recent log stream)
+	- standardize log message output
+	(_init_ec2): debug message
+	(cmd_service_status): new
+	(_init_config): don't invalidate config here, too early
+	(cmd_run_task): standardize log message output
+	(check_task): new
+	(cmd_stop_service): removed
+	(cmd_start_service): removed
+	(cmd_update_service): replaces above
+	(_update_task_count): new
+	(init_logger): default 'info'
+	(main)
+	- log-time default now true
+	- added command status
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(create_alb)
+	- create alb in public or private subnet depending on service type (http/https)
+
 Tue Jul 29 09:32:14 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.6]:

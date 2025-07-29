@@ -507,9 +507,10 @@ sub create_alb {
   # create an alb
   $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
 
-  my $alb_sg = $self->create_alb_security_group;
+  my $alb_sg   = $self->create_alb_security_group;
+  my $alb_type = $self->is_https ? 'public' : 'private';
 
-  my $subnets = [ @{ $self->get_subnets->{Private} }[ ( 0, 1 ) ] ];
+  my $subnets = [ @{ $self->get_subnets->{$alb_type} }[ ( 0, 1 ) ] ];
 
   my $alb_name = $config->{alb}->{name} // $config->{app}->{name} . '-alb';
 
