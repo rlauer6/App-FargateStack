@@ -99,6 +99,40 @@ sub describe_services {
 }
 
 ########################################################################
+sub list_tasks {
+########################################################################
+  my ( $self, $cluster_name, $query ) = @_;
+
+  croak "usage: list_tasks(cluster-name)\n"
+    if !$cluster_name;
+
+  return $self->command(
+    'list-tasks' => [
+      '--cluster' => $cluster_name,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+
+}
+
+########################################################################
+sub stop_task {
+########################################################################
+  my ( $self, $cluster_name, $task_arn, $query ) = @_;
+
+  croak "usage: stop_task(cluster-name, task-arn)\n"
+    if !$cluster_name;
+
+  return $self->command(
+    'stop-task' => [
+      '--cluster' => $cluster_name,
+      '--task'    => $task_arn,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
+########################################################################
 sub describe_tasks {
 ########################################################################
   my ( $self, $cluster_name, $task_arn, $query ) = @_;

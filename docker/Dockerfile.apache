@@ -1,0 +1,32 @@
+FROM debian:bookworm
+
+COPY bookworm-backports.list /etc/apt/sources.list.d/
+
+RUN apt-get update --fix-missing && apt-get install -y --fix-missing \
+    less vim curl git automake less gcc gnupg libzip-dev \
+    apache2 apache2-dev libpcre3 libapr1-dev libaprutil1-dev \
+    libssl-dev libperl-dev perl-doc libexpat-dev \
+    libapache2-mod-perl2 libapache2-mod-perl2-dev libapache2-mod-apreq2
+
+RUN curl -L https://cpanmin.us | perl - App::cpanminus
+RUN cpanm -n ExtUtils::XSBuilder::ParseSource
+
+RUN a2dismod mpm_event
+RUN a2enmod mpm_prefork
+RUN a2enmod cgi
+RUN a2enmod rewrite
+RUN a2enmod actions
+
+RUN echo "LoadModule perl_module /usr/lib/apache2/modules/mod_perl.so" >/etc/apache2/mods-available/perl.load
+RUN a2enmod perl
+
+ENV START_APACHE=1
+COPY start-server /usr/local/bin/start-server
+RUN chmod +x /usr/local/bin/start-server
+
+COPY apache2.conf /etc/apache2/apache2.conf
+COPY 000-default.conf /etc/apache2/sites-available/000-default.conf
+
+RUN apt-get autoremove --fix-missing -yq && rm -rf /var/lib/apt/lists/*
+
+CMD ["/usr/local/bin/start-apache"]

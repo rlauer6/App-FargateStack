@@ -1,0 +1,9 @@
+---
+app:
+  name: my-one-shot
+tasks:
+  my-one-shot:
+    type: task
+    image: helloworld:latest
+    environment:
+      RUN_ONCE: 1

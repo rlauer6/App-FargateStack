@@ -10,6 +10,8 @@ use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
 use App::FargateStack::Builder::Utils qw(log_die choose);
+use Text::Diff;
+use JSON;
 
 use Role::Tiny;
 
@@ -22,74 +24,84 @@ sub build_iam_role {
 
   my $dryrun = $self->get_dryrun;
 
-  my $tasks = $config->{tasks};
+  my $cache = $self->get_cache;
 
   my $iam = $self->fetch_iam;
 
+  my ( $tasks, $role ) = @{$config}{qw(tasks role)};
+
+  $self->log_trace( sub { return Dumper( [ role => $role ] ) } );
+
+  ######################################################################
+  # create role
+  ######################################################################
   my $default_name = $self->normalize_name( $config->{app}->{name} );
 
   my $role_name = $self->create_fargate_role($default_name);
 
-  my $policy_name = $config->{policy_name};
-  $policy_name //= sprintf 'Fargate%sPolicy', $default_name;
+  my $policy_name = $role->{policy_name};
 
-  my $policy;
-  my $role_policy;
-
-  # NOTE: we may need to invalidate the role by removing the ARN and
-  # forcing the role policy to be replaced. 'put-role-policy' will
-  # allow overwriting a policy with the same name.
-
-  if ( !$self->get_cache || !$config->{role}->{arn} || !$config->{role}->{policy_name} ) {
-    $policy = $iam->get_role_policy( $role_name, $policy_name );
-
-    if ($policy) {
-      $config->{role}->{policy_name} = $policy_name;
-    }
-
-    my @statement;
-
-    $role_policy = {
-      Version   => $IAM_POLICY_VERSION,
-      Statement => \@statement,
-    };
-
-    push @statement, $self->add_ecr_policy();
-
-    push @statement, $self->add_efs_policy();  # force rebuild of policy
-
-    push @statement, $self->add_log_group_policy();
-
-    if ( $config->{bucket} ) {
-      push @statement, $self->add_bucket_policy;
-    }
-
-    if ( $config->{queue} ) {
-      push @statement, $self->add_queue_policy();
-    }
-
-    if ( my $secrets = $self->get_secrets ) {
-      push @statement, $self->add_secrets_policy($secrets);
-    }
+  if ( !$policy_name ) {
+    $policy_name         = sprintf 'Fargate%sPolicy', $default_name;
+    $role->{policy_name} = $policy_name;
   }
 
-  if ( $config->{role}->{arn} ) {
-    if ( ( $policy && Compare( $policy, $role_policy ) ) || $self->get_cache ) {
-      $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $self->get_cache || 'skipping' );
-      $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
-      return;
+  ######################################################################
+  # create policy - see if policy needs to be created or updated
+  ######################################################################
+  my ( $policy, $role_policy );
+
+  # if we turned caching off OR we don't have an ARN yet, check to see
+  # if the policy exists
+  if ( !$cache || !$role->{arn} ) {
+    $policy = $iam->get_role_policy( $role_name, $policy_name );
+
+    log_die( $self, "ERROR: could not get role policy: [%s] for role [%s]\n%s\n",
+      $policy_name, $role_name, $iam->get_error )
+      if !$policy && $iam->get_error !~ /cannot\sbe\sfound/xsm;
+  }
+
+  # if the policy exists OR we don't yet have an ARN we need to create
+  # the policy
+  if ( $policy || !$role->{arn} ) {
+    $role_policy = $self->create_fargate_policy;
+  }
+
+  my $policy_exists = $FALSE;
+
+  # if we don't have a policy object but we have an ARN then the
+  # policy is asssumed to exist
+  if ( !$policy && $role->{arn} ) {
+    $policy_exists = 1;
+  }
+  # if the policy exists and we fabricated a new policy, we need to
+  # compare them, -1 will indicate the policy exists but needs to be
+  # updated
+  elsif ( $policy && $role_policy ) {
+    $policy_exists = Compare( $policy, $role_policy ) ? 1 : -1;
+  }
+
+  $self->log_trace(
+    sub {
+      return Dumper(
+        [ existing_policy => $policy,
+          new_policy      => $role_policy,
+          role            => $role,
+          policy_exists   => $policy_exists,
+        ]
+      );
     }
+  );
 
-    $self->log_trace(
-      sub {
-        return Dumper(
-          [ existing_policy => $policy,
-            new_policy      => $role_policy
-          ]
-        );
-      }
-    );
+  if ( $policy_exists != -1 ) {
+    $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $cache || 'skipping' );
+    $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
+    return;
+  }
+  elsif ( $policy_exists == -1 ) {
+    my $title = sprintf 'iam:policy role policy [%s] differs', $policy_name;
 
+    $self->display_diffs( $policy, $role_policy, { title => $title } );
     $self->log_warn( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
   }
 
@@ -98,7 +110,8 @@ sub build_iam_role {
   return
     if $dryrun;
 
-  if ($policy) {
+  # policy exists but differs
+  if ( $policy_exists == -1 ) {
     $self->log_warn( 'iam:policy: deleting policy [%s] for role [%s]...', $policy_name, $role_name );
     $iam->delete_role_policy( $role_name, $policy_name );
   }
@@ -113,6 +126,41 @@ sub build_iam_role {
     if $iam->get_error;
 
   return;
+}
+
+########################################################################
+sub create_fargate_policy {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+
+  my @statement;
+
+  my $role_policy = {
+    Version   => $IAM_POLICY_VERSION,
+    Statement => \@statement,
+  };
+
+  push @statement, $self->add_ecr_policy();
+
+  push @statement, $self->add_efs_policy();  # force rebuild of policy
+
+  push @statement, $self->add_log_group_policy();
+
+  if ( $config->{bucket} ) {
+    push @statement, $self->add_bucket_policy;
+  }
+
+  if ( $config->{queue} ) {
+    push @statement, $self->add_queue_policy();
+  }
+
+  if ( my $secrets = $self->get_secrets ) {
+    push @statement, $self->add_secrets_policy($secrets);
+  }
+
+  return $role_policy;
 }
 
 ########################################################################

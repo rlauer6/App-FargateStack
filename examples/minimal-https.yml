@@ -1,0 +1,8 @@
+---
+app:
+  name: https-test
+domain: https-test.example.com
+tasks:
+  https-test:
+    type: https
+    image: http-test:latest

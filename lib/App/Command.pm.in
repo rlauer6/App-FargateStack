@@ -105,6 +105,8 @@ sub execute {
 ########################################################################
   my ( $self, @cmd ) = @_;
 
+  $self->get_logger->trace( sub { return Dumper( [ cmd => \@cmd ] ) } );
+
   $self->get_logger->debug( 'execute: ' . join q{ }, @cmd );
 
   my $out = $EMPTY;

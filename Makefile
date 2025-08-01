@@ -92,10 +92,44 @@ TARBALL_DEPS = \
 $(TARBALL): buildspec.yml $(TARBALL_DEPS)
 	make-cpan-dist.pl -b $<
 
-README.md: lib/$(MODULE_PATH)
+README.pod: lib/$(MODULE_PATH)
+	perldoc -u $< | perl -npe 's/^=head1/ \@TOC_BACK\@\n\n=head1/' > $@
+
+packages:
+	tmpfile=$$(mktemp); \
+	for a in $$(find -name '*.pm.in'); do \
+	  perl -ne 'print "$$1\n" if /^package\s+([^;]+);/;' $$a | tee -a $$tmpfile; \
+	done; \
+	sort -u $$tmpfile > $@
+
+requires: packages requires.in
+	comm -23 requires.in $< > $@
+
+# List::Util is considered core, but we need a more recent version
+# than some versions of Perl provide...so why not just add the version
+# you need? Because in general we just want to get the latest version
+# of all of our required modules.
+requires.in: packages
+	tmpfile=$$(mktemp); \
+	for a in $$(find . -name '*.p[ml]'); \
+	  do scandeps-static.pl -r --no-core $$a | tee -a $$tmpfile; \
+	done; \
+	echo "List::Util" >> $$tmpfile; \
+	awk '{ print $$1}' $$tmpfile | sort -u > $@; \
+	rm -f $$tmpfile
+
+README.md.in: README.pod
 	pod2markdown $< > $@
 
+README.md: README.md.in
+	perl -npe 's/^.*\@TOC/\@TOC/g;' $< | \
+	perl -0npe 'BEGIN { print qq{\@TOC\@\n---\n}; }'  | \
+	  md-utils.pl > $@
+
 clean:
+	rm README.md
+	rm README.md.in
+	rm README.pod
 	find lib -name '*.pm' -exec rm -f {} \;
 	rm -f *.tar.gz
 	rm -f provides extra-files resources

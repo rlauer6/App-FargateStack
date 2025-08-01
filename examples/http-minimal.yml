@@ -1,0 +1,12 @@
+---
+app:
+  name: http-test
+domain: http-test.example.com
+route53:
+  zone_id:
+  profile:
+tasks:
+  apache:
+    image: http-test:latest
+    type: https
+vpc_id:

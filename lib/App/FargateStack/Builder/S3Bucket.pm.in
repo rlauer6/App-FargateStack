@@ -13,6 +13,14 @@ use App::FargateStack::Constants;
 use Role::Tiny;
 
 ########################################################################
+# Create an S3 bucket and provides method adding a bucket policy for
+# the Fargate role.
+# YAML configuration syntax:
+########################################################################
+# bucket:
+#   name: bucket-name
+#   policy:
+########################################################################
 sub build_bucket {
 ########################################################################
   my ($self) = @_;
@@ -63,13 +71,27 @@ sub add_bucket_policy {
 ########################################################################
   my ($self) = @_;
 
-  my $config     = $self->get_config;
-  my $bucket_arn = sprintf $S3_BUCKET_ARN_TEMPLATE, $config->{bucket}->{name};
+  my $bucket = $self->get_config->{bucket};
+
+  my ( $readonly, $name, $paths ) = @{$bucket}{qw(readonly name paths)};
+
+  $readonly //= $FALSE;
+  $paths    //= [];
+
+  my $bucket_arn = sprintf $S3_BUCKET_ARN_TEMPLATE, $name;
+  my $action     = $readonly ? ['s3:GetObject'] : ['s3:*'];
+
+  my @resources = ( $bucket_arn, map { sprintf '%s/%s', $bucket_arn, $_ } @{$paths} );
+
+  # ListBucket needed if using paths with readonly access
+  if ( $readonly && @{$paths} ) {
+    push @{$action}, 's3:ListBucket';
+  }
 
   return {
     Effect   => 'Allow',
-    Action   => ['s3:*'],
-    Resource => [ $bucket_arn, "$bucket_arn/*" ]
+    Action   => $action,
+    Resource => \@resources,
   };
 }
 

@@ -22,10 +22,15 @@ sub add_volumes {
 
   require App::EFS;
 
-  my $efs        = App::EFS->new( $self->get_global_options );
+  my $efs = App::EFS->new( $self->get_global_options );
+
   my $efs_config = $task->{efs};
 
   my ( $id, $path, $mount_point ) = @{$efs_config}{qw(id path mount_point)};
+
+  if ( !$mount_point ) {
+    $self->log_error('task:efs WARNING: no mount point defined...using /mnt');
+  }
 
   my ( $arn, $readonly ) = @{$efs_config}{qw(arn readonly)};
 
@@ -83,8 +88,11 @@ sub add_efs_policy {
   return {
     Effect => 'Allow',
     Action => [
-      'elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite',
-      'elasticfilesystem:ClientRootAccess',
+      qw(
+        elasticfilesystem:ClientMount
+        elasticfilesystem:ClientWrite
+        elasticfilesystem:ClientRootAccess
+      )
     ],
     Resource => \@efs_arns,
   };

@@ -16,7 +16,8 @@ tasks:
 ...then
 
 ```
-app-FargateStack --config my-stack.yml apply
+app-FargateStack plan --config my-stack.yml
+app-FargateStack apply --config my-stack.yml
 ```
 
 Making it easy is also a way to promote the wider use of this
@@ -36,6 +37,8 @@ My goal here is to do a bit of evangelizing for Fargate by creating a
 production grade tool that will handle 95% of the things IT
 departments do. And to be honest, reinforce my belief that Fargate is
 a winning solution that I need to adopt more often.
+
+# Why Fargate Deserves a Second Look
 
 Let's compare Fargate to EC2.
 

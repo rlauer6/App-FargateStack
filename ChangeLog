@@ -1,3 +1,96 @@
+Fri Aug  1 08:28:10 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.8]:
+	* .gitignore
+	- *.yml, test-*.pl, packages, requires.in
+	* Makefile
+	- new target 'requires'
+	- add TOC to README.md
+	* README-FARGATE.md: minor tweaks
+	* VERSION: bump
+	* lib/App/Command.pm.in: trace message to dump command
+	* lib/App/ECS.pm.in
+	(list_tasks): new
+	(stop_task): new
+	* lib/App/FargateStack.pm.in
+	- updated pod
+	(init)
+	- add additional command that log @ error level
+	- use english $^S
+	(cmd_service_status): wrap events at 100 columns
+	(_init_config)
+	- use fargate-stack.yml as default
+	- allow enviroment variable for default configuration name
+	(cmd_update_service)
+	- add a sleep so we can get updated status
+	(cmd_register)
+	- refactoring
+	- update config with new arn
+	(help)
+	- show USAGE for help
+	(cmd_stop_task): new
+	(cmd_list_tasks): new
+	(cmd_update_policy): new
+	(main)
+	- - --force
+	- one-letter abbreviations missing for some options
+	- + list-tasks, stop-task, update-policy
+	* lib/App/FargateStack/Builder/EFS.pm.in
+	(add_volumes)
+	- use default mount point of /mnt
+	- minor refactoring
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- major refactoring
+	- better logging
+	- display diffs in a friendlier way
+	(create_fargate_policy): new
+	* lib/App/FargateStack/Builder/S3Bucket.pm.in
+	(add_bucket_policy)
+	- + readonly option
+	- + paths option
+	* lib/App/FargateStack/Builder/SQSQueue.pm.in
+	(build_queue)
+	- refactoring
+	- support for dead letter queues
+	(ensure_queue_arn): new
+	(queue_exists): new
+	(apply_queue_defaults): new
+	(add_queue_policy): support for dlq
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(common_args): new
+	(display_diffs): new
+	(ToCamelCase): new
+	(toCamelCase): new
+	(_toCamelCase): new
+	(jmespath_mapping): new
+	(elapsed_time): new
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_SQS+
+	- + $QUEUE_ATTRIBUTES
+	- + help topics CLOUDWATCH_LOGS, COMMAND LIST
+	* lib/App/SQS.pm.in
+	- + max_receive_count, delay_seconds, arn, url
+	(set_attributes): new
+	(get_queue_arn): new
+	(create_queue)
+	- use constants
+	- support dead letter queues
+	* my-stack-minimal.yml
+	* requires
+	- + Carp::Always, Text::Diff, Time::Piece, Date::Parse, IO::Pager
+	* examples/minimal-task.yml: renamed from my-stack-minimal.ym
+	* examples/minimal-scheduled-task.yml: new
+	* examples/minimal-https.yml: new
+	* examples/minimal-http.yml: new
+	* examples/minimal-daemon.yml: new
+	* docker/000-default.conf: new
+	* docker/Dockerfile.apache: new
+	* docker/HelloWorld.pl: moved from root
+	* docker/apache2.conf: new
+	* docker/bookworm-backports.list: new
+	* docker/start-apache: new
+
 Tue Jul 29 16:14:46 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.7]:

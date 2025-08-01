@@ -1,0 +1,10 @@
+---
+app:
+  name: my-one-shot
+tasks:
+  my-one-shot:
+    type: task
+    image: helloworld:latest
+    schedule: cron(00 15 * * * *)
+    environment:
+      RUN_ONCE: 1

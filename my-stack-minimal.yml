@@ -1,9 +1,0 @@
----
-app:
-  name: my-stack
-tasks:
-  my-stack-daemon-1:
-    type: task
-    image: helloworld:latest
-    schedule: cron(50 12 * * * *)
-vpc_id: vpc-9526f0ee

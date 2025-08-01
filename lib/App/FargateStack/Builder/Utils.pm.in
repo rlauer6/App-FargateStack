@@ -8,11 +8,162 @@ use Data::Dumper;
 use English qw(no_match_vars);
 use JSON;
 use Scalar::Util qw(reftype);
+use Time::Piece;
+use Time::HiRes qw(time);
+use Text::Diff;
+use JSON;
 
 use Role::Tiny;
-use parent qw(Exporter);
+use parent qw(Exporter Class::Accessor::Fast);
 
-our @EXPORT = qw(log_die choose dmp);
+__PACKAGE__->follow_best_practice;
+__PACKAGE__->mk_accessors(qw(_var_pool));
+
+our @EXPORT = qw(
+  ToCamelCase
+  choose
+  common_args
+  display_diffs
+  dmp
+  elapsed_time
+  jmespath_mapping
+  log_die
+  toCamelCase
+);
+
+########################################################################
+sub common_args {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my $var_pool = $self->get__var_pool;
+
+  if ( !$var_pool ) {
+    my $config = $self->get_config;
+    $var_pool = {
+      config => $config,
+      cache  => $self->get_cache,
+      dryrun => $self->get_dryrun,
+      tasks  => $config->{tasks},
+    };
+
+    $self->set__var_pool($var_pool);
+  }
+
+  return $var_pool
+    if !@args;
+
+  my @invalid_args = grep { !exists $var_pool->{$_} } @args;
+
+  croak sprintf "invalid argument(s): %s\n", join q{,}, @invalid_args
+    if @invalid_args;
+
+  return @{$var_pool}{@args};
+}
+
+########################################################################
+sub display_diffs {
+########################################################################
+  my ( $self, $old, $new, $options ) = @_;
+
+  my $json = JSON->new->canonical->pretty->convert_blessed;
+
+  my $old_str = $json->encode($old);
+
+  my $new_str = $json->encode($new);
+
+  my $diffs = diff( \$old_str, \$new_str );
+
+  return $diffs
+    if !$options || !ref $options;
+
+  my ( $title, $log_level ) = @{$options}{qw(title log_level)};
+
+  $log_level //= 'error';
+
+  $title //= 'objects differ:';
+  $self->get_logger->$log_level( sprintf "\t%s", $title );
+  $self->get_logger->$log_level( sprintf "\t%s", $diffs );
+
+  return $diffs;
+}
+
+########################################################################
+sub ToCamelCase { goto &_toCamelCase; }
+sub toCamelCase { return _toCamelCase( $_[0], $_[1], 1 ); }
+########################################################################
+sub _toCamelCase {
+########################################################################
+  my ( $snake_case, $want_hash, $lc_first ) = @_;
+
+  $want_hash //= wantarray ? 0 : 1;
+
+  my @CamelCase = map {
+    ( $want_hash ? $_ : (), join q{}, map {ucfirst} split /_/xsm )
+  } @{$snake_case};
+
+  return $want_hash ? {@CamelCase} : @CamelCase
+    if !$lc_first;
+
+  return map {lcfirst} @CamelCase
+    if !$want_hash;
+
+  my %camelCase = @CamelCase;
+
+  %camelCase = map { $_ => lcfirst $camelCase{$_} } keys %camelCase;
+
+  return \%camelCase;
+}
+
+########################################################################
+sub jmespath_mapping {
+########################################################################
+  my ( $prefix, $hash_list ) = @_;
+
+  my $list = sprintf '%s.%s', $prefix, encode_json $hash_list;
+
+  $list =~ s/"//gxsm;
+
+  return $list;
+}
+
+########################################################################
+sub elapsed_time {
+########################################################################
+  my ($start_time) = @_;
+
+  return q{-}
+    if !$start_time;
+
+  # Extract timestamp and offset
+  my ( $date, $time, $sign, $h_offset, $m_offset ) = $start_time =~ m{
+    ^(\d{4}-\d{2}-\d{2})         # date
+    T(\d{2}:\d{2}:\d{2})         # time
+    \.\d+                        # fractional seconds
+    ([+-])(\d{2}):(\d{2})$       # offset
+}x;
+
+  # Parse local time (as in the string, which is relative to its own offset)
+  my $tp = Time::Piece->strptime( "$date $time", '%Y-%m-%d %H:%M:%S' );
+
+  # Calculate total offset in seconds
+  my $offset_sec = ( $h_offset * 3600 + $m_offset * 60 ) * ( $sign eq '+' ? 1 : -1 );
+
+  # Convert to UTC epoch (add offset to local time to get UTC)
+  my $epoch_utc = $tp->epoch - $offset_sec;
+
+  # Get current UTC time
+  my $now = time;
+
+  # Elapsed time in seconds
+  my $elapsed = int( $now - $epoch_utc );
+
+  # Break into minutes and seconds
+  my $minutes = int( $elapsed / 60 );
+  my $seconds = $elapsed % 60;
+
+  return sprintf '%d:%02d', $minutes, $seconds;
+}
 
 ########################################################################
 sub choose (&) { return $_[0]->(); }

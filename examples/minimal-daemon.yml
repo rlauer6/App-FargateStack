@@ -1,0 +1,8 @@
+---
+app:
+  name: my-daemon
+tasks:
+  my-daemon:
+    type: daemon
+    image: helloworld:latest
+

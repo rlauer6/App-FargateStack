@@ -1,0 +1,8 @@
+---
+app:
+  name: http-test
+domain: http-test.example.com
+tasks:
+  http-test:
+    type: http
+    image: http-test:latest
