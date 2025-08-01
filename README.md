@@ -52,8 +52,6 @@
   * [BASIC USAGE](#basic-usage)
   * [SECURITY NOTE](#security-note)
   * [INJECTING SECRETS FROM SECRETS MANAGER](#injecting-secrets-from-secrets-manager)
-* [SECRETS MANAGEMENT](#secrets-management)
-  * [EXAMPLE](#example)
   * [BEST PRACTICES](#best-practices)
 * [SQS QUEUES](#sqs-queues)
   * [BASIC CONFIGURATION](#basic-configuration)
@@ -309,7 +307,8 @@ before building them
 
 ## Additional Features
 
-- - inject secrets into the container's environment using a simple syntax (See ["SECRETS MANAGEMENT"](#secrets-management))
+- - inject secrets into the container's environment using a simple
+syntax (See ["INJECTING SECRETS FROM SECRETS MANAGER"](#injecting-secrets-from-secrets-manager))
 - - detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
 - - automatic IAM role and policy generation based on configured resources
 - - define and launch multiple independent Fargate tasks and services under a single stack
@@ -969,9 +968,9 @@ secrets are passed securely to your container.
 
 ## INJECTING SECRETS FROM SECRETS MANAGER
 
-To inject a secret from AWS Secrets Manager, add a `secrets:` block to your task's
-configuration. Each entry maps a Secrets Manager path to an environment variable name,
-using the format:
+To inject secrets into your ECS task from AWS Secrets Manager, define a `secrets:`
+block in the task configuration. Each entry in this list maps a Secrets Manager
+secret path to an environment variable name using the following format:
 
     /secret/path:ENV_VAR_NAME
 
@@ -980,48 +979,21 @@ Example:
     task:
       apache:
         secrets:
-          /my-stack/mysql-password:DB_PASSWORD
+          - /my-stack/mysql-password:DB_PASSWORD
 
-This configuration retrieves the secret value from `/my-stack/mysql-password` and makes
-it available to the container as the environment variable `DB_PASSWORD`.
+This configuration retrieves the secret value from `/my-stack/mysql-password`
+and injects it into the container environment as `DB_PASSWORD`.
 
-Secrets are injected using ECS's native secrets mechanism, which
-securely references Secrets Manager ARNs and avoids plaintext exposure
-in the task definition.
-
-[Back to Table of Contents](#table-of-contents)
-
-# SECRETS MANAGEMENT
-
-To securely inject secrets into your ECS task environment, use the `secrets:` block
-in your task configuration. This mechanism integrates with AWS Secrets Manager and
-ensures that sensitive values such as passwords, tokens, or private keys are passed
-securely to your container.
-
-Each entry in the `secrets:` block maps a Secrets Manager path to an environment
-variable name using the format:
-
-    /secret/path:ENV_VAR_NAME
-
-## EXAMPLE
-
-    task:
-      apache:
-        secrets:
-          /my-stack/mysql-password:DB_PASSWORD
-          /my-stack/api-key:API_KEY
-
-In this example, the secret value stored at `/my-stack/mysql-password` will be made
-available to the container as the environment variable `DB_PASSWORD`. The same applies
-for `/my-stack/api-key` and `API_KEY`.
+Secrets are referenced via their ARN using ECS's native secrets mechanism,
+which securely injects them without placing plaintext values in the task definition.
 
 ## BEST PRACTICES
 
-Do not place secrets in the `environment:` block. That mechanism is intended only
-for non-sensitive values.
+Avoid placing secrets in the `environment:` block. That block is for non-sensitive
+configuration values and exposes data in plaintext.
 
-Use unique and descriptive environment variable names when mapping secrets, and
-keep the secret path consistent with your stack or project naming convention.
+Use clear, descriptive environment variable names (e.g., `DB_PASSWORD`, `API_KEY`)
+and organize your Secrets Manager paths consistently with your stack naming.
 
 [Back to Table of Contents](#table-of-contents)
 

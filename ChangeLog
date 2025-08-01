@@ -1,3 +1,14 @@
+Fri Aug  1 17:15:41 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.10]:
+	* README: generated
+	* VERSION: bump
+	* lib/App/FargateStack.pm.in
+	- pod updates (SECRETS)
+	(get_task_status): order of keys incorrect, swap container, stop_reason
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(create_taskdef_files): add_secrets returns array ref, not list
+
 Fri Aug  1 12:36:45 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.9]:

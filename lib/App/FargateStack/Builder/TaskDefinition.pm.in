@@ -161,7 +161,7 @@ sub create_taskdef_files {
     $task->{cpu}    //= $DEFAULT_CPU_SIZE;
     $task->{family} //= $task_name;
 
-    my @secrets = $self->add_secrets($task);
+    my $secrets = $self->add_secrets($task);
 
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
@@ -178,7 +178,7 @@ sub create_taskdef_files {
             logDriver => q{awslogs}
           },
           environment  => \@environment,
-          secrets      => \@secrets,
+          secrets      => $secrets,
           portMappings => \@portMappings,
           essential    => JSON::true,
           name         => $task->{name},
