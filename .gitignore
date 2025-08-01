@@ -1,3 +1,5 @@
+**/*.tdy
+**/*.LOG
 *.pod
 *.yml
 test-*.pl

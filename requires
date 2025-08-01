@@ -1,6 +1,6 @@
 Carp::Always
 Class::Accessor::Fast
-CLI::Simple
+CLI::Simple 1.0.0
 CLI::Simple::Constants
 Data::Compare
 Date::Parse

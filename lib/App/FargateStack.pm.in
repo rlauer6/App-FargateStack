@@ -14,14 +14,13 @@ use warnings;
 use App::EC2;
 use App::ECS;
 use App::ElbV2;
-use App::Route53;
-
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase);
 use App::FargateStack::Constants;
-
-use Carp;
-use Carp::Always;
-use CLI::Simple;
+use App::Route53;
 use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
+use CLI::Simple;
+use Carp::Always;
+use Carp;
 use Data::Dumper;
 use Date::Parse qw(str2time);
 use English qw(no_match_vars);
@@ -56,6 +55,8 @@ our $VERSION = '@PACKAGE_VERSION@';
 
 use parent qw(CLI::Simple);
 
+__PACKAGE__->use_log4perl( config => $LOG4PERL_CONF );
+
 caller or __PACKAGE__->main;
 
 ########################################################################
@@ -67,11 +68,6 @@ sub init {
 
   return
     if $command =~ /version|help/xsm;
-
-  if ( !$self->get_log_level ) {
-    my $log_level = $command =~ /list-zones|stop-task|list-tasks|logs|status|-service/xsm ? 'error' : 'info';
-    $self->get_logger->level( $LOG_LEVELS{$log_level} );
-  }
 
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
@@ -202,8 +198,15 @@ sub _init_tasks {
 
   my @images = map { $tasks->{$_}->{image} // () } keys %{$tasks};
 
-  log_die( $self, "ERROR: every task must have an image\n" . Dumper( [ images => \@images, tasks => $tasks ] ) )
-    if @images != scalar keys %{$tasks};
+  log_die(
+    $self,
+    "ERROR: every task must have an image\n%s",
+    Dumper(
+      [ images => \@images,
+        tasks  => $tasks
+      ]
+    )
+  ) if @images != scalar keys %{$tasks};
 
   return
     if $self->get_cache;
@@ -412,7 +415,9 @@ sub cmd_logs {
 
   my $logs = App::Logs->new( $self->get_global_options );
 
-  my $query = 'logStreams[0]|{name: logStreamName, timestamp: firstEventTimestamp}';
+  my @elems = qw(log_stream_name first_event_timestamp);
+
+  my $query = jmespath_mapping( 'logStreams[0]', scalar toCamelCase( \@elems ) );
 
   my $log_group = $task->{log_group}->{name};
 
@@ -430,10 +435,10 @@ sub cmd_logs {
 
   my %options = (
     '--log-group-name'  => $log_group,
-    '--log-stream-name' => $stream->{name},
+    '--log-stream-name' => $stream->{log_stream_name},
   );
 
-  $start_time //= $stream->{timestamp};
+  $start_time //= $stream->{last_event_timestamp};
 
   my $events = $logs->command(
     'get-log-events' => [
@@ -634,8 +639,9 @@ sub cmd_service_status {
     $Text::Wrap::columns = 100;
   }
 
-  my $query
-    = 'services[0]|{running: runningCount, desired: desiredCount,status: status, pending: pendingCount,  events: events}';
+  my @elems = qw(running_count desired_count status pending events);
+
+  my $query = jmespath_mapping 'services[0]' => \@elems;
 
   my $result = $self->get_ecs->describe_services(
     cluster_name => $self->get_config->{cluster}->{name},
@@ -646,8 +652,11 @@ sub cmd_service_status {
   log_die( $self, "ERROR: could not describe service [%s]\n%s", $service_name, $self->get_ecs->get_error )
     if !$result;
 
+  croak sprintf "ERROR: no service named: [%s] is currently running\n", $service_name
+    if !ref $result;
+
   my $title = sprintf 'Service: %s Status:[%s] Running: [%s] Pending: [%s] Desired: [%s]', $service_name,
-    @{$result}{qw(status running pending desired)};
+    @{$result}{qw(status running_count pending desired_count)};
 
   my @data
     = map { { 'Time' => $_->{createdAt}, Event => wrap( q{}, q{}, $_->{message} ) } } @{ $result->{events} };
@@ -751,14 +760,13 @@ sub cmd_run_task {
     my $poll_count = 0;
 
     while ( $poll_count++ < $poll_limit ) {
-      my $query = 'tasks[0].{Status:lastStatus, Exit:containers[0].exitCode, Reason:stoppedReason}';
 
-      my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
+      my ( $status, $stopped_reason, $exit_code ) = $self->get_task_status( $cluster_name, $task_arn );
 
       $self->log_warn( 'run-task: task [%s] status: [%s], exit code:[%s], reason: [%s]',
-        $task_name, map { $_ // q{-} } @{$result}{qw(Status Exit Reason)} );
+        $task_name, map { $_ // q{-} } ( $status, $exit_code, $stopped_reason ) );
 
-      last if $result->{Status} eq 'STOPPED';
+      last if $status eq 'STOPPED';
 
       sleep $DEFAULT_ECS_POLL_TIME;
     }
@@ -797,6 +805,25 @@ sub cmd_run_task {
   }
 
   return $SUCCESS;
+}
+
+########################################################################
+sub get_task_status {
+########################################################################
+  my ( $self, $cluster_name, $task_arn ) = @_;
+
+  my @elems = qw(last_status containers stopped_reason);
+
+  my $query = jmespath_mapping 'tasks[0]' => \@elems;
+
+  my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
+
+  croak sprintf "ERROR: unable to describe task: [%s]\n%s", $task_arn, $self->get_ecs->get_error
+    if !$result;
+
+  my ( $status, $stopped_reason, $containers ) = @{$result}{@elems};
+
+  return ( $status, $stopped_reason, $containers->[0]->{exitCode} );
 }
 
 ########################################################################
@@ -1090,21 +1117,26 @@ sub init_logger {
 ########################################################################
   my ($self) = @_;
 
-  my $log4perl_conf = $LOG4PERL_CONF;
+  #  my $log4perl_conf = $LOG4PERL_CONF;
+
+  my $log4perl_conf = $self->get_log4perl_conf;
 
   if ( !$self->get_color ) {
     $log4perl_conf =~ s/\ColoredLevels//xsm;
   }
 
-  Log::Log4perl->init( \$log4perl_conf );
+  $self->set_log4perl_conf($log4perl_conf);
+  return $self->SUPER::init_logger;
 
-  $self->set_logger( Log::Log4perl->get_logger );
-
-  my $level = $self->get_log_level;
-
-  $self->get_logger->level( $LOG_LEVELS{ $level // 'info' } );
-
-  return;
+  #  Log::Log4perl->init( \$log4perl_conf );
+  #
+  #  $self->set_logger( Log::Log4perl->get_logger );
+  #
+  #  my $level = $self->get_log_level;
+  #
+  #  $self->get_logger->level( $LOG_LEVELS{ $level // 'info' } );
+  #
+  #  return;
 }
 
 ########################################################################
@@ -1184,8 +1216,9 @@ sub cmd_list_tasks {
   my @task_ids  = map { basename $_ } @{$result};
   my $task_list = join q{ }, @task_ids;
 
-  my $query
-    = 'tasks[].{status: status, task_name: taskDefinitionArn, status: lastStatus, start_time: startedAt, memory: memory, cpu: cpu, attachments: attachments, arn: taskArn}';
+  my @elems = qw(status task_definition_arn last_status started_at memory cpu attachments task_arn);
+
+  my $query = jmespath_mapping 'task[]' => \@elems;
 
   $result = $ecs->describe_tasks( $cluster_name, $task_list, $query );
 
@@ -1198,8 +1231,8 @@ sub cmd_list_tasks {
 
   foreach ( @{$result} ) {
     my ( $status, $last_status, $start_time, $memory, $cpu, $arn )
-      = @{$_}{qw(status last_status start_time memory cpu arn)};
-    my $task_name = basename( $_->{task_name} );
+      = @{$_}{qw(status last_status started_at memory cpu task_arn)};
+    my $task_name = basename( $_->{task_definition_arn} );
     $task_name =~ s/:\d+$//;
 
     push @data,
@@ -1302,26 +1335,26 @@ sub main {
   );
 
   my %commands = (
-    'create-service' => \&cmd_create_service,
-    'delete-service' => \&cmd_delete_service,
-    'list-tasks'     => \&cmd_list_tasks,
-    'list-zones'     => \&cmd_list_zones,
+    'create-service' => [ \&cmd_create_service, 'error' ],
+    'delete-service' => [ \&cmd_delete_service, 'error' ],
+    'list-tasks'     => [ \&cmd_list_tasks,     'error' ],
+    'list-zones'     => [ \&cmd_list_zones,     'error' ],
     'run-task'       => \&cmd_run_task,
-    'start-service'  => \&cmd_update_service,
-    'stop-service'   => \&cmd_update_service,
-    'stop-task'      => \&cmd_stop_task,
+    'start-service'  => [ \&cmd_update_service, 'error' ],
+    'stop-service'   => [ \&cmd_update_service, 'error' ],
+    'stop-task'      => [ \&cmd_stop_task,      'error' ],
     'update-policy'  => \&cmd_update_policy,
     'update-target'  => \&cmd_update_target,
     apply            => \&cmd_apply,
-    default          => \&cmd_explain,
-    help             => \&help,
-    logs             => \&cmd_logs,
+    default          => [ \&cmd_explain, 'error' ],
+    help             => [ \&help,        'error' ],
+    logs             => [ \&cmd_logs,    'error' ],
     plan             => \&cmd_plan,
     register         => \&cmd_register,
     start            => \&cmd_start_service,
-    status           => \&cmd_service_status,
+    status           => [ \&cmd_service_status, 'error' ],
     stop             => \&cmd_stop_service,
-    version          => \&cmd_version,
+    version          => [ \&cmd_version, 'error' ],
   );
 
   my $fargate_stack = App::FargateStack->new(
@@ -2805,7 +2838,8 @@ external ("https") HTTP service, discovery entails:
 
 =item  ...identifying the private subnet IDs
 
-=item  ...determing if there is and existing load balancer with the correct scheme
+=item ...determining if there is and existing load balancer with the
+correct scheme
 
 =item  ...finding your load balancer's security group (if an ALB exists)
 

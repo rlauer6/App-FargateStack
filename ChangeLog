@@ -1,3 +1,24 @@
+Fri Aug  1 12:36:45 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.9]:
+	* .gitignore
+	- +.tdy, .LOG
+	* README.md: generated
+	* VERSION: bump
+	* requires: CLI::Simple 1.0.0
+	* lib/App/FargateStack.pm.in
+	(main): update log levels for some commands
+	(init)
+	- remove log_level munging (now done in run)
+	(init_tasks): whitespace
+	(cmd_service_status): refactoring
+	(cmd_run_task): likewise
+	(cmd_list_tasks): likewise
+	(cmd_logs): likewise
+	(get_task_status): new
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(jmespath_mapping): support array or hash list
+
 Fri Aug  1 08:28:10 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.8]:

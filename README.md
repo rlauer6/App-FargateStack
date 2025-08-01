@@ -1380,7 +1380,8 @@ external ("https") HTTP service, discovery entails:
 
 - ...determining your VPC's ID
 - ...identifying the private subnet IDs
-- ...determing if there is and existing load balancer with the correct scheme
+- ...determining if there is and existing load balancer with the
+correct scheme
 - ...finding your load balancer's security group (if an ALB exists)
 - ...looking for a listener rule on port 80 (and 443 if type is
 "https"), including a default forwarding redirect rule

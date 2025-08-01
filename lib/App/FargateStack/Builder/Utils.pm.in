@@ -118,7 +118,10 @@ sub _toCamelCase {
 ########################################################################
 sub jmespath_mapping {
 ########################################################################
-  my ( $prefix, $hash_list ) = @_;
+  my ( $prefix, $elems, $ucfirst ) = @_;
+  $ucfirst //= 0;
+
+  my $hash_list = reftype($elems) eq 'HASH' ? $elems : $ucfirst ? ToCamelCase($elems) : toCamelCase($elems);
 
   my $list = sprintf '%s.%s', $prefix, encode_json $hash_list;
 
