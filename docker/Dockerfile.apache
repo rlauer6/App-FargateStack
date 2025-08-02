@@ -21,11 +21,11 @@ RUN echo "LoadModule perl_module /usr/lib/apache2/modules/mod_perl.so" >/etc/apa
 RUN a2enmod perl
 
 ENV START_APACHE=1
-COPY start-server /usr/local/bin/start-server
-RUN chmod +x /usr/local/bin/start-server
+COPY start-apache /usr/local/bin/start-apache
+RUN chmod +x /usr/local/bin/start-apache
 
 COPY apache2.conf /etc/apache2/apache2.conf
-COPY 000-default.conf /etc/apache2/sites-available/000-default.conf
+COPY 00-default.conf /etc/apache2/sites-available/00-default.conf
 
 RUN apt-get autoremove --fix-missing -yq && rm -rf /var/lib/apt/lists/*
 

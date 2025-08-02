@@ -1,3 +1,22 @@
+Sat Aug  2 08:45:51 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.11]:
+	* docker/.gitignore: new
+	* docker/000-default.conf -> docker/00-default.conf
+	* docker/Dockerfile.apache
+	- start-server => start-apache
+	* docker/Makefile: new
+	* docker/README.md: generated
+	* docker/README.md.in: new
+	* deploy-to-ecr -> docker/deploy-to-ecr
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   ChangeLog
+	modified:   VERSION
+
+
 Fri Aug  1 17:15:41 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.10]:
