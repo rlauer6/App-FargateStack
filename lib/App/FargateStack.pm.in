@@ -332,7 +332,7 @@ sub _init_route53 {
     $config->{route53} = $route53_config;
   }
 
-  $route53_config->{profile} //= $self->get_profile;
+  $route53_config->{profile} //= $self->get_route53_profile // $self->get_profile;
 
   my ( $zone_id, $profile ) = @{$route53_config}{qw(zone_id profile)};
 
@@ -430,8 +430,11 @@ sub cmd_logs {
     ]
   );
 
-  croak "ERROR: could not describe log group [%s]\n%s\n", $log_group, $logs->get_error
+  croak sprintf "ERROR: could not describe log group [%s]\n%s\n", $log_group, $logs->get_error
     if !$stream;
+
+  croak sprintf "no log streams found for log group: [%s]\n", $log_group
+    if !ref $stream;
 
   my %options = (
     '--log-group-name'  => $log_group,
@@ -980,6 +983,11 @@ sub cmd_register {
     if ( !$dryrun ) {
       my $task_definition = $ecs->register_task_definition($task_definition_file);
 
+      log_die( $self, 'register: could not register [%s]', $task_definition_file )
+        if !$task_definition;
+
+      $self->log_trace( sub { return Dumper( [ task_definition => $task_definition ] ) } );
+
       $task_definition_arn = $task_definition_arn->{taskDefinition}->{taskDefinitionArn};
       $self->log_warn( 'register: registered...[%s]', $task_definition_arn );
       $tasks->{$task_name}->{arn} = $task_definition_arn;
@@ -1000,7 +1008,7 @@ sub cmd_register {
       # we only need to update the config if we skipped
       # registration...this is to allow for updating an event target
       # with a new task definition manually
-      if ( !$dryrun && $self->skip_register ) {
+      if ( !$dryrun && $self->get_skip_register ) {
         $config->{tasks}->{$task_name}->{arn} = $task_definition_arn;
         $self->update_config;
       }
@@ -1314,6 +1322,7 @@ sub main {
     log-time!
     log-wait!
     region|r=s
+    route53-profile|R=s
     skip-register|s
     task-timeout|t
     update|u!
@@ -1513,6 +1522,7 @@ Convenient CLI: start, stop, update, and tail logs for any service
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
  --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
  -p, --profile              AWS profile (see Note 1)
+     --route53-profile      set this if your Route 53 zones are in a different account (See Note 10)
  -s, --skip-register        skips registering a new task definition when using update-target (See Note 7)
  -u, --update, --no-update  update config (See Note 9)
  -U, --unlink, --no-unlink  delete or keep temp files (default: --unlink)
@@ -1606,6 +1616,10 @@ the next run of C<plan> or C<apply>.
 =item (9) C<--no-update> is not permitted with C<apply>. If you need a
 dry plan without applying or updating the config, use C<--dryrun> (and
 optionally C<--no-update>) with C<plan>.
+
+=item (10) Set C<--route53-profile> to the profile that has
+permissions to manage your hosted zones. By default the script will
+use the default profile.
 
 =back
 

@@ -188,6 +188,7 @@ internal-only)
     --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
     --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
     -p, --profile              AWS profile (see Note 1)
+        --route53-profile      set this if your Route 53 zones are in a different account (See Note 10)
     -s, --skip-register        skips registering a new task definition when using update-target (See Note 7)
     -u, --update, --no-update  update config (See Note 9)
     -U, --unlink, --no-unlink  delete or keep temp files (default: --unlink)
@@ -270,6 +271,9 @@ the next run of `plan` or `apply`.
 - (9) `--no-update` is not permitted with `apply`. If you need a
 dry plan without applying or updating the config, use `--dryrun` (and
 optionally `--no-update`) with `plan`.
+- (10) Set `--route53-profile` to the profile that has
+permissions to manage your hosted zones. By default the script will
+use the default profile.
 
 [Back to Table of Contents](#table-of-contents)
 

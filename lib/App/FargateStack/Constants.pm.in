@@ -76,12 +76,12 @@ Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
 
 Readonly::Hash our %AWS_SERVICE_DOMAINS => (
   events => 'events.amazonaws.com',
-  task   => 'ecs-tasks.amazonaws.com',
+  ecs    => 'ecs-tasks.amazonaws.com',
 );
 
 Readonly::Hash our %HELP_SUBJECTS => (
   'tbd' => [
-    'TBD' => << 'END_OF_TEXT'
+    'TBD' => <<'END_OF_TEXT'
 Our current TODO list. Add your request at
 https://github.com/rlauer6/App-Fargate
 END_OF_TEXT

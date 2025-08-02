@@ -1,6 +1,49 @@
+Sat Aug  2 15:01:28 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.12]:
+	* README.md: generated
+	* VERSION: bump
+	* docker/HelloWorld.pl
+	- use env var HAS_EFS_MOUNT
+	* lib/App/FargateStack.pm.in
+	(_init_route53): use route_53 from command line if present
+	(cmd_logs)
+	- croak if no log stream found
+	(cmd_register)
+	- croak if API eror
+	- get_skip_register, not skip_register
+	(main): add route53-profile
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- build security groups, task definitions and THEN events
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(create_event_target)
+	- refactoring
+	- check if current task definition exists before comparing
+	- output target if error
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- create policy when it doesn't exist or we don't have an ARN
+	- fix policy exists logic
+	(create_farget_role): ecs, not ecs-tasks
+	(create_role): refactoring
+	* lib/App/FargateStack/Builder/Secrets.pm.in: use log_die
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in
+	(build_security_group)
+	- fix log_die error message
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(comapare_task_definition)
+	- make sure $secrets is an array
+	- show diffs
+	* lib/App/FargateStack/Constants.pm.in
+	- use ecs instead of task for service domain keys
+	* examples/README.md: new
+
+
 Sat Aug  2 08:45:51 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.11]:
+	* VERSION: bump
 	* docker/.gitignore: new
 	* docker/000-default.conf -> docker/00-default.conf
 	* docker/Dockerfile.apache
@@ -9,13 +52,6 @@ Sat Aug  2 08:45:51 2025  Rob Lauer  <rlauer6@comcast.net>
 	* docker/README.md: generated
 	* docker/README.md.in: new
 	* deploy-to-ecr -> docker/deploy-to-ecr
-
-Changes not staged for commit:
-  (use "git add <file>..." to update what will be committed)
-  (use "git restore <file>..." to discard changes in working directory)
-	modified:   ChangeLog
-	modified:   VERSION
-
 
 Fri Aug  1 17:15:41 2025  Rob Lauer  <rlauer6@comcast.net>
 

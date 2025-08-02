@@ -74,6 +74,16 @@ sub build {
   $self->benchmark('cluster');
   $self->section_break;
 
+  ## -- security group --
+  $self->build_security_group;
+  $self->benchmark('security-group');
+  $self->section_break;
+
+  # -- task definitions --
+  foreach my $task ( keys %{ $config->{tasks} } ) {
+    $self->register_task_definition($task);
+  }
+
   ## -- events --
   if ( $self->has_events ) {
     $self->build_events;
@@ -81,21 +91,11 @@ sub build {
     $self->section_break;
   }
 
-  ## -- security group --
-  $self->build_security_group;
-  $self->benchmark('security-group');
-  $self->section_break;
-
   ## -- http service --
   if ( $self->get_http() ) {
     $self->build_http_service;
     $self->benchmark('http-service');
     $self->section_break;
-  }
-
-  # -- task definitions --
-  foreach my $task ( keys %{ $config->{tasks} } ) {
-    $self->register_task_definition($task);
   }
 
   $self->benchmark('task-definition');

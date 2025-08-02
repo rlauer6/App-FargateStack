@@ -161,7 +161,7 @@ sub create_taskdef_files {
     $task->{cpu}    //= $DEFAULT_CPU_SIZE;
     $task->{family} //= $task_name;
 
-    my $secrets = $self->add_secrets($task);
+    my $secrets = $self->add_secrets($task) // [];
 
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
@@ -258,6 +258,7 @@ sub compare_task_definition {
     next if Compare( $taskdef->{$k}, $current_taskdef->{$k} );
 
     $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task_name, $k );
+    $self->display_diffs( $taskdef->{$k}, $current_taskdef->{$k}, { title => sprintf '%s changes', $k } );
 
     $status = $FALSE;
   }
@@ -280,6 +281,7 @@ sub compare_task_definition {
     next if Compare( $containerDefinitions->{$k}, $current_elem );
 
     $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task_name, $k );
+    $self->display_diffs( $current_elem, $containerDefinitions->{$k}, { title => sprintf '%s changes', $k } );
 
     $status = $FALSE;
   }

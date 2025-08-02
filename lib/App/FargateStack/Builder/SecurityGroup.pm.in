@@ -58,8 +58,8 @@ sub build_security_group {
 
         my $security_group_id = $ec2->create_security_group( $security_group_name, $description );
 
-        log_die( $self, 'ERROR: could not create security group', $security_group_name, $ec2->get_error )
-          if $security_group_id;
+        log_die( $self, "ERROR: could not create security group:%s\n%s", $security_group_name, $ec2->get_error )
+          if !$security_group_id;
 
         $config->{security_groups}->{fargate}->{group_id} = $security_group_id;
 

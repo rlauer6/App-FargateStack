@@ -4,25 +4,27 @@ use strict;
 use warnings;
 
 use Data::Dumper;
-
 use JSON;
+
+my $env = \%ENV;
 
 while (1) {
   print {*STDERR} "Hello World!\n";
-
-  open my $fh, '>>', '/mnt/session/env.json'
-    or die "could not open file /mnt/session/env.json\n";
-
-  my $env = \%ENV;
 
   $env->{TIMESTAMP} = scalar localtime;
 
   my $json = JSON->new->pretty->encode($env);
 
   print {*STDERR} Dumper( [ env => $json ] );
-  print {$fh} $json;
 
-  close $fh;
+  if ( $ENV{HAS_EFS_MOUNT} ) {
+    open my $fh, '>>', sprintf '%s/env.json', $ENV{HAS_EFS_MOUNT}
+      or die "could not open file /mnt/session/env.json\n";
+
+    print {$fh} $json;
+
+    close $fh;
+  }
 
   last
     if $ENV{RUN_ONCE};

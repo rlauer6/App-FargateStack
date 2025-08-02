@@ -9,6 +9,7 @@ use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
 use App::FargateStack::Builder::Utils qw(log_die);
+use JSON;
 
 use Role::Tiny;
 
@@ -106,19 +107,17 @@ sub create_event_target {
 ########################################################################
   my ( $self, $task_name ) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
 
   my $region = $self->get_region;
 
   my $account = $self->get_account;
 
-  my $task = $config->{tasks}->{$task_name};
+  my $task = $tasks->{$task_name};
 
   my $events_role = $config->{events_role};
 
-  my $task_definition_arn = $task->{arn};
+  my $task_definition_arn = $task->{arn} // $EMPTY;
 
   my $subnets = $self->get_subnets->{private} // $self->get_subnets->{public};
 
@@ -152,6 +151,7 @@ sub create_event_target {
     sub {
       return Dumper(
         [ current_target      => $current_target,
+          target              => $target,
           task_definition_arn => $task_definition_arn
         ]
       );
@@ -162,7 +162,7 @@ sub create_event_target {
 
   my $current_task_definition_arn = $ecs_parameters->{TaskDefinitionArn} // $EMPTY;
 
-  if ( $current_task_definition_arn eq $task_definition_arn ) {
+  if ( $current_task_definition_arn && $current_task_definition_arn eq $task_definition_arn ) {
     $self->log_info( sprintf 'events: [%s] target exists...skipping', $task_name );
     $self->inc_existing_resources( 'events:target' => [$task_name] );
 
@@ -190,9 +190,12 @@ sub create_event_target {
 
   my $result = $event->put_targets( $rule_name, $target );
 
-  log_die( $self, "ERROR: could not create target [%s] for rule [%s]\n%s",
-    $rule_name, $target, $event->get_error )
-    if !$result;
+  log_die(
+    $self,
+    "ERROR: could not create target [%s] for rule [%s]\n%s",
+    to_json( $target, { pretty => $TRUE } ),
+    $rule_name, $event->get_error
+  ) if !$result;
 
   return;
 }

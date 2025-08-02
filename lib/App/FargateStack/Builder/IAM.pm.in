@@ -54,6 +54,7 @@ sub build_iam_role {
   # if we turned caching off OR we don't have an ARN yet, check to see
   # if the policy exists
   if ( !$cache || !$role->{arn} ) {
+    $role->{arn} = $EMPTY;
     $policy = $iam->get_role_policy( $role_name, $policy_name );
 
     log_die( $self, "ERROR: could not get role policy: [%s] for role [%s]\n%s\n",
@@ -61,9 +62,20 @@ sub build_iam_role {
       if !$policy && $iam->get_error !~ /cannot\sbe\sfound/xsm;
   }
 
+  $self->log_trace(
+    sub {
+      return Dumper(
+        [ policy => $policy,
+          cache  => $cache,
+          role   => $role
+        ]
+      );
+    }
+  );
+
   # if the policy exists OR we don't yet have an ARN we need to create
   # the policy
-  if ( $policy || !$role->{arn} ) {
+  if ( !$policy || !$role->{arn} ) {
     $role_policy = $self->create_fargate_policy;
   }
 
@@ -93,7 +105,7 @@ sub build_iam_role {
     }
   );
 
-  if ( $policy_exists != -1 ) {
+  if ( $policy_exists && $policy_exists != -1 ) {
     $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $cache || 'skipping' );
     $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
     return;
@@ -103,6 +115,9 @@ sub build_iam_role {
 
     $self->display_diffs( $policy, $role_policy, { title => $title } );
     $self->log_warn( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
+  }
+  else {
+    $self->log_warn( 'iam:policy [%s] will be created...%s', $policy_name, $dryrun );
   }
 
   $self->inc_required_resources( 'iam:policy' => [$policy_name] );
@@ -164,7 +179,7 @@ sub create_fargate_policy {
 }
 
 ########################################################################
-sub create_fargate_role { return shift->create_role( @_, 'ecs-tasks' ); }
+sub create_fargate_role { return shift->create_role( @_, 'ecs' ); }
 ########################################################################
 
 ########################################################################
@@ -178,11 +193,16 @@ sub create_role {
 
   my $iam = $self->fetch_iam;
 
+  my $service_domain = $AWS_SERVICE_DOMAINS{$type};
+
+  log_die( $self, 'iam: invalid task type: %s', $type )
+    if !$service_domain;
+
   my $trust_policy = {
     Version   => $IAM_POLICY_VERSION,
     Statement => [
       { Effect    => 'Allow',
-        Principal => { Service => $AWS_SERVICE_DOMAINS{$type} },
+        Principal => { Service => $service_domain },
         Action    => 'sts:AssumeRole'
       }
     ]
