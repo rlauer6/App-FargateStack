@@ -1,8 +1,8 @@
 ---
 app:
-  name: my-one-shot
+  name: my-cron-job
 tasks:
-  my-one-shot:
+  my-cron-job:
     type: task
     image: helloworld:latest
     schedule: cron(00 15 * * * *)

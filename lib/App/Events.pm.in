@@ -3,6 +3,7 @@ package App::Events;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
@@ -34,6 +35,19 @@ sub new {
   }
 
   return $self;
+}
+
+########################################################################
+sub describe_rule {
+########################################################################
+  my ( $self, $rule_name, $query ) = @_;
+
+  return $self->command(
+    'describe-rule' => [
+      '--name' => $rule_name,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
 }
 
 ########################################################################
@@ -82,10 +96,14 @@ sub rule_exists {
   );
 
   my $error = $self->get_error;
+
   croak sprintf "ERROR: could not execute list-rules:\n%s\n", $error
     if !$result && $error !~ /does\s+not\s+exist/xsm;
 
   my ($rule) = @{$result};
+
+  return $rule
+    if !$schedule;
 
   return $schedule ? $rule && $schedule eq $rule->{ScheduleExpression} ? 1 : -1 : 0;
 }
@@ -112,7 +130,6 @@ sub disable_rule {
     'disable-rule' => [
       '--name'           => $rule_name,
       '--event-bus-name' => $self->get_event_bus_name,
-      '--force'          => JSON::true,
     ]
   );
 }
@@ -134,13 +151,15 @@ sub delete_rule {
 ########################################################################
 sub put_rule {
 ########################################################################
-  my ( $self, $rule_name, $schedule ) = @_;
+  my ( $self, $rule_name, $schedule, $state ) = @_;
+  $state //= $TRUE;
 
   return $self->command(
     'put-rule' => [
       '--name'           => $rule_name,
       '--schedule'       => $schedule,
-      '--event-bus-name' => $self->get_event_bus_name
+      '--event-bus-name' => $self->get_event_bus_name,
+      '--state'          => $state ? 'ENABLED' : 'DISABLED',
     ]
   );
 
@@ -190,9 +209,6 @@ sub put_targets {
     ]
   );
 }
-
-Readonly our $TRUE  => 1;
-Readonly our $FALSE => 0;
 
 ########################################################################
 sub validate_schedule {

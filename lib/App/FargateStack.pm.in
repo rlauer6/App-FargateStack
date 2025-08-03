@@ -28,7 +28,7 @@ use File::Basename qw(basename);
 use List::Util qw(none);
 use Log::Log4perl;
 use Pod::Usage;
-use Scalar::Util qw(reftype);
+use Scalar::Util qw(reftype looks_like_number);
 use Text::ASCIITable::EasyTable;
 use YAML qw(LoadFile);
 
@@ -65,6 +65,10 @@ sub init {
   my ($self) = @_;
 
   my $command = $self->command;
+
+  if ( $self->get_history ) {
+    $self->fetch_option_defaults;
+  }
 
   return
     if $command =~ /version|help/xsm;
@@ -311,19 +315,14 @@ sub _init_route53 {
 
   my $command = $self->command;
 
-  my @route53_commands = qw(apply plan list-hosted-zones);
+  my @route53_commands = qw(apply plan list-zones);
 
   return
     if none { $command eq $_ } @route53_commands;
 
-  return
-    if !$self->get_http && $command =~ /apply|plan/xsm;
-
   my $config = $self->get_config;
 
   $self->log_trace( sub { return Dumper( [ alb => $config->{alb}, $self->get_http ] ) } );
-
-  my $alb_type = $config->{alb}->{type};
 
   my ( $route53_config, $domain ) = @{$config}{qw(route53 domain)};
 
@@ -332,9 +331,24 @@ sub _init_route53 {
     $config->{route53} = $route53_config;
   }
 
-  $route53_config->{profile} //= $self->get_route53_profile // $self->get_profile;
+  if ( $self->get_route53_profile ) {
+    $route53_config->{profile} = $self->get_route53_profile;
+  }
+  else {
+    $route53_config->{profile} //= $self->get_profile;
+  }
 
   my ( $zone_id, $profile ) = @{$route53_config}{qw(zone_id profile)};
+
+  $self->log_trace(
+    sub {
+      return Dumper(
+        [ route53_profile => $profile,
+          cli             => $self->get_route53_profile
+        ]
+      );
+    }
+  );
 
   my $route53 = App::Route53->new(
     hosted_zone_id => $zone_id,
@@ -344,6 +358,11 @@ sub _init_route53 {
   );
 
   $self->set_route53($route53);
+
+  return
+    if !$self->get_http && $command =~ /apply|plan|list-zones/xsm;
+
+  my $alb_type = $config->{alb}->{type};
 
   if ( !$zone_id ) {
     my $zone_type = $self->is_https ? 'public' : 'private';
@@ -627,11 +646,34 @@ sub _init_ec2 {
 }
 
 ########################################################################
+sub check_service_name {
+########################################################################
+  my ( $self, $service_name, $return_on_missing ) = @_;
+
+  my $tasks = $self->common_args('tasks');
+
+  # if only 1 service in config, then let's stat that
+  if ( !$service_name ) {
+    my ( $default_service, $error ) = grep { $tasks->{$_}->{type} =~ /daemon|http/xsm } keys %{$tasks};
+
+    return
+      if !$default_service && $return_on_missing;
+
+    croak sprintf "usage: %s status task-name\n", $ENV{SCRIPT_NAME}
+      if $error || !$default_service;
+
+    $service_name = $default_service;
+  }
+
+  return $service_name;
+}
+
+########################################################################
 sub cmd_service_status {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, @args ) = @_;
 
-  my ($service_name) = $self->get_args;
+  my $service_name = $self->check_service_name( @args, $self->get_args );
 
   require Text::Wrap;
   Text::Wrap->import('wrap');
@@ -658,11 +700,14 @@ sub cmd_service_status {
   croak sprintf "ERROR: no service named: [%s] is currently running\n", $service_name
     if !ref $result;
 
-  my $title = sprintf 'Service: %s Status:[%s] Running: [%s] Pending: [%s] Desired: [%s]', $service_name,
+  $result->{pending} //= q{-};
+
+  my $title = sprintf 'Service: [%s] Status:[%s] Running: [%s] Pending: [%s] Desired: [%s]', $service_name,
     @{$result}{qw(status running_count pending desired_count)};
 
-  my @data
-    = map { { 'Time' => $_->{createdAt}, Event => wrap( q{}, q{}, $_->{message} ) } } @{ $result->{events} };
+  my @events = grep {defined} @{ $result->{events} }[ 0 .. ( $self->get_max_events - 1 ) ];
+
+  my @data = map { { 'Time' => $_->{createdAt}, Event => wrap( q{}, q{}, $_->{message} ) } } @events;
 
   print {*STDOUT} easy_table(
     table_options => { headingText => $title },
@@ -924,14 +969,19 @@ sub cmd_update_service {
 
   my ( $task_name, $count ) = $self->get_args;
 
+  if ( looks_like_number $task_name ) {
+    $count     = $task_name;
+    $task_name = $EMPTY;
+  }
+
+  $task_name = $self->check_service_name($task_name);
+
   if ( $self->command eq 'start-service' ) {
     $count ||= 1;
   }
   else {
     $count = 0;
   }
-
-  $self->check_task( $task_name, 'warn' );
 
   if ( !$task_name ) {
     if ( $count == 0 ) {
@@ -945,7 +995,7 @@ sub cmd_update_service {
 
   sleep 2;  # wait a few seconds for status to be updated
 
-  return $self->cmd_service_status;
+  return $self->cmd_service_status($task_name);
 }
 
 ########################################################################
@@ -997,6 +1047,8 @@ sub cmd_register {
 
   ## - events -
   if ( $tasks->{$task_name}->{type} eq 'task' ) {
+    require App::Events;
+
     my $event = App::Events->new( $self->get_global_options );
 
     my $rule_name = sprintf '%s-schedule', $task_name;
@@ -1134,17 +1186,8 @@ sub init_logger {
   }
 
   $self->set_log4perl_conf($log4perl_conf);
-  return $self->SUPER::init_logger;
 
-  #  Log::Log4perl->init( \$log4perl_conf );
-  #
-  #  $self->set_logger( Log::Log4perl->get_logger );
-  #
-  #  my $level = $self->get_log_level;
-  #
-  #  $self->get_logger->level( $LOG_LEVELS{ $level // 'info' } );
-  #
-  #  return;
+  return $self->SUPER::init_logger;
 }
 
 ########################################################################
@@ -1182,13 +1225,19 @@ sub cmd_stop_task {
 ########################################################################
   my ( $self, @args ) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
   my ($task_id) = $self->get_args;
 
+  my ($task_name) = $self->check_service( $task_id, $TRUE );
+
+  if ($task_name) {
+    $task_id = $tasks->{$task_name}->{arn};
+  }
+
   my $ecs = $self->get_ecs;
 
-  croak sprintf "usage: %s stop-task -c config.yml task-id|task-arn\n", $ENV{SCRIPT_NAME}
+  croak sprintf "usage: %s stop-task task-name|task-id|task-arn\n", $ENV{SCRIPT_NAME}
     if none { length $task_id == $_ } ( 32, 36 );
 
   my $result = $ecs->stop_task( $config->{cluster}->{name}, $task_id );
@@ -1265,11 +1314,19 @@ sub cmd_list_tasks {
 }
 
 ########################################################################
-sub cmd_ {
+sub cmd_enable_scheduled_task {
+########################################################################
+  my ($self) = @_;
+
+  return $self->update_rule_state($TRUE);
+}
+
+########################################################################
+sub cmd_disable_scheduled_task {
 ########################################################################
   my ( $self, @args ) = @_;
 
-  return $SUCCESS;
+  return $self->update_rule_state($FALSE);
 }
 
 ########################################################################
@@ -1280,6 +1337,60 @@ sub cmd_update_policy {
   $self->set_cache($FALSE);
 
   return $self->build(@args);
+}
+
+########################################################################
+sub cmd_ {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub cmd_reset_history {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  $self->fetch_option_defaults($TRUE);
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub fetch_option_defaults {
+########################################################################
+  my ( $self, $reset ) = @_;
+
+  my $options = {};
+
+  my $defaults_file = '.fargatestack/defaults.json';
+
+  if ( -s $defaults_file ) {
+    $options = slurp_file( $defaults_file, $TRUE );
+  }
+  else {
+    mkdir '.fargatestack';
+  }
+
+  return $self->write_json_file( $defaults_file, $options )
+    if $reset;
+
+  $options->{profile}         = $self->get_profile         // $options->{profile};
+  $options->{config}          = $self->get_config          // $options->{config};
+  $options->{region}          = $self->get_region          // $options->{region};
+  $options->{route53_profile} = $self->get_route53_profile // $options->{route53_profile};
+  $options->{max_events}      = $self->get_max_events      // $options->{max_events};
+
+  $self->set_profile( $options->{profile} );
+  $self->set_config( $options->{config} );
+  $self->set_region( $options->{region} );
+  $self->set_route53_profile( $options->{route53_profile} );
+  $self->set_max_events( $options->{max_events} );
+
+  $self->write_json_file( $defaults_file, $options );
+
+  return $options;
 }
 
 ########################################################################
@@ -1317,10 +1428,12 @@ sub main {
     color!
     create-alb|C
     dryrun|d
-    profile|p=s
     log-level=s
     log-time!
     log-wait!
+    history|H!
+    max-events|m=i
+    profile|p=s
     region|r=s
     route53-profile|R=s
     skip-register|s
@@ -1333,7 +1446,6 @@ sub main {
   );
 
   my %default_options = (
-    'update'       => $TRUE,
     wait           => $TRUE,
     unlink         => $TRUE,
     color          => $TRUE,
@@ -1341,29 +1453,33 @@ sub main {
     'log-time'     => $TRUE,
     'log-wait'     => $TRUE,
     'task-timeout' => $DEFAULT_ECS_POLL_LIMIT,
+    history        => $TRUE,
+    update         => $TRUE,
+    'max-events'   => 5,
   );
 
   my %commands = (
-    'create-service' => [ \&cmd_create_service, 'error' ],
-    'delete-service' => [ \&cmd_delete_service, 'error' ],
-    'list-tasks'     => [ \&cmd_list_tasks,     'error' ],
-    'list-zones'     => [ \&cmd_list_zones,     'error' ],
-    'run-task'       => \&cmd_run_task,
-    'start-service'  => [ \&cmd_update_service, 'error' ],
-    'stop-service'   => [ \&cmd_update_service, 'error' ],
-    'stop-task'      => [ \&cmd_stop_task,      'error' ],
-    'update-policy'  => \&cmd_update_policy,
-    'update-target'  => \&cmd_update_target,
-    apply            => \&cmd_apply,
-    default          => [ \&cmd_explain, 'error' ],
-    help             => [ \&help,        'error' ],
-    logs             => [ \&cmd_logs,    'error' ],
-    plan             => \&cmd_plan,
-    register         => \&cmd_register,
-    start            => \&cmd_start_service,
-    status           => [ \&cmd_service_status, 'error' ],
-    stop             => \&cmd_stop_service,
-    version          => [ \&cmd_version, 'error' ],
+    'create-service'         => [ \&cmd_create_service, 'error' ],
+    'delete-service'         => [ \&cmd_delete_service, 'error' ],
+    'disable-scheduled-task' => \&cmd_disable_scheduled_task,
+    'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
+    'list-tasks'             => [ \&cmd_list_tasks,    'error' ],
+    'list-zones'             => [ \&cmd_list_zones,    'error' ],
+    'reset-history'          => [ \&cmd_reset_history, 'error' ],
+    'run-task'               => \&cmd_run_task,
+    'start-service'          => [ \&cmd_update_service, 'error' ],
+    'stop-service'           => [ \&cmd_update_service, 'error' ],
+    'stop-task'              => [ \&cmd_stop_task,      'error' ],
+    'update-policy'          => \&cmd_update_policy,
+    'update-target'          => \&cmd_update_target,
+    apply                    => \&cmd_apply,
+    default                  => [ \&cmd_explain, 'error' ],
+    help                     => [ \&help,        'error' ],
+    logs                     => [ \&cmd_logs,    'error' ],
+    plan                     => \&cmd_plan,
+    register                 => \&cmd_register,
+    status                   => [ \&cmd_service_status, 'error' ],
+    version                  => [ \&cmd_version,        'error' ],
   );
 
   my $fargate_stack = App::FargateStack->new(
@@ -1371,6 +1487,7 @@ sub main {
     default_options => \%default_options,
     extra_options   => \@extra_options,
     option_specs    => \@option_specs,
+    abbreviations   => $TRUE,
   );
 
   $fargate_stack->run();
@@ -1491,24 +1608,26 @@ Convenient CLI: start, stop, update, and tail logs for any service
 
 =head2 Commands
 
- Command         Arguments            Description
- -------         ---------            -----------
- apply                                reads config and creates resources
- create-service  task-name            create a new service (see Note 4)
- delete-service  task-name            delete an existing service
- help            {subject}            displays general help or help on a particular subject (see Note 2)
- list-tasks                           list running tasks
- list-zones      domain               list the hosted zones for a domain
- logs           task-name start end   display CloudWatch logs (see Note 5)
- plan                                 reads config and reports on resource creation
- register        task-name            register a task name
- run-task        task-name            launches an adhoc task
- start-service   task-name [count]    starts a service
- status          task-name            provides status of a task and event listing
- stop-service    task-name            stops a running service
- update-policy                        updates the ECS policy in the event of resource changes
- update-target   task-name            force update of target definition
- version                              display the current version number
+ Command                Arguments            Description
+ -------                ---------            -----------
+ apply                                       reads config and creates resources
+ create-service         task-name            create a new service (see Note 4)
+ delete-service         task-name            delete an existing service
+ disable-scheduled-task task-name            disable a scheduled task
+ enable-scheduled-task task-name             enable a scheduled task
+ help                   [subject]            displays general help or help on a particular subject (see Note 2)
+ list-tasks                                  list running tasks
+ list-zones             domain               list the hosted zones for a domain
+ logs                   task-name start end  display CloudWatch logs (see Note 5)
+ plan                                        reads config and reports on resource creation
+ register               task-name            register a task name
+ run-task               task-name            launches an adhoc task
+ start-service          task-name [count]    starts a service
+ status                 task-name            provides the current status for a task
+ stop-service           task-name            stops a running service
+ update-policy                               updates the ECS policy in the event of resource changes
+ update-target          task-name            force update of target definition
+ version                                     display the current version number
 
 =head2 Options
 
@@ -1518,6 +1637,7 @@ Convenient CLI: start, stop, update, and tail logs for any service
  -C, --create-alb           forces creation of a new ALB, prevents use of an existing ALB
  -d, --dryrun               just report actions, do not apply
  --color, --no-color        default: color
+ --history, --no-history    save cli parameters to .fargatestack/defaults.json
  --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
  --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
@@ -1536,8 +1656,9 @@ Convenient CLI: start, stop, update, and tail logs for any service
 =item (1) Use the --profile option to override the profile defined in
 the configuration file.
 
-The Route 53 service uses the same profile unless you specify a profile
-name in the C<route53> section of the configuration file.
+I<Note: The Route 53 service uses the same profile unless you specify
+C<--route53-profile> or set a profile name in the C<route53> section
+of the configuration file.>
 
 =item (2) You can get help using the C<--help> option or use the help
 command with a subject.
@@ -1941,6 +2062,28 @@ If you want to provision more than 1 task for your service add a count argument.
 This command will delete a service. If you just want to temporarily
 stop the service use the C<stop-service> command.
 
+=head3 disable-scheduled-task
+
+ disable-scheduled-task task-name
+
+Use this command to disable a scheduled task.
+
+If you omit C<task-name>, the command will attempt to determine the
+target task selecting the task of type C<task> with a defined
+C<schedule:> key but only if exactly one such task is defined in
+your configuration file.
+
+=head3 enable-scheduled-task
+
+ enable-scheduled-task task-name
+
+Use this command to enable a scheduled task.
+
+If you omit C<task-name>, the command will attempt to determine the
+target task selecting the task of type C<task> with a defined
+C<schedule:> key but only if exactly one such task is defined in
+your configuration file.
+
 =head3 list-tasks
 
 Lists running tasks and outputs a table of information about the tasks.
@@ -2014,16 +2157,25 @@ and exit use the C<--no-wait> option.
 
 =head3 status
 
- status service-name
+  status service-name
 
-Displays the status of a service and the most recent event message in
-tabular form.
+Displays the status of a running service and its most recent event messages
+in tabular form.
+
+If you omit C<service-name>, the command will attempt to determine the
+target service by selecting the task of type C<daemon>, C<http>, or
+C<https>, but only if exactly one such service is defined in your
+configuration file.
+
+Use the C<--max-events> option to control how many recent events are shown.
+The default is 5.
 
 =head3 stop-task
 
  stop-task task-arn|task-id
 
-Stops a running task. To get the task id, use the C<list-tasks> command.
+Stops a running task. To get the task id, use the C<list-tasks>
+command.
 
 =head3 stop-service
 
@@ -2031,11 +2183,22 @@ Stops a running task. To get the task id, use the C<list-tasks> command.
 
 Stops a running service by setting its desire count to 0.
 
+If you omit C<service-name>, the command will attempt to determine the
+target service by selecting the task of type C<daemon>, C<http>, or
+C<https>, but only if exactly one such service is defined in your
+configuration file.
+
 =head3 start-service
 
  start-service service-name [count]
 
-Start a service. C<count> is the desired count of tasks. The default count is 1.
+Start a service. C<count> is the desired count of tasks. The default
+count is 1.
+
+If you omit C<service-name>, the command will attempt to determine the
+target service by selecting the task of type C<daemon>, C<http>, or
+C<https>, but only if exactly one such service is defined in your
+configuration file.
 
 =head3 update-policy
 

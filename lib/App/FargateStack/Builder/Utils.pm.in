@@ -29,6 +29,7 @@ our @EXPORT = qw(
   jmespath_mapping
   log_die
   toCamelCase
+  write_json_file
 );
 
 ########################################################################
@@ -207,6 +208,23 @@ sub inc_existing_resources {
 sub inc_required_resources {
 ########################################################################
   return _inc( 'required_resources', @_ );
+}
+
+########################################################################
+sub write_json_file {
+########################################################################
+  my ( $self, $file, $obj ) = @_;
+
+  open my $fh, '>', $file
+    or croak "could not open $file for writing\n";
+
+  my $json = JSON->new->pretty->encode($obj);
+
+  print {$fh} $json;
+
+  close $fh;
+
+  return $json;
 }
 
 ########################################################################

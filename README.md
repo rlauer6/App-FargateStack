@@ -22,6 +22,8 @@
     * [apply](#apply)
     * [create-service](#create-service)
     * [delete-service](#delete-service)
+    * [disable-scheduled-task](#disable-scheduled-task)
+    * [enable-scheduled-task](#enable-scheduled-task)
     * [list-tasks](#list-tasks)
     * [list-zones](#list-zones)
     * [logs](#logs)
@@ -157,24 +159,26 @@ internal-only)
 
 ## Commands
 
-    Command         Arguments            Description
-    -------         ---------            -----------
-    apply                                reads config and creates resources
-    create-service  task-name            create a new service (see Note 4)
-    delete-service  task-name            delete an existing service
-    help            {subject}            displays general help or help on a particular subject (see Note 2)
-    list-tasks                           list running tasks
-    list-zones      domain               list the hosted zones for a domain
-    logs           task-name start end   display CloudWatch logs (see Note 5)
-    plan                                 reads config and reports on resource creation
-    register        task-name            register a task name
-    run-task        task-name            launches an adhoc task
-    start-service   task-name [count]    starts a service
-    status          task-name            provides status of a task and event listing
-    stop-service    task-name            stops a running service
-    update-policy                        updates the ECS policy in the event of resource changes
-    update-target   task-name            force update of target definition
-    version                              display the current version number
+    Command                Arguments            Description
+    -------                ---------            -----------
+    apply                                       reads config and creates resources
+    create-service         task-name            create a new service (see Note 4)
+    delete-service         task-name            delete an existing service
+    disable-scheduled-task task-name            disable a scheduled task
+    enable-scheduled-task task-name             enable a scheduled task
+    help                   [subject]            displays general help or help on a particular subject (see Note 2)
+    list-tasks                                  list running tasks
+    list-zones             domain               list the hosted zones for a domain
+    logs                   task-name start end  display CloudWatch logs (see Note 5)
+    plan                                        reads config and reports on resource creation
+    register               task-name            register a task name
+    run-task               task-name            launches an adhoc task
+    start-service          task-name [count]    starts a service
+    status                 task-name            provides the current status for a task
+    stop-service           task-name            stops a running service
+    update-policy                               updates the ECS policy in the event of resource changes
+    update-target          task-name            force update of target definition
+    version                                     display the current version number
 
 ## Options
 
@@ -184,6 +188,7 @@ internal-only)
     -C, --create-alb           forces creation of a new ALB, prevents use of an existing ALB
     -d, --dryrun               just report actions, do not apply
     --color, --no-color        default: color
+    --history, --no-history    save cli parameters to .fargatestack/defaults.json
     --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
     --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
     --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
@@ -200,8 +205,9 @@ internal-only)
 - (1) Use the --profile option to override the profile defined in
 the configuration file.
 
-    The Route 53 service uses the same profile unless you specify a profile
-    name in the `route53` section of the configuration file.
+    _Note: The Route 53 service uses the same profile unless you specify
+    `--route53-profile` or set a profile name in the `route53` section
+    of the configuration file._
 
 - (2) You can get help using the `--help` option or use the help
 command with a subject.
@@ -531,6 +537,28 @@ If you want to provision more than 1 task for your service add a count argument.
 This command will delete a service. If you just want to temporarily
 stop the service use the `stop-service` command.
 
+### disable-scheduled-task
+
+    disable-scheduled-task task-name
+
+Use this command to disable a scheduled task.
+
+If you omit `task-name`, the command will attempt to determine the
+target task selecting the task of type `task` with a defined
+`schedule:` key but only if exactly one such task is defined in
+your configuration file.
+
+### enable-scheduled-task
+
+    enable-scheduled-task task-name
+
+Use this command to enable a scheduled task.
+
+If you omit `task-name`, the command will attempt to determine the
+target task selecting the task of type `task` with a defined
+`schedule:` key but only if exactly one such task is defined in
+your configuration file.
+
 ### list-tasks
 
 Lists running tasks and outputs a table of information about the tasks.
@@ -598,14 +626,23 @@ and exit use the `--no-wait` option.
 
     status service-name
 
-Displays the status of a service and the most recent event message in
-tabular form.
+Displays the status of a running service and its most recent event messages
+in tabular form.
+
+If you omit `service-name`, the command will attempt to determine the
+target service by selecting the task of type `daemon`, `http`, or
+`https`, but only if exactly one such service is defined in your
+configuration file.
+
+Use the `--max-events` option to control how many recent events are shown.
+The default is 5.
 
 ### stop-task
 
     stop-task task-arn|task-id
 
-Stops a running task. To get the task id, use the `list-tasks` command.
+Stops a running task. To get the task id, use the `list-tasks`
+command.
 
 ### stop-service
 
@@ -613,11 +650,22 @@ Stops a running task. To get the task id, use the `list-tasks` command.
 
 Stops a running service by setting its desire count to 0.
 
+If you omit `service-name`, the command will attempt to determine the
+target service by selecting the task of type `daemon`, `http`, or
+`https`, but only if exactly one such service is defined in your
+configuration file.
+
 ### start-service
 
     start-service service-name [count]
 
-Start a service. `count` is the desired count of tasks. The default count is 1.
+Start a service. `count` is the desired count of tasks. The default
+count is 1.
+
+If you omit `service-name`, the command will attempt to determine the
+target service by selecting the task of type `daemon`, `http`, or
+`https`, but only if exactly one such service is defined in your
+configuration file.
 
 ### update-policy
 

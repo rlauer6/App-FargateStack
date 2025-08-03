@@ -1,3 +1,45 @@
+Sun Aug  3 07:52:35 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.13]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/ECS.pm.in
+	(describe_services): typo
+	* lib/App/Events.pm.in
+	(rule_exists)
+	- just return the rule if we not checking schedule
+	(put_rule)
+	- add state to enable/disable rule
+	(describe_rule): new
+	(disable_rule): - --force
+	* lib/App/FargateStack.pm.in
+	(init)
+	- fetch history defaults
+	(_init_route53)
+	- list-zones, not list-hosted-zones
+	- delay return until after we set profile
+	(check_service_name): check and/or return default service
+	(cmd_service_status)
+	- accept service-name argument
+	- show max-events
+	(cmd_update_service)
+	- allow just count if we have just 1 service
+	(cmd_stop_stask): allow no arg if just 1 service
+	(cmd_enable_schedule_task): new
+	(cmd_disable_schedule_task): new
+	(cmd_reset_history): new
+	(fetch_option_defaults): new
+	(main)
+	- new option --max-events, --history, --abbreviations
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events)
+	- better log messages for event rule changes
+	(update_rule_state): new
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(write_json_file): new
+	* examples/minimial-scheduled-task.yml
+	- my-cron-job, not my-one-shot
+
 Sat Aug  2 15:01:28 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.12]:
