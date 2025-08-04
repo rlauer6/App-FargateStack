@@ -67,10 +67,35 @@ $(GFARGATE_BUILDERS):  $(GAWS_PERL_MODULES) lib/App/FargateStack/Constants.pm
 FARGATE_DEPS = \
     $(GAWS_PERL_MODULES) \
     lib/App/Benchmark.pm \
+    lib/App/FargateStack/Pod.pm \
     lib/App/FargateStack/Constants.pm \
+    lib/App/FargateStack/Init.pm \
+    lib/App/FargateStack/Logs.pm \
+    lib/App/FargateStack/Route53.pm \
     $(GFARGATE_BUILDERS)
 
+FARGATE_LOG_DEPS = \
+    $(GAWS_PERL_MODULES) \
+    lib/App/FargateStack/Constants.pm \
+    lib/App/FargateStack/Builder/Utils.pm.in
+
+FARGATE_ROUTE53_DEPS = \
+    $(GAWS_PERL_MODULES) \
+    lib/App/FargateStack/Constants.pm \
+    lib/App/FargateStack/Builder/Utils.pm.in
+
+FARGATE_INIT_DEPS = \
+    $(GAWS_PERL_MODULES) \
+    lib/App/FargateStack/Constants.pm \
+    lib/App/FargateStack/Builder/Utils.pm.in
+
 lib/App/FargateStack.pm: $(FARGATE_DEPS)
+
+lib/App/FargateStack/Init.pm: $(FARGATE_INIT_DEPS)
+
+lib/App/FargateStack/Route53.pm: $(FARGATE_ROUTE53DEPS)
+
+lib/App/FargateStack/Logs.pm: $(FARGATE_LOGS_DEPS)
 
 lib/App/FargateStack/Builder/IAM.pm: \
     lib/App/FargateStack/Constants.pm \
