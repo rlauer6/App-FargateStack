@@ -365,10 +365,11 @@ sub has_events {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-  my $tasks  = $config->{tasks};
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
-  return grep { $tasks->{$_}->{type} eq 'task' } keys %{$tasks};
+  my ($schedule) = grep { $tasks->{$_}->{schedule} } keys %{$tasks};
+
+  return $schedule;
 }
 
 ########################################################################

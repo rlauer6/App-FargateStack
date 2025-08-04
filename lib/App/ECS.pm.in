@@ -40,7 +40,7 @@ sub cluster_exists {
   my $clusters = $self->command(
     'describe-clusters' => [
       '--clusters' => $cluster_name,
-      '--query'    => 'clusters',
+      '--query'    => 'clusters[?status == `ACTIVE`]',
     ]
   );
 

@@ -108,8 +108,8 @@ sub show_config {
   $self->section_break;
 
   $self->log_info( 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
-  $self->log_info( '                 public: [%s]', join q{,}, @{ $subnets->{private} || [] } );
-  $self->log_info( '                private: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
+  $self->log_info( '                 public: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
+  $self->log_info( '                private: [%s]', join q{,}, @{ $subnets->{private} || [] } );
   $self->section_break;
 
   $self->log_info( 'init:            config: [%s]', $self->get_config_name );
@@ -252,6 +252,14 @@ sub cmd_run_task {
 
     $subnet_id = $subnets[0];
   }
+  elsif ( any { $subnet_id eq $_ } @{ $self->get_subnets->{public} // [] } ) {
+    $self->log_error(
+      'run-task: subnet-id: [%s] is in a public subnet...consider running your jobs in a private subnet',
+      $subnet_id );
+  }
+  elsif ( none { $subnet_id eq $_ } @{ $self->get_subnets->{private} // [] } ) {
+    log_die( $self, 'subnet: [%s] is not in a public or private subnet in this VPC.', $subnet_id );
+  }
 
   my $network_configuration = {
     awsvpcConfiguration => {
@@ -266,7 +274,8 @@ sub cmd_run_task {
 
   my $cluster_name = $config->{cluster}->{name};
 
-  $self->log_warn( 'run-task: launching [%s] in cluster [%s]', $task_name, $cluster_name );
+  $self->log_warn( 'run-task: cluster: [%s] launching task: [%s] in subnet: [%s]',
+    $cluster_name, $task_name, $subnet_id );
 
   my $result = $self->get_ecs->run_task(
     cluster               => $cluster_name,

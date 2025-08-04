@@ -1,3 +1,22 @@
+Mon Aug  4 18:20:45 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.17]:
+	* Makefile
+	- create markdown from lib/App/FargateStack/Pod.pm
+	* README.md: generatd
+	* VERSION: bump
+	* examples/README.md: wip
+	* examples/minimal-task.yml
+	* lib/App/ECS.pm.in
+	(cluster_exists): select ACTIVE clusters
+	* lib/App/FargateStack.pm.in
+	(show_config): private <> public
+	(cmd_run_task)
+	- warn about public subnets
+	- die if subnet-id invalid
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(has_events): fix return value
+
 Mon Aug  4 16:46:53 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.16]:

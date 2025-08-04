@@ -117,7 +117,7 @@ TARBALL_DEPS = \
 $(TARBALL): buildspec.yml $(TARBALL_DEPS)
 	make-cpan-dist.pl -b $<
 
-README.pod: lib/$(MODULE_PATH)
+README.pod: lib/App/FargateStack/Pod.pm
 	perldoc -u $< | perl -npe 's/^=head1/ \@TOC_BACK\@\n\n=head1/' > $@
 
 packages:
