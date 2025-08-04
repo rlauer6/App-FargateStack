@@ -2,7 +2,7 @@ package App::FargateStack;
 
 ########################################################################
 # Copyright (C) 2025, TBC Development Group, LLC All rights reserved.  #
-# This is free software and may modified or redistributed under the    #
+# This is free software and may be modified or redistributed under the #
 # same terms as Perl itself.                                           #
 #                                                                      #
 # Repository: https://github.com/rlauer6/App-Fargate                   #
@@ -418,93 +418,127 @@ sub _init_route53 {
 
   return;
 }
-
 ########################################################################
 sub cmd_logs {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
   my ( $task_name, $start, $end ) = $self->get_args;
 
   $self->check_task($task_name);
-
-  my $tasks = $config->{tasks};
-
   my $task = $tasks->{$task_name};
 
   my ( $start_time, $end_time ) = normalize_time_range( $start, $end );
 
   require App::Logs;
-
   my $logs = App::Logs->new( $self->get_global_options );
 
-  my @elems = qw(log_stream_name first_event_timestamp);
+  my $log_group_name    = $task->{log_group}->{name};
+  my $log_stream_prefix = sprintf '%s/%s', $config->{app}->{name}, $task_name;
 
-  my $query = jmespath_mapping( 'logStreams[0]', scalar toCamelCase( \@elems ) );
-
-  my $log_group = $task->{log_group}->{name};
-
-  my $stream = $logs->command(
-    'describe-log-streams' => [
-      '--log-group-name' => $log_group,
-      '--order-by'       => 'LastEventTime',
-      '--descending',
-      '--query' => $query,
-    ]
+  my %base_args = (
+    '--log-group-name'         => $log_group_name,
+    '--log-stream-name-prefix' => $log_stream_prefix,
+    ( $start_time ? ( '--start-time' => $start_time ) : () ),
+    ( $end_time   ? ( '--end-time'   => $end_time )   : () ),
   );
 
-  croak sprintf "ERROR: could not describe log group [%s]\n%s\n", $log_group, $logs->get_error
-    if !$stream;
+  my $events = $logs->command( 'filter-log-events' => [%base_args] );
 
-  croak sprintf "no log streams found for log group: [%s]\n", $log_group
-    if !ref $stream;
+  if ( !$events ) {
+    croak sprintf "ERROR: could not get log events for log group: [%s], prefix: [%s]\n%s",
+      $log_group_name, $log_stream_prefix, $logs->get_error;
+  }
 
-  my %options = (
-    '--log-group-name'  => $log_group,
-    '--log-stream-name' => $stream->{log_stream_name},
-  );
+  my $log_events = $events->{events} // [];
 
-  $start_time //= $stream->{last_event_timestamp};
+  my $next_timestamp = $start_time // 0;
 
-  my $events = $logs->command(
-    'get-log-events' => [
-      %options,
-      $start_time ? ( '--start-time' => $start_time ) : (),
-      $end_time   ? ( '--end-time'   => $end_time )   : (),
-    ]
-  );
+  if ( @{$log_events} ) {
+    $self->show_log_events($events);
+    $next_timestamp = ( sort map { $_->{timestamp} } @{$log_events} )[-1];
+  }
+  elsif ( !$self->get_log_wait ) {
+    croak sprintf "ERROR: no log events found for [%s] with prefix [%s]", $log_group_name, $log_stream_prefix;
+  }
 
-  EVENT:
-  while ( $events && @{ $events->{events} } ) {
-    my @log_events = @{ $events->{events} };
+  while ( $self->get_log_wait ) {
+    sleep $self->get_log_poll_time;
 
-    foreach my $e (@log_events) {
-      my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
-      $timestamp = $self->get_log_time ? scalar localtime $timestamp / 1000 : $EMPTY;
+    my @poll_args = (
+      '--log-group-name'         => $log_group_name,
+      '--log-stream-name-prefix' => $log_stream_prefix,
+      '--start-time'             => $next_timestamp + 1,
+    );
 
-      print {*STDOUT} sprintf "%s - %s\n", $timestamp, $message;
+    $events = $logs->command( 'filter-log-events' => \@poll_args );
+
+    if ( !$events ) {
+      $self->log_warn( 'WARNING: failed to poll logs: %s', $logs->get_error );
+      sleep $self->get_log_poll_time;
+      next;
     }
 
-    my $token = $events->{nextForwardToken};
+    last if !$events;
 
-    while ($TRUE) {
-      $events = $logs->command( 'get-log-events', [ %options, '--next-token' => $token ] );
+    my $polled = $events->{events} // [];
 
-      if ( !$events || !@{ $events->{events} } ) {
-        last EVENT
-          if !$self->get_log_wait;
-
-        sleep $DEFAULT_LOG_POLL_TIME;
-      }
-      else {
-        last;
-      }
+    if ( @{$polled} ) {
+      $self->show_log_events($events);
+      $next_timestamp = ( sort map { $_->{timestamp} } @{$polled} )[-1];
     }
   }
 
   return $SUCCESS;
+}
+
+########################################################################
+sub show_log_events {
+########################################################################
+  my ( $self, $events ) = @_;
+
+  foreach my $e ( @{ $events->{events} } ) {
+    my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
+    $timestamp = $self->get_log_time ? scalar localtime $timestamp / 1000 : $EMPTY;
+
+    print {*STDOUT} sprintf "%s - %s\n", $self->get_color ? colored( $timestamp, 'green' ) : $timestamp,
+      $message;
+  }
+
+  return;
+}
+
+########################################################################
+sub find_task_log_stream {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my ( $config, $cluster ) = $self->common_args(qw(config cluster));
+
+  my $cluster_name = $cluster->{name};
+
+  my $ecs = $self->get_ecs;
+
+  my $query = 'tasks[].{task_name: overrides.containerOverrides[0].name}[0].task_name';
+
+  my $task_list = $ecs->list_tasks( $cluster_name, 'taskArns' );
+  my $stream_name;
+
+  foreach my $task_arn ( @{$task_list} ) {
+    my $running_task_name = $ecs->describe_tasks( $cluster_name, $task_arn, $query );
+    if ( $running_task_name eq $task_name ) {
+      $stream_name = sprintf '%s/%s/%s', $config->{app}->{name}, $task_name, basename($task_arn);
+      last;
+    }
+  }
+
+  croak sprintf
+    "ERROR: no log stream found for container [%s] -- the task may not be running or may not have started logging yet.\n",
+    $task_name
+    if !$stream_name;
+
+  return $stream_name;
 }
 
 ########################################################################
@@ -1249,7 +1283,7 @@ sub help {
 
   my $section = $HELP_SUBJECTS{$subject} // $EMPTY;
 
-  if ( $subject && !$section ) {
+  if ( $subject && !$section && $subject ne 'help' ) {
     my @possible_subjects = grep {/$subject/xsmi} keys %HELP_SUBJECTS;
 
     if ( @possible_subjects == 1 ) {
@@ -1271,8 +1305,13 @@ sub help {
     $section = $reference->[0];
   }
 
+  eval {
+    require IO::Pager;
+    IO::Pager::open( *STDOUT, '|-:utf8', 'Unbuffered' );
+  };
+
   if ( $subject && !$section ) {
-    if ( $subject ne 'list' ) {
+    if ( $subject ne 'help' ) {
       print {*STDERR} sprintf "'%s' is not a valid subject\n", $subject;
     }
 
@@ -1294,13 +1333,8 @@ sub help {
 
     print {*STDOUT} $table;
 
-    return $SUCCESS;
+    exit $SUCCESS;
   }
-
-  eval {
-    require IO::Pager;
-    IO::Pager::open( *STDOUT, '|-:utf8', 'Unbuffered' );
-  };
 
   return pod2usage(
     -exitval => 1,
@@ -1598,6 +1632,7 @@ sub main {
     log-level=s
     log-time!
     log-wait!
+    log-poll-time=s
     history|H!
     max-events|m=i
     profile|p=s
@@ -1614,16 +1649,17 @@ sub main {
   );
 
   my %default_options = (
-    wait           => $TRUE,
-    unlink         => $TRUE,
-    color          => $TRUE,
-    cache          => $TRUE,
-    'log-time'     => $TRUE,
-    'log-wait'     => $TRUE,
-    'task-timeout' => $DEFAULT_ECS_POLL_LIMIT,
-    history        => $TRUE,
-    update         => $TRUE,
-    'max-events'   => 5,
+    wait            => $TRUE,
+    unlink          => $TRUE,
+    color           => $TRUE,
+    cache           => $TRUE,
+    'log-time'      => $TRUE,
+    'log-wait'      => $TRUE,
+    'log-poll-time' => $DEFAULT_LOG_POLL_TIME,
+    'task-timeout'  => $DEFAULT_ECS_POLL_LIMIT,
+    history         => $TRUE,
+    update          => $TRUE,
+    'max-events'    => 5,
   );
 
   my %commands = (
@@ -1811,6 +1847,7 @@ Convenient CLI: start, stop, update, and tail logs for any service
  --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
  --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
+ --log-poll-time            amount of time in seconds to sleep between requesting new log events
  -p, --profile              AWS profile (see Note 1)
      --route53-profile      set this if your Route 53 zones are in a different account (See Note 10)
  -s, --skip-register        skips registering a new task definition when using update-target (See Note 7)
@@ -1836,7 +1873,7 @@ command with a subject.
  app-FargateStack help overview
 
 If you do not provide a subject then you will get the same information
-as C<--help>. Use C<help list> to get a list of available subjects.
+as C<--help>. Use C<help help> to get a list of available subjects.
 
 =item (3) You must log at least at the 'info' level to report progress.
 
@@ -1917,7 +1954,7 @@ use the default profile.
 =head1 OVERVIEW
 
 I<NOTE: This is a brief overview of C<App::FargateStack>. To see a 
-list of topics providing more detail use the C<help list> command.>
+list of topics providing more detail use the C<help help> command.>
 
 The C<App::FargateStack> framework, as its name implies provide developers
 with a tool to create Fargate tasks and services. It has been designed
@@ -2154,12 +2191,12 @@ inspecting your VPC and automatically added to the configuration file.
 
 This gives you a single view into your Fargate application
 
-=head1 PERSISTENT CLI OPTION DEFAULTS
+=head1 CLI OPTION DEFAULTS
 
-When enabled, C<App::FargateStack> remembers the
-most recently used values for several CLI options between runs. This
-feature saves time when working with the same AWS profile, config
-file, or region repeatedly.
+When enabled, C<App::FargateStack> automatically remembers the most recently
+used values for several CLI options between runs. This feature helps streamline
+repetitive workflows by eliminating the need to re-specify common arguments
+such as the AWS profile, region, or config file.
 
 The following options are tracked and persisted:
 
@@ -2177,21 +2214,30 @@ The following options are tracked and persisted:
 
 =back
 
-These values are stored in F<.fargatestack/defaults.json>. If you omit
-any of these options on subsequent runs, the most recently used values
-will be reused.
+These values are stored in F<.fargatestack/defaults.json> within your current
+project directory. If you omit any of these options on subsequent runs, the
+most recently used value will be reused.
+
+Typically, you would create a dedicated project directory for your stack and
+place your configuration file there. Once you invoke a command that includes
+any of the tracked CLI options, the F<.fargatestack/defaults.json> file will be
+created automatically. Future commands run from that directory can then omit
+those options.
 
 =head2 Disabling and Resetting
 
-Use the C<--no-history> option to bypass this feature temporarily for
-a single run.
+Use the C<--no-history> option to temporarily disable this feature for a single
+run. This allows you to override stored values without modifying or deleting
+them.
 
-To clear stored values entirely, use the C<reset-history> command.
+To clear all saved defaults entirely, use the C<reset-history> command. This
+removes all of the tracked values from the F<.fargatestack/defaults.json> file,
+but preserves the file itself.
 
 =head2 Notes
 
-Only CLI options are tracked - values from environment variables or
-config files are not saved.
+Only explicitly provided CLI options are tracked. Values derived from
+environment variables or configuration files are not saved.
 
 This feature is enabled by default.
 
@@ -2239,7 +2285,7 @@ messages. Use C<--no-color> if you don't like color.
  help [subject]
 
 Displays basic usage or help on a particular subject. To see a list of
-help subject use C<help list>. The script will attemp to do a regexp
+help subject use C<help help>. The script will attemp to do a regexp
 match if you do provide the exact help topic, so you can cheat and use
 shortened versions of the topic.
 
@@ -3004,7 +3050,7 @@ A task of type C<task> is run using C<run-task> and may run once,
 forever, or periodically - but it will not be automatically restarted
 if it fails.
 
-=head1 S3 BUCKET ACCESS
+=head1 S3 BUCKETS
 
 The Fargate stack framework supports creating a new S3 bucket or
 using an existing one. The bucket can be used by your ECS tasks

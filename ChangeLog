@@ -1,3 +1,23 @@
+Mon Aug  4 14:53:22 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.15]:
+	* lib/App/FargateStack.pm.in:
+	- pod updates
+	(cmd_logs)
+	- refactored using 'filter-log-events'
+	(show_log_events): new
+	(find_task_log_stream): new
+	(help)
+	- help help
+	- use pager
+	(main)
+	- + --log-poll-time
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	- export slurp_file
+	* lib/App/FargateStack/Constants.pm.in
+	- + help topics: ROADMAP, CONFIGURATION, TROUBLESHOOTING, CLI OPTION DEFAULTS
+	- buckets
+
 Mon Aug  4 09:45:49 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.14]:

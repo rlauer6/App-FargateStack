@@ -29,6 +29,7 @@ our @EXPORT = qw(
   jmespath_mapping
   log_die
   toCamelCase
+  slurp_file
   write_json_file
 );
 

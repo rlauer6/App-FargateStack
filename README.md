@@ -14,7 +14,7 @@
   * [Web Applications](#web-applications)
   * [Adding or Changing Resources](#adding-or-changing-resources)
   * [Configuration as State](#configuration-as-state)
-* [PERSISTENT CLI OPTION DEFAULTS](#persistent-cli-option-defaults)
+* [CLI OPTION DEFAULTS](#cli-option-defaults)
   * [Disabling and Resetting](#disabling-and-resetting)
   * [Notes](#notes)
 * [COMMAND LIST](#command-list)
@@ -67,7 +67,7 @@
   * [SCHEDULING A JOB](#scheduling-a-job)
   * [RUNNING AN ADHOC JOB](#running-an-adhoc-job)
   * [SERVICES VS TASKS](#services-vs-tasks)
-* [S3 BUCKET ACCESS](#s3-bucket-access)
+* [S3 BUCKETS](#s3-buckets)
   * [BASIC CONFIGURATION](#basic-configuration)
   * [RESTRICTED ACCESS](#restricted-access)
   * [IAM-BASED ENFORCEMENT](#iam-based-enforcement)
@@ -204,6 +204,7 @@ internal-only)
     --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
     --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
     --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
+    --log-poll-time            amount of time in seconds to sleep between requesting new log events
     -p, --profile              AWS profile (see Note 1)
         --route53-profile      set this if your Route 53 zones are in a different account (See Note 10)
     -s, --skip-register        skips registering a new task definition when using update-target (See Note 7)
@@ -227,7 +228,7 @@ command with a subject.
         app-FargateStack help overview
 
     If you do not provide a subject then you will get the same information
-    as `--help`. Use `help list` to get a list of available subjects.
+    as `--help`. Use `help help` to get a list of available subjects.
 
 - (3) You must log at least at the 'info' level to report progress.
 - (4) By default an ECS service is NOT created for you by default
@@ -298,7 +299,7 @@ use the default profile.
 # OVERVIEW
 
 _NOTE: This is a brief overview of `App::FargateStack`. To see a 
-list of topics providing more detail use the `help list` command._
+list of topics providing more detail use the `help help` command._
 
 The `App::FargateStack` framework, as its name implies provide developers
 with a tool to create Fargate tasks and services. It has been designed
@@ -478,12 +479,12 @@ This gives you a single view into your Fargate application
 
 [Back to Table of Contents](#table-of-contents)
 
-# PERSISTENT CLI OPTION DEFAULTS
+# CLI OPTION DEFAULTS
 
-When enabled, `App::FargateStack` remembers the
-most recently used values for several CLI options between runs. This
-feature saves time when working with the same AWS profile, config
-file, or region repeatedly.
+When enabled, `App::FargateStack` automatically remembers the most recently
+used values for several CLI options between runs. This feature helps streamline
+repetitive workflows by eliminating the need to re-specify common arguments
+such as the AWS profile, region, or config file.
 
 The following options are tracked and persisted:
 
@@ -493,21 +494,30 @@ The following options are tracked and persisted:
 - `--route53-profile`
 - `--max-events`
 
-These values are stored in `.fargatestack/defaults.json`. If you omit
-any of these options on subsequent runs, the most recently used values
-will be reused.
+These values are stored in `.fargatestack/defaults.json` within your current
+project directory. If you omit any of these options on subsequent runs, the
+most recently used value will be reused.
+
+Typically, you would create a dedicated project directory for your stack and
+place your configuration file there. Once you invoke a command that includes
+any of the tracked CLI options, the `.fargatestack/defaults.json` file will be
+created automatically. Future commands run from that directory can then omit
+those options.
 
 ## Disabling and Resetting
 
-Use the `--no-history` option to bypass this feature temporarily for
-a single run.
+Use the `--no-history` option to temporarily disable this feature for a single
+run. This allows you to override stored values without modifying or deleting
+them.
 
-To clear stored values entirely, use the `reset-history` command.
+To clear all saved defaults entirely, use the `reset-history` command. This
+removes all of the tracked values from the `.fargatestack/defaults.json` file,
+but preserves the file itself.
 
 ## Notes
 
-Only CLI options are tracked - values from environment variables or
-config files are not saved.
+Only explicitly provided CLI options are tracked. Values derived from
+environment variables or configuration files are not saved.
 
 This feature is enabled by default.
 
@@ -550,7 +560,7 @@ messages. Use `--no-color` if you don't like color.
     help [subject]
 
 Displays basic usage or help on a particular subject. To see a list of
-help subject use `help list`. The script will attemp to do a regexp
+help subject use `help help`. The script will attemp to do a regexp
 match if you do provide the exact help topic, so you can cheat and use
 shortened versions of the topic.
 
@@ -1265,7 +1275,7 @@ if it fails.
 
 [Back to Table of Contents](#table-of-contents)
 
-# S3 BUCKET ACCESS
+# S3 BUCKETS
 
 The Fargate stack framework supports creating a new S3 bucket or
 using an existing one. The bucket can be used by your ECS tasks
@@ -1723,6 +1733,6 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 739:
+- Around line 749:
 
     Non-ASCII character seen before =encoding in 'service’s'. Assuming UTF-8

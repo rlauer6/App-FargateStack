@@ -149,7 +149,7 @@ Configuring support for EFS files systems inside your container.
 END_OF_TEXT
   ],
   'filesystem support' => 'efs support',
-  'queues'             => [
+  'buckets'            => [
     'S3 BUCKETS' => <<'END_OF_TEXT'
 Creating and configuring S3 buckets.
 END_OF_TEXT
@@ -158,6 +158,30 @@ END_OF_TEXT
     'NETWORKING' => <<'END_OF_TEXT'
 Explanation of how the framework recognizes and uses your networking
 resources.
+END_OF_TEXT
+  ],
+  'roadmap' => [
+    'ROADMAP' => <<'END_OF_TEXT'
+A peek at what's next for App::FargateStack.
+END_OF_TEXT
+  ],
+  'cli option defaults' => [
+    'CLI OPTION DEFAULTS' => <<'END_OF_TEXT'
+Save keystrokes with App::Fargate's automatic option saving feature.
+END_OF_TEXT
+  ],
+  'configuration file' => [
+    'CONFIGURATION' => <<'END_OF_TEXT'
+Detailed explanation of the App::Fargate configuration file.
+END_OF_TEXT
+  ],
+  'limitations' => [
+    'LIMITATIONS' => <<'END_OF_TEXT'
+END_OF_TEXT
+  ],
+  'troubleshooting' => [
+    'TROUBLESHOOTING' => <<'END_OF_TEXT'
+Hints and tips for troubleshooting.
 END_OF_TEXT
   ],
   'security groups' => [
