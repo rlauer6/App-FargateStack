@@ -25,6 +25,10 @@ while (1) {
 
     close $fh;
   }
+  else {
+    print {*STDERR}
+      "add and an efs: section and set HAS_EFS_MOUNT to the mount point if you want to text EFS mount points.\n";
+  }
 
   last
     if $ENV{RUN_ONCE};

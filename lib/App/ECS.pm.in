@@ -314,13 +314,20 @@ sub create_service {
 ########################################################################
 sub update_service {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, %args ) = @_;
+
+  my ( $cluster_name, $service_name, $task_definition, $force, $desired_count )
+    = @args{qw(cluster_name service_name task_definition force desired_count)};
+
+  $cluster_name //= $self->get_cluster_name;
+  $service_name //= $self->get_service_name;
 
   return $self->command(
     'update-service' => [
-      '--cluster'         => $self->cluster_name,
-      '--service'         => $self->service_name,
-      '--task-definition' => $self->task_definition,
+      '--cluster' => $cluster_name,
+      '--service' => $service_name,
+      ($task_definition) ? ( '--task-definition' => $task_definition ) : (),
+      $force             ? '--force-new-deployment'                    : (),
     ]
   );
 }

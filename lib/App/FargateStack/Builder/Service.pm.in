@@ -9,6 +9,7 @@ use English qw(-no_match_vars);
 use List::Util qw(any);
 
 use App::FargateStack::Constants;
+use CLI::Simple::Constants qw(%LOG_LEVELS);
 
 use Role::Tiny;
 
@@ -17,32 +18,21 @@ sub build_service {
 ########################################################################
   my ( $self, $service_name ) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun, $tasks, $cluster ) = $self->common_args(qw(config dryrun tasks cluster));
 
   my $ecs = $self->get_ecs;
 
-  my $subnets = $self->get_subnets->{private};
+  my @vpc_subnets = $self->get_service_subnets;
 
-  if ( !$subnets || !@{$subnets} ) {
-    if ( $subnets = $self->get_subnets->{public} ) {
-      $self->get_logger->warn('service: no private subnets! Using public subnets is not recommended.');
-    }
-    else {
-      croak sprintf "no subnets in %s found\n", $config->{vpc_id};
-    }
-  }
+  my @services = @{ $ecs->list_services( $cluster->{name}, 'serviceArns' ) || [] };
 
-  my @vpc_subnets = @{$subnets}[ 0, 1 ];
+  my @desired_services = $service_name ? ($service_name) : $tasks;
 
-  my @services = @{ $ecs->list_services( $config->{cluster}->{name}, 'serviceArns' ) || [] };
-
-  my @desired_services = $service_name ? ($service_name) : $config->{tasks};
+  $self->log_warn( 'service: creating services: [%s]', join q{,}, @desired_services );
 
   foreach my $task_name (@desired_services) {
 
-    my $task = $config->{tasks}->{$task_name};
+    my $task = $tasks->{$task_name};
 
     if ( any { $_ eq $task_name } @services ) {
       $self->get_logger->info( sprintf 'service: [%s] already exists...skipping', $task_name );
@@ -71,6 +61,52 @@ sub build_service {
   }
 
   return;
+}
+
+########################################################################
+# if we have an ALB we must put the service in those AZs
+########################################################################
+sub get_service_subnets {
+########################################################################
+  my ( $self, ) = @_;
+
+  my $config = $self->get_config;
+
+  my $alb_arn = defined $config->{alb} && $config->{alb}->{arn};
+
+  if ($alb_arn) {
+    $self->get_logger->warn('service: service will be placed in the same AZs as load balancer.');
+    return $self->get_alb_subnets($alb_arn);
+  }
+
+  my $subnets = $self->get_subnets->{private};
+
+  if ( !$subnets || !@{$subnets} ) {
+    if ( $subnets = $self->get_subnets->{public} ) {
+      $self->get_logger->warn('service: no private subnets! Using public subnets is not recommended.');
+    }
+    else {
+      croak sprintf "no subnets in %s found\n", $config->{vpc_id};
+    }
+  }
+
+  return @{$subnets}[ 0, 1 ];
+}
+
+########################################################################
+sub get_alb_subnets {
+########################################################################
+  my ( $self, $alb_arn ) = @_;
+
+  require App::ElbV2;
+
+  my $elb = App::ElbV2->new( $self->get_global_options );
+
+  my $query = 'LoadBalancers[].AvailabilityZones[].SubnetId';
+
+  my $subnet_ids = $elb->describe_load_balancers( $query, $alb_arn );
+
+  return @{$subnet_ids};
 }
 
 1;

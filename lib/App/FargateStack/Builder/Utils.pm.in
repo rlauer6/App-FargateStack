@@ -42,10 +42,11 @@ sub common_args {
   if ( !$var_pool ) {
     my $config = $self->get_config;
     $var_pool = {
-      config => $config,
-      cache  => $self->get_cache,
-      dryrun => $self->get_dryrun,
-      tasks  => $config->{tasks},
+      config  => $config,
+      cache   => $self->get_cache,
+      dryrun  => $self->get_dryrun,
+      tasks   => $config->{tasks},
+      cluster => $config->{cluster},
     };
 
     $self->set__var_pool($var_pool);

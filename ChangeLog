@@ -1,3 +1,61 @@
+Mon Aug  4 09:45:49 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.14]:
+	* docker/00-default.conf -> docker/000-default.conf
+	* README.md: generated
+	* VERSION: bump
+	* docker/Dockerfile.apache
+	- 000-default.conf was apparently correct
+	* docker/HelloWorld.pl
+	- log a message if no efs mount point environment variable
+	* docker/Makefile
+	- always push to ECR (for now)
+	* lib/App/ECS.pm.in
+	(update_service)
+	- use named args
+	- support --task-defintion, --force-new-deployment args
+	* lib/App/ElbV2.pm.in
+	(describe_load_balancers)
+	- support --load-balancers-arn arg
+	* lib/App/FargateStack.pm.in
+	(init): bypass init flag for some commands
+	(cmd_service_status)
+	- refactoring
+	- colors
+	- fix pending
+	- add task-definition
+	(get_default_task_name): new
+	(cmd_run_task)
+	- refactoring
+	- support --subnet-id arg
+	- check that we running latest image
+	(check_latest_image): new
+	(get_default_service_name): new
+	(cmd_create_service)
+	- refactoring
+	- check if running latest image
+	(cmd_delete_service)
+	- refactoring
+	- verify service
+	(verify_service): new
+	(update_task_count): renamed from _update_task_count()
+	(cmd_register)
+	- refactoring
+	- $task_definition, not $task_definition_arn
+	(get_latest_image): new
+	(cmd_stop_task): refactoring
+	(cmd_redeploy): new
+	(main)
+	- + --force option to run task on old image, --subnet-id
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service)
+	- refactoring
+	- if http service, make sure we deploy in ALB subnets
+	(get_service_subnets): new
+	(get_alb_subnets): new
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(common_args): + cluster
+
 Sun Aug  3 07:52:35 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.13]:

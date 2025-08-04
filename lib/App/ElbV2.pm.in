@@ -131,9 +131,10 @@ sub describe_listeners {
 ########################################################################
 sub describe_load_balancers {
 ########################################################################
-  my ( $self, $query ) = @_;
+  my ( $self, $query, $arn ) = @_;
 
-  return $self->command( 'describe-load-balancers' => [ $query ? ( '--query' => $query ) : () ] );
+  return $self->command( 'describe-load-balancers' =>
+      [ $arn ? ( '--load-balancer-arns' => $arn ) : (), $query ? ( '--query' => $query ) : (), ] );
 }
 
 ########################################################################

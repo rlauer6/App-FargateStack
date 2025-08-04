@@ -14,6 +14,9 @@
   * [Web Applications](#web-applications)
   * [Adding or Changing Resources](#adding-or-changing-resources)
   * [Configuration as State](#configuration-as-state)
+* [PERSISTENT CLI OPTION DEFAULTS](#persistent-cli-option-defaults)
+  * [Disabling and Resetting](#disabling-and-resetting)
+  * [Notes](#notes)
 * [COMMAND LIST](#command-list)
   * [Configuration File Naming](#configuration-file-naming)
   * [Command Logging](#command-logging)
@@ -28,7 +31,7 @@
     * [list-zones](#list-zones)
     * [logs](#logs)
     * [plan              ](#plan-)
-    * [register](#register)
+    * [redeploy](#redeploy)
     * [run-task](#run-task)
     * [status](#status)
     * [stop-task](#stop-task)
@@ -81,10 +84,18 @@
     * [Why Does the Framework Force the Use of an Load Balancer?](#why-does-the-framework-force-the-use-of-an-load-balancer)
   * [Roadmap for HTTP Services](#roadmap-for-http-services)
 * [CURRENT LIMITATIONS](#current-limitations)
+* [TROUBLESHOOTING](#troubleshooting)
+  * [Why is my task or service still using an old image?](#why-is-my-task-or-service-still-using-an-old-image)
+    * [One-off tasks: `run-task` uses a fixed image digest](#one-off-tasks-run-task-uses-a-fixed-image-digest)
+    * [Services: `create-service` and `update-service` use frozen images too](#services-create-service-and-update-service-use-frozen-images-too)
+    * [`--force-new-deployment` re-pulls image tags (if not pinned by digest)](#--force-new-deployment-re-pulls-image-tags-if-not-pinned-by-digest)
+    * [Confirm what your task definition is using](#confirm-what-your-task-definition-is-using)
+    * [Best practices](#best-practices)
 * [ROADMAP](#roadmap)
 * [SEE ALSO](#see-also)
 * [AUTHOR](#author)
 * [LICENSE](#license)
+* [POD ERRORS](#pod-errors)
 ---
 [Back to Table of Contents](#table-of-contents)
 
@@ -186,8 +197,9 @@ internal-only)
         --cache, --no-cache    use the configuration file as the source of truth (see Note 8)
     -c, --config               path to the .yml configuration
     -C, --create-alb           forces creation of a new ALB, prevents use of an existing ALB
-    -d, --dryrun               just report actions, do not apply
     --color, --no-color        default: color
+    -d, --dryrun               just report actions, do not apply
+    -f, --force                force action (depends on context)
     --history, --no-history    save cli parameters to .fargatestack/defaults.json
     --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
     --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
@@ -466,6 +478,41 @@ This gives you a single view into your Fargate application
 
 [Back to Table of Contents](#table-of-contents)
 
+# PERSISTENT CLI OPTION DEFAULTS
+
+When enabled, `App::FargateStack` remembers the
+most recently used values for several CLI options between runs. This
+feature saves time when working with the same AWS profile, config
+file, or region repeatedly.
+
+The following options are tracked and persisted:
+
+- `--profile`
+- `--region`
+- `--config`
+- `--route53-profile`
+- `--max-events`
+
+These values are stored in `.fargatestack/defaults.json`. If you omit
+any of these options on subsequent runs, the most recently used values
+will be reused.
+
+## Disabling and Resetting
+
+Use the `--no-history` option to bypass this feature temporarily for
+a single run.
+
+To clear stored values entirely, use the `reset-history` command.
+
+## Notes
+
+Only CLI options are tracked - values from environment variables or
+config files are not saved.
+
+This feature is enabled by default.
+
+[Back to Table of Contents](#table-of-contents)
+
 # COMMAND LIST
 
 The basic syntax of the framework's CLI is:
@@ -608,19 +655,58 @@ Reads the configuration file and determines what actions to perform
 and what resources will be built. Only updates configuration file with
 resource details but DOES NOT build them.
 
-### register
+### redeploy
 
-    register task-name
+    redeploy service-name
 
-Forces registration of a new task definition.
+Forces a new deployment of the specified ECS service without registering a new
+task definition. This triggers ECS to stop the currently running task and
+launch a new one using the same task definition revision.
+
+If you omit `service-name`, the command will attempt to determine the
+target service by selecting the task of type `daemon`, `http`, or
+`https`, but only if exactly one such service is defined in your
+configuration file.
+
+If the task definition references an image by tag (such as `:latest`), this
+command ensures ECS re-pulls the image from ECR at deployment time. This allows
+you to deploy a newly pushed image without needing to create a new revision of
+the task definition.
+
+This command is especially useful when:
+
+- You have pushed a new version of an image using the same tag (e.g. `:latest`)
+- You want to roll the service without changing other configuration
+- You want to confirm ECS tasks are using the most up-to-date image tag from ECR
+
+Note that if your task definition references an image by digest
+(e.g. `@sha256:...`), ECS will continue to use that exact image. In that case,
+you must register a new task definition to update the image.
+
+For best results, use this command only when your service’s task definition
+uses an image tag that can be re-resolved, such as `:latest` or a CI-generated
+version tag.
 
 ### run-task
 
     run-task task-name
 
-Launches a one-shot Fargate task. The default is to wait for the task
-to complete and output the task's log to STDERR.  To launch the task
-and exit use the `--no-wait` option.
+Launches a one-shot Fargate task. By default, the command waits for the
+task to complete and streams the task’s logs to STDERR. Use the `--no-wait`
+option to launch the task and return immediately.
+
+When you register a task definition, ECS records the image digest of the
+image specified in your configuration file. If you later push a new image
+tagged with the same name (e.g., `latest`) without updating the task
+definition, ECS will continue to use the original image digest.
+
+To detect this kind of drift, `app-FargateStack` records the image digest
+at the time of task registration and compares it to the current digest
+associated with the tag (typically `latest`) at runtime.
+
+If the digests do not match, the default behavior is to abort execution
+and warn you about the mismatch. To override this safety check and proceed
+anyway, use the `--force` option.
 
 ### status
 
@@ -1515,6 +1601,95 @@ configuration
 
 [Back to Table of Contents](#table-of-contents)
 
+# TROUBLESHOOTING
+
+## Why is my task or service still using an old image?
+
+This is one of the most common points of confusion when working with
+ECS and Fargate.
+
+You may have just built and pushed a new image to ECR using the same
+tag (e.g. `latest`), but when you launch a task or deploy a service,
+ECS appears to continue using the old image.  Here’s why.
+
+### One-off tasks: `run-task` uses a fixed image digest
+
+When you run a task using:
+
+    app-FargateStack run-task my-task
+
+ECS uses the exact task definition revision as registered. If the
+image was specified using a tag like `:latest`, ECS resolves that tag
+once—at the time the task starts—and stores the resolved digest
+(e.g. `sha256:...`).
+
+This means:
+
+- Tasks launched this way will continue to run the old image, even if
+the `latest` tag in ECR now points to a newer image.
+- The only way to run a task with the new image is to register a new
+task definition that references the updated image. You can force a new
+task definition by registering the definition.
+
+        app-FargateStack register my-task
+
+### Services: `create-service` and `update-service` use frozen images too
+
+When you create or update a service, ECS also resolves any image tags
+to their current digest and stores that in the registered task
+definition.
+
+This means that ECS services are also tied to the image that existed
+at the time of task definition registration.
+
+If you push a new image to ECR using the same tag (e.g. `:latest`),
+the service will not automatically use it.  ECS does not re-resolve
+the tag unless you explicitly tell it to.
+
+### `--force-new-deployment` re-pulls image tags (if not pinned by digest)
+
+If your task definition references the image by tag
+(e.g. `http-service:latest`), and not by digest, then running:
+
+    app-FargateStack redeploy my-service
+
+will cause ECS to:
+
+- Stop the currently running tasks
+- Start new tasks using the same task definition revision
+- Re-resolve and pull the image tag from ECR
+
+This allows your service to pick up a newly pushed image without
+registering a new task definition, as long as the task definition used
+a tag (not a digest).
+
+### Confirm what your task definition is using
+
+To see whether your task definition uses a tag or a digest, run:
+
+    aws ecs describe-task-definition --task-definition my-task:42
+
+Look at the `image` field under `containerDefinitions`. It will either be:
+
+    image: http-service:latest     # tag — will be re-resolved by --force-new-deployment
+    image: http-service@sha256:... # digest — frozen, cannot be re-resolved
+
+### Best practices
+
+- Avoid using `:latest` in production. Use immutable tags
+(e.g. `:v1.2.3`) or digests.
+- If you want to deploy a new image, the safest and most deterministic approach is to:
+
+        - Build and push the image using a new tag or digest
+        - Register a new task definition revision referencing that tag or digest
+        - Update your service to use the new task definition
+
+- Use `--force-new-deployment` only if your task definition uses a tag
+and you want to re-resolve it without changing the task definition
+itself.
+
+[Back to Table of Contents](#table-of-contents)
+
 # ROADMAP
 
 - destroy {task-name}
@@ -1543,3 +1718,11 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 739:
+
+    Non-ASCII character seen before =encoding in 'service’s'. Assuming UTF-8

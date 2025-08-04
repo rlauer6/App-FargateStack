@@ -25,11 +25,12 @@ use Data::Dumper;
 use Date::Parse qw(str2time);
 use English qw(no_match_vars);
 use File::Basename qw(basename);
-use List::Util qw(none);
+use List::Util qw(none any);
 use Log::Log4perl;
 use Pod::Usage;
 use Scalar::Util qw(reftype looks_like_number);
 use Text::ASCIITable::EasyTable;
+use Term::ANSIColor;
 use YAML qw(LoadFile);
 
 use Role::Tiny::With;
@@ -70,8 +71,12 @@ sub init {
     $self->fetch_option_defaults;
   }
 
+  my $cmd_spec = $self->commands->{$command};
+
+  my $cmd_options = reftype($cmd_spec) eq 'ARRAY' ? $cmd_spec->[2] : $EMPTY;
+
   return
-    if $command =~ /version|help/xsm;
+    if $cmd_options && defined $cmd_options->{init} && !$cmd_options->{init};
 
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
@@ -138,7 +143,8 @@ sub show_config {
 ########################################################################
   my ($self) = @_;
 
-  my $config  = $self->get_config;
+  my $config = $self->get_config;
+
   my $subnets = $self->get_subnets;
 
   $self->log_info( 'init:           account: [%s]', $self->get_account );
@@ -675,6 +681,11 @@ sub cmd_service_status {
 
   my $service_name = $self->check_service_name( @args, $self->get_args );
 
+  my $cluster      = $self->common_args('cluster');
+  my $cluster_name = $cluster->{name};
+
+  $self->verify_service( $cluster_name, $service_name );
+
   require Text::Wrap;
   Text::Wrap->import('wrap');
 
@@ -684,12 +695,12 @@ sub cmd_service_status {
     $Text::Wrap::columns = 100;
   }
 
-  my @elems = qw(running_count desired_count status pending events);
+  my @elems = qw(running_count desired_count status pending_count events task_definition);
 
   my $query = jmespath_mapping 'services[0]' => \@elems;
 
   my $result = $self->get_ecs->describe_services(
-    cluster_name => $self->get_config->{cluster}->{name},
+    cluster_name => $cluster_name,
     service_name => $service_name,
     query        => $query,
   );
@@ -697,20 +708,25 @@ sub cmd_service_status {
   log_die( $self, "ERROR: could not describe service [%s]\n%s", $service_name, $self->get_ecs->get_error )
     if !$result;
 
-  croak sprintf "ERROR: no service named: [%s] is currently running\n", $service_name
-    if !ref $result;
+  my ( $running_count, $desired_count, $status, $pending_count, $events, $task_definition )
+    = @{$result}{@elems};
 
-  $result->{pending} //= q{-};
+  $pending_count //= q{-};
 
-  my $title = sprintf 'Service: [%s] Status:[%s] Running: [%s] Pending: [%s] Desired: [%s]', $service_name,
-    @{$result}{qw(status running_count pending desired_count)};
+  $status = colored( $status, $status eq 'ACTIVE' ? 'bright_green' : 'bright_yellow' );
+
+  my $title = sprintf "Service:[%s]\n", colored( $service_name, 'bright_white' );
+  $title .= sprintf "Status:[%s] Running:[%s] Pending:[%s] Desired:[%s]\n",
+    $status, colored( $running_count, 'green' ), colored( $pending_count, 'yellow' ),
+    colored( $desired_count, 'bright_white' );
+  $title .= sprintf 'Task Definition: [%s]', colored( $task_definition, 'bright_white' );
 
   my @events = grep {defined} @{ $result->{events} }[ 0 .. ( $self->get_max_events - 1 ) ];
 
   my @data = map { { 'Time' => $_->{createdAt}, Event => wrap( q{}, q{}, $_->{message} ) } } @events;
 
   print {*STDOUT} easy_table(
-    table_options => { headingText => $title },
+    table_options => { headingText => $title, allowANSI => $TRUE },
     data          => \@data,
     columns       => [qw(Time Event)],
   );
@@ -745,36 +761,64 @@ sub _init_config {
 }
 
 ########################################################################
+sub get_default_task_name {
+########################################################################
+  my ( $self, $type ) = @_;
+
+  my $tasks = $self->common_args('tasks');
+
+  my ($task_name) = $self->get_args;
+
+  $type //= 'task';
+
+  return $task_name
+    if $task_name;
+
+  my ( $default_task_name, $err ) = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
+
+  return $err ? $EMPTY : $default_task_name;
+}
+
+########################################################################
 sub cmd_run_task {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
-  my ($task_name) = $self->get_args;
+  my $task_name = $self->get_default_task_name('task');
 
-  log_die( $self, "usage: %s run-task task-name\n", $ENV{SCRIPT_NAME} )
+  croak sprintf "usage: %s run-task task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name;
 
-  my $task = $config->{tasks}->{$task_name};
+  my $task = $tasks->{$task_name};
 
   log_die( $self, "ERROR: no such task [%s] defined in config\n", $task_name )
     if !$task;
 
-  my @subnets = @{ $self->get_subnets->{private} // [] };
+  my $subnet_id = $self->get_subnet_id;
 
-  if ( !@subnets ) {
-    $self->log_warn('run-task: using public subnets is not recommended...');
-    @subnets = @{ $self->get_subnets->{public} // [] };
+  if ( !$subnet_id ) {
+    my @subnets = @{ $self->get_subnets->{private} // [] };
+
+    if ( !@subnets ) {
+      $self->log_warn('run-task: using public subnets is not recommended...');
+      @subnets = @{ $self->get_subnets->{public} // [] };
+    }
+
+    $subnet_id = $subnets[0];
   }
 
   my $network_configuration = {
     awsvpcConfiguration => {
-      subnets        => [ @subnets[ 0, 1 ] ],
+      subnets        => [$subnet_id],
       securityGroups => [ $config->{security_groups}->{fargate}->{group_id} ],
       assignPublicIp => 'DISABLED',
     }
   };
+
+  # check for latest image...
+  $self->check_latest_image($task_name);
 
   my $cluster_name = $config->{cluster}->{name};
 
@@ -794,7 +838,7 @@ sub cmd_run_task {
   log_die( $self, 'ERROR: task failed to launch: %s', Dumper( \@failures ) )
     if @failures;
 
-  my ($tasks) = @{ $result->{tasks} };
+  ($tasks) = @{ $result->{tasks} };
 
   my $task_arn = $tasks->{taskArn};
 
@@ -856,6 +900,29 @@ sub cmd_run_task {
 }
 
 ########################################################################
+sub check_latest_image {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $tasks = $self->common_args('tasks');
+
+  my $latest_image   = $self->get_latest_image($task_name);
+  my $latest_digest  = $latest_image->{imageDigest};
+  my $current_digest = $tasks->{$task_name}->{image_digest} // $EMPTY;
+
+  if ( $current_digest ne $latest_digest ) {
+    $self->log_error('run-task: You are not running the latest image!');
+    $self->log_error( 'run-task: [%s] != [%s]', $latest_digest, $current_digest );
+    $self->log_error('run-task: Run "app-Fargate register-task" to align the latest image with your task');
+
+    log_die( $self, 'run-task: use --force to force run or align our task with new image' )
+      if !$self->get_force;
+  }
+
+  return;
+}
+
+########################################################################
 sub get_task_status {
 ########################################################################
   my ( $self, $cluster_name, $task_arn ) = @_;
@@ -875,19 +942,36 @@ sub get_task_status {
 }
 
 ########################################################################
+sub get_default_service_name {
+########################################################################
+  my ($self) = @_;
+
+  return map { $self->get_default_task_name($_) // () } qw(http https daemon);
+}
+
+########################################################################
 sub cmd_create_service {
 ########################################################################
   my ($self) = @_;
 
-  my ($task_name) = $self->get_args;
+  my ( $task_name, $err ) = $self->get_default_service_name();
 
-  my $config = $self->get_config;
+  $self->get_logger->info('here');
 
-  log_die( $self, "usage: $ENV{SCRIPT_NAME} create-service task-name\n" )
+  croak sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
+    if !$task_name || $err;
+
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
+
+  log_die( $self, sprintf "usage: %s create-service task-name\n", $ENV{SCRIPT_NAME} )
     if !$task_name;
 
   log_die( $self, "no such task defined in config [%s]\n", $task_name )
-    if !$config->{tasks}->{$task_name};
+    if !$tasks->{$task_name};
+
+  $self->log_info('service: checking to see if task and latest image are aligned...');
+
+  $self->check_latest_image($task_name);
 
   return $self->build_service($task_name);
 }
@@ -918,18 +1002,22 @@ sub cmd_delete_service {
 ########################################################################
   my ($self) = @_;
 
-  my ($task_name) = $self->get_args;
+  my ( $task_name, $err ) = $self->get_default_service_name();
 
   croak "usage: %s delete-service task-name\n", $ENV{SCRIPT_NAME}
-    if !$task_name;
+    if !$task_name || $err;
 
-  my $config = $self->get_config;
+  my ( $config, $cluster ) = $self->common_args(qw(config cluster));
+
+  my $cluster_name = $cluster->{name};
+
+  $self->verify_service( $cluster_name, $task_name );
 
   $self->check_task( $task_name, 'warn' );
 
   my $ecs = $self->get_ecs;
 
-  my $result = $ecs->delete_service( $config->{cluster}->{name}, $task_name );
+  my $result = $ecs->delete_service( $cluster->{name}, $task_name );
 
   log_die( $self, "ERROR: could not stop service %s\n%s", $task_name, $ecs->get_error )
     if $ecs->get_error;
@@ -938,22 +1026,43 @@ sub cmd_delete_service {
 }
 
 ########################################################################
-sub _update_task_count {
+sub verify_service {
 ########################################################################
-  my ( $self, $task_name, $desired_count ) = @_;
-
-  my $config = $self->get_config;
+  my ( $self, $cluster_name, $service_name ) = @_;
 
   my $ecs = $self->get_ecs;
 
-  my $cluster_name = $config->{cluster}->{name};
+  my $services = $ecs->list_services( $cluster_name, 'serviceArns' );
 
-  my $result = $ecs->command(
-    'update-service' => [
-      '--cluster'       => $cluster_name,
-      '--service'       => $task_name,
-      '--desired-count' => $desired_count,
-    ]
+  croak sprintf "ERROR: could not list services for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
+    if !$services;
+
+  croak sprintf "ERROR: no services running in cluster: [%s]\n", $cluster_name
+    if !@{$services};
+
+  croak sprintf "ERROR: service [%s] is not running in cluster: [%s]\n", $service_name, $cluster_name
+    if none { $_ =~ /$service_name/xsm } @{$services};
+
+  return;
+}
+
+########################################################################
+sub update_task_count {
+########################################################################
+  my ( $self, $task_name, $desired_count ) = @_;
+
+  my ( $config, $cluster ) = $self->common_args(qw(config cluster));
+
+  my $cluster_name = $cluster->{name};
+
+  $self->verify_service( $cluster_name, $task_name );
+
+  my $ecs = $self->get_ecs;
+
+  my $result = $ecs->update_service(
+    cluster_name  => $cluster_name,
+    desired_count => $desired_count,
+    service       => $task_name,
   );
 
   log_die( $self, "ERROR: could not update service: [%s]\n%s", $task_name, $ecs->get_error )
@@ -991,7 +1100,7 @@ sub cmd_update_service {
     croak sprintf "usage: %s -c config-name start-service task-name [count]\n", $ENV{SCRIPT_NAME};
   }
 
-  my $result = $self->_update_task_count( $task_name, $count );
+  my $result = $self->update_task_count( $task_name, $count );
 
   sleep 2;  # wait a few seconds for status to be updated
 
@@ -1003,11 +1112,9 @@ sub cmd_register {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
-  my ($task_name) = $self->get_args;
-
-  my $dryrun = $self->get_dryrun;
+  my $task_name = $self->get_default_task_name;
 
   my $action = $self->get_skip_register ? 'update-target' : 'register';
 
@@ -1023,8 +1130,6 @@ sub cmd_register {
   log_die( $self, "ERROR: no task definition file found for %s\n", $task_name )
     if !-s $task_definition_file;
 
-  my $tasks = $config->{tasks};
-
   my $task_definition_arn;
 
   if ( !$self->get_skip_register ) {
@@ -1033,14 +1138,28 @@ sub cmd_register {
     if ( !$dryrun ) {
       my $task_definition = $ecs->register_task_definition($task_definition_file);
 
-      log_die( $self, 'register: could not register [%s]', $task_definition_file )
+      log_die( $self, 'register: could not register [%s]\n%s', $task_definition_file, $ecs->get_error )
         if !$task_definition;
 
       $self->log_trace( sub { return Dumper( [ task_definition => $task_definition ] ) } );
 
-      $task_definition_arn = $task_definition_arn->{taskDefinition}->{taskDefinitionArn};
+      $task_definition_arn = $task_definition->{taskDefinition}->{taskDefinitionArn};
+
+      log_die(
+        $self,
+        'register: no taskDefinitionArn found? %s',
+        Dumper( [ task_definition => $task_definition ] )
+      ) if !$task_definition_arn;
+
       $self->log_warn( 'register: registered...[%s]', $task_definition_arn );
+
       $tasks->{$task_name}->{arn} = $task_definition_arn;
+
+      my $latest_image = $self->get_latest_image($task_name);
+
+      $self->log_info( 'register: updating image digest: [%s]', $latest_image->{imageDigest} );
+      $tasks->{$task_name}->{image_digest} = $latest_image->{imageDigest};
+
       $self->update_config;  # record new task definition arn
     }
   }
@@ -1070,6 +1189,24 @@ sub cmd_register {
   }
 
   return $SUCCESS;
+}
+
+########################################################################
+sub get_latest_image {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $tasks = $self->common_args('tasks');
+
+  require App::ECR;
+
+  my $ecr = App::ECR->new( $self->get_global_options );
+
+  my ($repo_name) = split /:/xsm, $tasks->{$task_name}->{image};
+
+  my ($latest) = $ecr->get_latest_image($repo_name);
+
+  return $latest;
 }
 
 ########################################################################
@@ -1229,7 +1366,7 @@ sub cmd_stop_task {
 
   my ($task_id) = $self->get_args;
 
-  my ($task_name) = $self->check_service( $task_id, $TRUE );
+  my ($task_name) = $self->check_service_name( $task_id, $TRUE );
 
   if ($task_name) {
     $task_id = $tasks->{$task_name}->{arn};
@@ -1348,6 +1485,35 @@ sub cmd_ {
 }
 
 ########################################################################
+sub cmd_redeploy {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my $cluster      = $self->common_args('cluster');
+  my $cluster_name = $cluster->{name};
+
+  my ( $service_name, $err ) = $self->get_default_service_name;
+
+  croak sprintf "usage: %s redeploy service-name\n", $ENV{SCRIPT_NAME}
+    if !$service_name || $err;
+
+  my $ecs = $self->get_ecs;
+
+  my $result = $ecs->update_service(
+    cluster_name => $cluster_name,
+    service_name => $service_name,
+    force        => $TRUE
+  );
+
+  log_die( $self, "ERROR: could not update service: [%s]\n%s", $service_name, $ecs->get_error )
+    if !$result;
+
+  $self->log_info( 'redeploy: successfully updated service: [%s]', $service_name );
+
+  return $SUCCESS;
+}
+
+########################################################################
 sub cmd_reset_history {
 ########################################################################
   my ( $self, @args ) = @_;
@@ -1373,7 +1539,7 @@ sub fetch_option_defaults {
     mkdir '.fargatestack';
   }
 
-  return $self->write_json_file( $defaults_file, $options )
+  return $self->write_json_file( $defaults_file, {} )
     if $reset;
 
   $options->{profile}         = $self->get_profile         // $options->{profile};
@@ -1428,6 +1594,7 @@ sub main {
     color!
     create-alb|C
     dryrun|d
+    force|f
     log-level=s
     log-time!
     log-wait!
@@ -1437,6 +1604,7 @@ sub main {
     region|r=s
     route53-profile|R=s
     skip-register|s
+    subnet-id=s
     task-timeout|t
     update|u!
     unlink|U!
@@ -1465,7 +1633,7 @@ sub main {
     'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
     'list-tasks'             => [ \&cmd_list_tasks,    'error' ],
     'list-zones'             => [ \&cmd_list_zones,    'error' ],
-    'reset-history'          => [ \&cmd_reset_history, 'error' ],
+    'reset-history'          => [ \&cmd_reset_history, 'info', { init => $FALSE } ],
     'run-task'               => \&cmd_run_task,
     'start-service'          => [ \&cmd_update_service, 'error' ],
     'stop-service'           => [ \&cmd_update_service, 'error' ],
@@ -1474,12 +1642,13 @@ sub main {
     'update-target'          => \&cmd_update_target,
     apply                    => \&cmd_apply,
     default                  => [ \&cmd_explain, 'error' ],
-    help                     => [ \&help,        'error' ],
+    help                     => [ \&help,        'error', { init => $FALSE } ],
     logs                     => [ \&cmd_logs,    'error' ],
     plan                     => \&cmd_plan,
+    redeploy                 => \&cmd_redeploy,
     register                 => \&cmd_register,
     status                   => [ \&cmd_service_status, 'error' ],
-    version                  => [ \&cmd_version,        'error' ],
+    version                  => [ \&cmd_version, 'error', { init => $FALSE } ],
   );
 
   my $fargate_stack = App::FargateStack->new(
@@ -1635,8 +1804,9 @@ Convenient CLI: start, stop, update, and tail logs for any service
      --cache, --no-cache    use the configuration file as the source of truth (see Note 8)
  -c, --config               path to the .yml configuration
  -C, --create-alb           forces creation of a new ALB, prevents use of an existing ALB
- -d, --dryrun               just report actions, do not apply
  --color, --no-color        default: color
+ -d, --dryrun               just report actions, do not apply
+ -f, --force                force action (depends on context)
  --history, --no-history    save cli parameters to .fargatestack/defaults.json
  --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
@@ -1984,6 +2154,47 @@ inspecting your VPC and automatically added to the configuration file.
 
 This gives you a single view into your Fargate application
 
+=head1 PERSISTENT CLI OPTION DEFAULTS
+
+When enabled, C<App::FargateStack> remembers the
+most recently used values for several CLI options between runs. This
+feature saves time when working with the same AWS profile, config
+file, or region repeatedly.
+
+The following options are tracked and persisted:
+
+=over 4
+
+=item * C<--profile>
+
+=item * C<--region>
+
+=item * C<--config>
+
+=item * C<--route53-profile>
+
+=item * C<--max-events>
+
+=back
+
+These values are stored in F<.fargatestack/defaults.json>. If you omit
+any of these options on subsequent runs, the most recently used values
+will be reused.
+
+=head2 Disabling and Resetting
+
+Use the C<--no-history> option to bypass this feature temporarily for
+a single run.
+
+To clear stored values entirely, use the C<reset-history> command.
+
+=head2 Notes
+
+Only CLI options are tracked - values from environment variables or
+config files are not saved.
+
+This feature is enabled by default.
+
 =head1 COMMAND LIST
 
 The basic syntax of the framework's CLI is:
@@ -2141,19 +2352,70 @@ Reads the configuration file and determines what actions to perform
 and what resources will be built. Only updates configuration file with
 resource details but DOES NOT build them.
 
-=head3 register
+=head3 redeploy
 
- register task-name
+  redeploy service-name
 
-Forces registration of a new task definition.
+Forces a new deployment of the specified ECS service without registering a new
+task definition. This triggers ECS to stop the currently running task and
+launch a new one using the same task definition revision.
+
+If you omit C<service-name>, the command will attempt to determine the
+target service by selecting the task of type C<daemon>, C<http>, or
+C<https>, but only if exactly one such service is defined in your
+configuration file.
+
+If the task definition references an image by tag (such as C<:latest>), this
+command ensures ECS re-pulls the image from ECR at deployment time. This allows
+you to deploy a newly pushed image without needing to create a new revision of
+the task definition.
+
+This command is especially useful when:
+
+=over 4
+
+=item *
+
+You have pushed a new version of an image using the same tag (e.g. C<:latest>)
+
+=item *
+
+You want to roll the service without changing other configuration
+
+=item *
+
+You want to confirm ECS tasks are using the most up-to-date image tag from ECR
+
+=back
+
+Note that if your task definition references an image by digest
+(e.g. C<@sha256:...>), ECS will continue to use that exact image. In that case,
+you must register a new task definition to update the image.
+
+For best results, use this command only when your service’s task definition
+uses an image tag that can be re-resolved, such as C<:latest> or a CI-generated
+version tag.
 
 =head3 run-task
 
  run-task task-name
 
-Launches a one-shot Fargate task. The default is to wait for the task
-to complete and output the task's log to STDERR.  To launch the task
-and exit use the C<--no-wait> option.
+Launches a one-shot Fargate task. By default, the command waits for the
+task to complete and streams the task’s logs to STDERR. Use the C<--no-wait>
+option to launch the task and return immediately.
+
+When you register a task definition, ECS records the image digest of the
+image specified in your configuration file. If you later push a new image
+tagged with the same name (e.g., C<latest>) without updating the task
+definition, ECS will continue to use the original image digest.
+
+To detect this kind of drift, C<app-FargateStack> records the image digest
+at the time of task registration and compares it to the current digest
+associated with the tag (typically C<latest>) at runtime.
+
+If the digests do not match, the default behavior is to abort execution
+and warn you about the mismatch. To override this safety check and proceed
+anyway, use the C<--force> option.
 
 =head3 status
 
@@ -3118,6 +3380,125 @@ to re-run C<app-FargateStack> without manually updating the
 configuration
 
 =item * Support for only 1 EFS filesystem per task
+
+=back
+
+=head1 TROUBLESHOOTING
+
+=head2 Why is my task or service still using an old image?
+
+This is one of the most common points of confusion when working with
+ECS and Fargate.
+
+You may have just built and pushed a new image to ECR using the same
+tag (e.g. C<latest>), but when you launch a task or deploy a service,
+ECS appears to continue using the old image.  Here’s why.
+
+=head3 One-off tasks: C<run-task> uses a fixed image digest
+
+When you run a task using:
+
+  app-FargateStack run-task my-task
+
+ECS uses the exact task definition revision as registered. If the
+image was specified using a tag like C<:latest>, ECS resolves that tag
+once—at the time the task starts—and stores the resolved digest
+(e.g. C<sha256:...>).
+
+This means:
+
+=over 4
+
+=item *
+
+Tasks launched this way will continue to run the old image, even if
+the C<latest> tag in ECR now points to a newer image.
+
+=item *
+
+The only way to run a task with the new image is to register a new
+task definition that references the updated image. You can force a new
+task definition by registering the definition.
+
+ app-FargateStack register my-task
+
+=back
+
+=head3 Services: C<create-service> and C<update-service> use frozen images too
+
+When you create or update a service, ECS also resolves any image tags
+to their current digest and stores that in the registered task
+definition.
+
+This means that ECS services are also tied to the image that existed
+at the time of task definition registration.
+
+If you push a new image to ECR using the same tag (e.g. C<:latest>),
+the service will not automatically use it.  ECS does not re-resolve
+the tag unless you explicitly tell it to.
+
+=head3 C<--force-new-deployment> re-pulls image tags (if not pinned by digest)
+
+If your task definition references the image by tag
+(e.g. C<http-service:latest>), and not by digest, then running:
+
+  app-FargateStack redeploy my-service
+
+will cause ECS to:
+
+=over 4
+
+=item *
+
+Stop the currently running tasks
+
+=item *
+
+Start new tasks using the same task definition revision
+
+=item *
+
+Re-resolve and pull the image tag from ECR
+
+=back
+
+This allows your service to pick up a newly pushed image without
+registering a new task definition, as long as the task definition used
+a tag (not a digest).
+
+=head3 Confirm what your task definition is using
+
+To see whether your task definition uses a tag or a digest, run:
+
+  aws ecs describe-task-definition --task-definition my-task:42
+
+Look at the C<image> field under C<containerDefinitions>. It will either be:
+
+  image: http-service:latest     # tag — will be re-resolved by --force-new-deployment
+  image: http-service@sha256:... # digest — frozen, cannot be re-resolved
+
+=head3 Best practices
+
+=over 4
+
+=item *
+
+Avoid using C<:latest> in production. Use immutable tags
+(e.g. C<:v1.2.3>) or digests.
+
+=item *
+
+If you want to deploy a new image, the safest and most deterministic approach is to:
+
+  - Build and push the image using a new tag or digest
+  - Register a new task definition revision referencing that tag or digest
+  - Update your service to use the new task definition
+
+=item *
+
+Use C<--force-new-deployment> only if your task definition uses a tag
+and you want to re-resolve it without changing the task definition
+itself.
 
 =back
 
