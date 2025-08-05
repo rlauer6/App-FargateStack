@@ -958,28 +958,36 @@ sub help {
   my $subject = lc join $SPACE, @ARGV;
   $subject =~ s/\s+$//xsm;
 
-  my $section = $HELP_SUBJECTS{$subject} // $EMPTY;
+  my ($section) = grep {/^$subject$/xsm} keys %{ $self->commands };
 
-  if ( $subject && !$section && $subject ne 'help' ) {
-    my @possible_subjects = grep {/$subject/xsmi} keys %HELP_SUBJECTS;
-
-    if ( @possible_subjects == 1 ) {
-      $section = $HELP_SUBJECTS{ $possible_subjects[0] };
-    }
-    elsif (@possible_subjects) {
-      print {*STDERR} sprintf "'%s' was not found in the help index.\n\nPossible matches:\n\t* %s\n", $subject,
-        join "\n\t* ",
-        @possible_subjects;
-      exit 1;
-    }
+  if ( $section ne 'help' ) {
+    $section = "COMMAND LIST/Command Descriptions/$section";
   }
+  else {
+    $section = $HELP_SUBJECTS{$subject} // $EMPTY;
 
-  if ( $section && ref $section ) {
-    $section = $section->[0];
-  }
-  elsif ($section) {  # a help subject alias
-    my $reference = $HELP_SUBJECTS{$section};
-    $section = $reference->[0];
+    if ( $subject && !$section && $subject ne 'help' ) {
+      my @possible_subjects = grep {/$subject/xsmi} keys %HELP_SUBJECTS;
+
+      if ( @possible_subjects == 1 ) {
+        $section = $HELP_SUBJECTS{ $possible_subjects[0] };
+      }
+      elsif (@possible_subjects) {
+        print {*STDERR} sprintf "'%s' was not found in the help index.\n\nPossible matches:\n\t* %s\n",
+          $subject,
+          join "\n\t* ",
+          @possible_subjects;
+        exit 1;
+      }
+    }
+
+    if ( $section && ref $section ) {
+      $section = uc $section->[0];
+    }
+    elsif ($section) {  # a help subject alias
+      my $reference = $HELP_SUBJECTS{$section};
+      $section = uc $reference->[0];
+    }
   }
 
   eval {
@@ -1017,7 +1025,7 @@ sub help {
     -input   => $INC{'App/FargateStack/Pod.pm'},
     -exitval => 1,
     -verbose => 99,
-    $section ? ( -sections => uc $section // 'USAGE' ) : ()
+    $section ? ( -sections => $section // 'USAGE' ) : ()
   );
 }
 

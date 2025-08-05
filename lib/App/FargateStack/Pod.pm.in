@@ -202,9 +202,10 @@ C<--route53-profile> or set a profile name in the C<route53> section
 of the configuration file.>
 
 =item (2) You can get help using the C<--help> option or use the help
-command with a subject.
+command with a subject or one of the commands.
 
  app-FargateStack help overview
+ app-FargateStack help repdeploy
 
 If you do not provide a subject then you will get the same information
 as C<--help>. Use C<help help> to get a list of available subjects.

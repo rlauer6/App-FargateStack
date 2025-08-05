@@ -259,9 +259,10 @@ the configuration file.
     of the configuration file._
 
 - (2) You can get help using the `--help` option or use the help
-command with a subject.
+command with a subject or one of the commands.
 
         app-FargateStack help overview
+        app-FargateStack help repdeploy
 
     If you do not provide a subject then you will get the same information
     as `--help`. Use `help help` to get a list of available subjects.
