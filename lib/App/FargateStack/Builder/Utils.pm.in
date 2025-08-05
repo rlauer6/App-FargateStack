@@ -34,25 +34,39 @@ our @EXPORT = qw(
 );
 
 ########################################################################
+sub create_default {
+########################################################################
+  my ( $self, $what, @args ) = @_;
+
+  require App::FargateStack::Constants;
+
+  croak "no default for $what\n"
+    if !exists $App::FargateStack::Constants::DEFAULT_NAMES{$what};
+
+  my $default = $App::FargateStack::Constants::DEFAULT_NAMES{$what};
+
+  my $app_name = $self->get_config->{app}->{name};
+
+  return ref $default ? $default->( $self, @args ) : $default;
+}
+
+########################################################################
 sub common_args {
 ########################################################################
   my ( $self, @args ) = @_;
 
-  my $var_pool = $self->get__var_pool;
+  my $config = $self->get_config;
 
-  if ( !$var_pool ) {
-    my $config = $self->get_config;
-    $var_pool = {
-      config          => $config,
-      cache           => $self->get_cache,
-      dryrun          => $self->get_dryrun,
-      tasks           => $config->{tasks},
-      cluster         => $config->{cluster},
-      security_groups => $config->{security_groups},
-    };
+  my $var_pool = {
+    config          => $config,
+    cache           => $self->get_cache,
+    dryrun          => $self->get_dryrun,
+    tasks           => $config->{tasks},
+    cluster         => $config->{cluster},
+    security_groups => $config->{security_groups},
+  };
 
-    $self->set__var_pool($var_pool);
-  }
+  $self->set__var_pool($var_pool);
 
   return $var_pool
     if !@args;

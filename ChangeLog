@@ -1,3 +1,26 @@
+Tue Aug  5 14:08:01 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.20]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/ECS.pm.in
+	(deregister_task_definition): new
+	(delete_task_definition): new
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- refactoring
+	* lib/App/FargateStack/Builder/LogGroup.pm.in: likewise
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in: likewise
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in: likewise
+	* lib/App/FargateStack/Init.pm.in: likewise
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(create_default): new
+	(common_arg): do not cache var_pool!
+	* lib/App/FargateStack/Constants.pm.in
+	- don't import anything by default
+	- + %DEFAULT_NAMES
+	* lib/App/FargateStack/Pod.pm.in: current status
+
 Tue Aug  5 08:40:48 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.19]:

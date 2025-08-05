@@ -3,7 +3,7 @@ package App::FargateStack::Constants;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils;
+use App::FargateStack::Builder::Utils qw();
 
 use Data::Dumper;
 use English qw(no_match_vars);
@@ -73,7 +73,40 @@ Readonly::Hash our %ECS_TASK_PROFILE_TYPES => (
   task   => 'tiny',
 );
 
-Readonly::Scalar our $QUEUE_ATTRIBUTES => ToCamelCase(
+Readonly::Hash our %DEFAULT_NAMES => (
+  'security-group' => sub {
+    my ( $self, @args ) = @_;
+
+    return sprintf '%s-sg', $self->get_config->{app}->{name};
+  },
+  'log-group' => sub {
+    my ( $self, @args ) = @_;
+
+    return sprintf '/ecs/%s', $self->get_config->{app}->{name};
+  },
+  'role-name' => sub {
+    my ( $self, $type ) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+
+    $type = ( $type eq 'events' ? 'Events' : 'Fargate' );
+
+    return sprintf '%s%sRole', $type, $self->normalize_name($app_name);
+  },
+  'policy-name' => sub {
+    my ( $self, $type ) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+
+    $type = ( $type eq 'events' ? 'Events' : 'Fargate' );
+
+    return sprintf '%s%sPolicy', $type, $self->normalize_name($app_name);
+  },
+);
+
+require App::FargateStack::Builder::Utils;
+
+Readonly::Scalar our $QUEUE_ATTRIBUTES => App::FargateStack::Builder::Utils::ToCamelCase(
   [ qw(
       delay_seconds
       last_modified_timestamp
@@ -239,6 +272,7 @@ our @EXPORT = (
     $DEFAULT_MEMORY_SIZE
     $DEFAULT_PORT
     $DEFAULT_RULE_ID
+    %DEFAULT_NAMES
     %ECS_TASK_PROFILES
     %ECS_TASK_PROFILE_TYPES
     $EMPTY

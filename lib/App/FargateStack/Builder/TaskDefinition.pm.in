@@ -231,8 +231,10 @@ sub create_taskdef_files {
     # -- efs mounts --
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
+    my $role_name = $config->{role}->{name} // $self->create_default( 'role-name', 'ecs' );
+
     my $taskdef = {
-      executionRoleArn     => $self->task_execution_role( $config->{role}->{name} // $task_name ),
+      executionRoleArn     => $self->task_execution_role($role_name),
       memory               => "$task->{memory}",
       containerDefinitions => [
         { logConfiguration => {

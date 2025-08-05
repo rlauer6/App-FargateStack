@@ -250,6 +250,53 @@ sub list_task_definitions {
 }
 
 ########################################################################
+sub deregister_task_definition {
+########################################################################
+  my ( $self, $task_definition, $query ) = @_;
+
+  croak "usage: deregister_task_definition(task-definition, [query])\n"
+    if !$task_definition;
+
+  return $self->command( 'deregister-task-definition' =>
+      [ '--task-definition' => $task_definition, $query ? ( '--query' => $query ) : () ] );
+}
+
+########################################################################
+sub delete_task_definitions {
+########################################################################
+  my ( $self, $task_definitions, $deregister ) = @_;
+
+  croak "usage: delete_task_definitions(task-definitions, [query])\n"
+    if !$task_definitions;
+
+  if ( !ref $task_definitions ) {
+    $task_definitions = [$task_definitions];
+  }
+
+  my @task_definition_list = @{$task_definitions};
+
+  # - ECS requires dregistratrion before deletion
+  if ($deregister) {
+    foreach my $def (@task_definition_list) {
+      my $result = $self->deregister_task_definition($def);
+      croak sprintf "ERROR: could not deregister: [%s]\n%s", $def, $self->get_error
+        if !$result;
+    }
+  }
+
+  while ( my @batch = splice @task_definition_list, 0, 10 ) {
+    my $list = join q{,}, @batch;
+
+    my $result = $self->command( 'delete-task-definitions' => [ '--task-definitions' => $list ] );
+
+    croak sprintf "ERROR: could not delete task definitions: [%s]\n%s", $list, $self->get_error
+      if !$result;
+  }
+
+  return;
+}
+
+########################################################################
 sub create_service {
 ########################################################################
   my ( $self, %args ) = @_;

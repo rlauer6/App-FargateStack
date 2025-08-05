@@ -3,6 +3,8 @@
 * [NAME](#name)
 * [SYNOPSIS](#synopsis)
 * [DESCRIPTION](#description)
+  * [Current Status of App::FargateStack](#current-status-of-appfargatestack)
+  * [Caveats](#caveats)
   * [Features](#features)
 * [METHODS AND SUBROUTINES](#methods-and-subroutines)
 * [USAGE](#usage)
@@ -42,7 +44,7 @@
     * [update-target](#update-target)
     * [version              ](#version-)
 * [CLOUDWATCH LOG GROUPS](#cloudwatch-log-groups)
-  * [Notes](#notes)
+  * [Log Group Notes](#log-group-notes)
 * [IAM PERMISSIONS](#iam-permissions)
 * [SECURITY GROUPS](#security-groups)
 * [FILESYSTEM SUPPORT](#filesystem-support)
@@ -83,11 +85,10 @@
   * [Port and Listener Rules](#port-and-listener-rules)
   * [Example Minimal Configuration](#example-minimal-configuration)
   * [Application Load Balancer](#application-load-balancer)
-    * [Why Does the Framework Force the Use of an Load Balancer?](#why-does-the-framework-force-the-use-of-an-load-balancer)
+    * [Why Does the Framework Force the Use of a Load Balancer?](#why-does-the-framework-force-the-use-of-a-load-balancer)
   * [Roadmap for HTTP Services](#roadmap-for-http-services)
 * [CURRENT LIMITATIONS](#current-limitations)
 * [TROUBLESHOOTING](#troubleshooting)
-  * [When trying to run a task I get this message:](#when-trying-to-run-a-task-i-get-this-message)
   * [When trying to run a task I get this message:](#when-trying-to-run-a-task-i-get-this-message)
     * [Why is this a problem?](#why-is-this-a-problem)
     * [Best Practice](#best-practice)
@@ -106,7 +107,6 @@
 * [SEE ALSO](#see-also)
 * [AUTHOR](#author)
 * [LICENSE](#license)
-* [POD ERRORS](#pod-errors)
 ---
 [Back to Table of Contents](#table-of-contents)
 
@@ -127,10 +127,6 @@ App::FargateStack
 [Back to Table of Contents](#table-of-contents)
 
 # DESCRIPTION
-
-_NOTE: This is a work in progress. The documentation may be
-incomplete. Expect some features to change and more features to be
-added. See the ["ROADMAP"](#roadmap) section for upcoming features._
 
 **App::FargateStack** is a lightweight deployment framework for Amazon
 ECS on Fargate.  It enables you to define and launch containerized
@@ -154,6 +150,28 @@ and defaults, but gives you escape hatches where needed.
 **App::FargateStack** is ideal for developers who want the power of ECS
 and Fargate without diving into the deep end of Terraform,
 CloudFormation, or the AWS Console.
+
+## Current Status of App::FargateStack
+
+_This is a work in progress._ Versions prior to 1.1.0 are considered usable
+but may still contain issues related to edge cases or uncommon configuration
+combinations.
+
+This documentation corresponds to version 1.0.19.
+
+The release of version _1.1.0_ will mark the first production-ready release.
+Until then, you're encouraged to try it out and provide feedback. Issues or
+feature requests can be submitted via
+[GitHub](https://github.com/rlauer6/App-FargateStack/issues).
+
+## Caveats
+
+- The documentation may be incomplete or inaccurate.
+- Features may change, and new ones will be added. See the
+["ROADMAP"](#roadmap) for details.
+- Deploying resources using this framework may result in AWS charges.
+- This software is provided "as is", without warranty of any kind.
+Use at your own risk.
 
 ## Features
 
@@ -327,7 +345,7 @@ based on the common uses for Fargate based applications. You can
 however customize many of the resources being built by the
 script.
 
-Using a YAML based configuration file, you specify the your required
+Using a YAML based configuration file, you specify your required
 resources and their attributes, run the `app-FargateStack` script and
 launch your application.
 
@@ -348,13 +366,13 @@ before building them
 
 ## Additional Features
 
-- - inject secrets into the container's environment using a simple
+- inject secrets into the container's environment using a simple
 syntax (See ["INJECTING SECRETS FROM SECRETS MANAGER"](#injecting-secrets-from-secrets-manager))
-- - detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
-- - automatic IAM role and policy generation based on configured resources
-- - define and launch multiple independent Fargate tasks and services under a single stack
-- - automatic creation of log groups with customizable retention period
-- - discovery of existing environment to intelligently populate configuration defaults
+- detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
+- automatic IAM role and policy generation based on configured resources
+- define and launch multiple independent Fargate tasks and services under a single stack
+- automatic creation of log groups with customizable retention period
+- discovery of existing environment to intelligently populate configuration defaults
 
 ## Minimal Configuration
 
@@ -711,7 +729,7 @@ Note that if your task definition references an image by digest
 (e.g. `@sha256:...`), ECS will continue to use that exact image. In that case,
 you must register a new task definition to update the image.
 
-For best results, use this command only when your service’s task definition
+For best results, use this command only when your service's task definition
 uses an image tag that can be re-resolved, such as `:latest` or a CI-generated
 version tag.
 
@@ -720,7 +738,7 @@ version tag.
     run-task task-name
 
 Launches a one-shot Fargate task. By default, the command waits for the
-task to complete and streams the task’s logs to STDERR. Use the `--no-wait`
+task to complete and streams the task's logs to STDERR. Use the `--no-wait`
 option to launch the task and return immediately.
 
 When you register a task definition, ECS records the image digest of the
@@ -842,7 +860,7 @@ in the task's log\_group section:
     log_group:
       retention_days: 30
 
-## Notes
+## Log Group Notes
 
 - The log group is reused if it already exists.
 - Only numeric values accepted by CloudWatch are valid for
@@ -1623,7 +1641,7 @@ is provisioned. When creating a new ALB, `app-FargateStack` will also
 create the necessary listeners and listener rules for the ports you
 have configured.
 
-### Why Does the Framework Force the Use of an Load Balancer?
+### Why Does the Framework Force the Use of a Load Balancer?
 
 While it is possible to avoid the use or the creation of a load balancer
 for your service, the framework forces you to use one for at least two
@@ -1668,16 +1686,12 @@ configuration
 - Support for only 1 EFS filesystem per task
 - This framework assumes that the
 [operatingSystemFamily](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters_ec2.html#runtime-platform_ec2)
-is "LINUX" and the `cpuArchitecture` is "X86\_54" LINUX. This is
+is "LINUX" and the `cpuArchitecture` is "X86\_64" LINUX. This is
 unlikely to change.
 
 [Back to Table of Contents](#table-of-contents)
 
 # TROUBLESHOOTING
-
-## When trying to run a task I get this message:
-
-    [2025/08/05 03:40:58] run-task: subnet-id: [subnet-7c160c37] is in a public subnet...consider running your jobs in a private subnet
 
 ## When trying to run a task I get this message:
 
@@ -1782,7 +1796,7 @@ ECS and Fargate.
 
 You may have just built and pushed a new image to ECR using the same
 tag (e.g. `latest`), but when you launch a task or deploy a service,
-ECS appears to continue using the old image.  Here’s why.
+ECS appears to continue using the old image.  Here's why.
 
 ### One-off tasks: `run-task` uses a fixed image digest
 
@@ -1792,7 +1806,7 @@ When you run a task using:
 
 ECS uses the exact task definition revision as registered. If the
 image was specified using a tag like `:latest`, ECS resolves that tag
-once—at the time the task starts—and stores the resolved digest
+once -- at the time the task starts -- and stores the resolved digest
 (e.g. `sha256:...`).
 
 This means:
@@ -1843,8 +1857,8 @@ To see whether your task definition uses a tag or a digest, run:
 
 Look at the `image` field under `containerDefinitions`. It will either be:
 
-    image: http-service:latest     # tag — will be re-resolved by --force-new-deployment
-    image: http-service@sha256:... # digest — frozen, cannot be re-resolved
+    image: http-service:latest     # tag -- will be re-resolved by --force-new-deployment
+    image: http-service@sha256:... # digest -- frozen, cannot be re-resolved
 
 ### Best practices
 
@@ -1864,7 +1878,7 @@ itself.
 
 # ROADMAP
 
-- destroy {task-name}
+- destroy \[task-name\]
 
     Destroy all resources for all tasks or for one task. Buckets and
     queues will not be deleted.
@@ -1872,6 +1886,11 @@ itself.
 - scaling configuration
 - Add support for more advance configuration options for some
 resources
+- More documentation and recipes
+- explain \[task-name\]
+- certificates for internal http services
+- multiple http services ???
+- path based routing
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1890,11 +1909,3 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 756:
-
-    Non-ASCII character seen before =encoding in 'service’s'. Assuming UTF-8

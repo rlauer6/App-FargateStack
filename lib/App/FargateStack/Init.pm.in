@@ -283,7 +283,7 @@ sub _init_defaults {
 
   $self->set_profile_source($profile_source);
 
-  $config->{default_log_group} //= sprintf '/ecs/' . $config->{app}->{name};
+  $config->{default_log_group} //= $self->create_default('log-group');
 
   my %global_options = (
     profile   => $self->get_profile,

@@ -20,31 +20,23 @@ sub build_iam_role {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
   my $cache = $self->get_cache;
 
   my $iam = $self->fetch_iam;
 
-  my ( $tasks, $role ) = @{$config}{qw(tasks role)};
+  my $role = $config->{role};
 
   $self->log_trace( sub { return Dumper( [ role => $role ] ) } );
 
   ######################################################################
   # create role
   ######################################################################
-  my $default_name = $self->normalize_name( $config->{app}->{name} );
+  my $role_name = $self->create_fargate_role();
 
-  my $role_name = $self->create_fargate_role($default_name);
-
-  my $policy_name = $role->{policy_name};
-
-  if ( !$policy_name ) {
-    $policy_name         = sprintf 'Fargate%sPolicy', $default_name;
-    $role->{policy_name} = $policy_name;
-  }
+  my $policy_name = $role->{policy_name} // $self->create_default( 'policy-name', 'ecs' );
+  $role->{policy_name} = $policy_name;
 
   ######################################################################
   # create policy - see if policy needs to be created or updated
@@ -185,7 +177,7 @@ sub create_fargate_role { return shift->create_role( @_, 'ecs' ); }
 ########################################################################
 sub create_role {
 ########################################################################
-  my ( $self, $default_name, $type ) = @_;
+  my ( $self, $type ) = @_;
 
   my $config = $self->get_config;
 
@@ -222,7 +214,8 @@ sub create_role {
 
   my $role_name = $role_config->{name};
 
-  $role_name //= sprintf '%s%sRole', ( $type eq 'events' ? 'Events' : 'Fargate' ), $default_name;
+  $role_name //= $self->create_default( 'role-name', $type );
+
   $role_config->{name} = $role_name;
 
   my $role = choose {

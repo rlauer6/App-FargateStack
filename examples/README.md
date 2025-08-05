@@ -51,12 +51,15 @@ The `minimal-task.yml` configuration defines a one-shot (ephemeral)
 workload. 
 
 ---
+
+```
 app:
   name: my-one-shot
 tasks:
   my-one-shot:
     type: task
     image: helloworld:latest
+```
 
 You can run this task at any time after your cluster has
 been created:
@@ -118,8 +121,8 @@ for format details.
 To deploy the scheduled job:
 
 ```sh
-app-FargateStack -c minimal-scheduled-job plan
-app-FargateStack -c minimal-scheduled-job apply
+app-FargateStack -c minimal-scheduled-task.yml plan
+app-FargateStack -c minimal-scheduled-task.yml apply
 ```
 
 Check the logs after execution:
@@ -206,7 +209,7 @@ and serves the default Apache test page.
 
 ## Building and Installing the Images
 
->️**WARNING**: This will create AWS resources that may incur costs.
+>️**WARNING**: This will create AWS resources that may incur costs!
 
 To build the test images:
 

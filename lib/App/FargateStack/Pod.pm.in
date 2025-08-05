@@ -24,10 +24,6 @@ App::FargateStack
 
 =head1 DESCRIPTION
 
-I<NOTE: This is a work in progress. The documentation may be
-incomplete. Expect some features to change and more features to be
-added. See the L</ROADMAP> section for upcoming features.>
-
 B<App::FargateStack> is a lightweight deployment framework for Amazon
 ECS on Fargate.  It enables you to define and launch containerized
 services with minimal AWS-specific knowledge and virtually no
@@ -50,6 +46,35 @@ and defaults, but gives you escape hatches where needed.
 B<App::FargateStack> is ideal for developers who want the power of ECS
 and Fargate without diving into the deep end of Terraform,
 CloudFormation, or the AWS Console.
+
+=head2 Current Status of App::FargateStack
+
+I<This is a work in progress.> Versions prior to 1.1.0 are considered usable
+but may still contain issues related to edge cases or uncommon configuration
+combinations.
+
+This documentation corresponds to version 1.0.19.
+
+The release of version I<1.1.0> will mark the first production-ready release.
+Until then, you're encouraged to try it out and provide feedback. Issues or
+feature requests can be submitted via
+L<GitHub|https://github.com/rlauer6/App-FargateStack/issues>.
+
+=head2 Caveats
+
+=over 4
+
+=item * The documentation may be incomplete or inaccurate.
+
+=item * Features may change, and new ones will be added. See the
+L</ROADMAP> for details.
+
+=item * Deploying resources using this framework may result in AWS charges.
+
+=item * This software is provided "as is", without warranty of any kind.
+Use at your own risk.
+
+=back
 
 =head2 Features
 
@@ -273,7 +298,7 @@ based on the common uses for Fargate based applications. You can
 however customize many of the resources being built by the
 script.
 
-Using a YAML based configuration file, you specify the your required
+Using a YAML based configuration file, you specify your required
 resources and their attributes, run the C<app-FargateStack> script and
 launch your application.
 
@@ -314,18 +339,18 @@ before building them
 
 =over 4
 
-=item - inject secrets into the container's environment using a simple
+=item inject secrets into the container's environment using a simple
 syntax (See L</INJECTING SECRETS FROM SECRETS MANAGER>)
 
-=item - detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
+=item detection and re-use of existing resources like EFS files systems, load balancers, buckets and queues
 
-=item - automatic IAM role and policy generation based on configured resources
+=item automatic IAM role and policy generation based on configured resources
 
-=item - define and launch multiple independent Fargate tasks and services under a single stack
+=item define and launch multiple independent Fargate tasks and services under a single stack
 
-=item - automatic creation of log groups with customizable retention period
+=item automatic creation of log groups with customizable retention period
 
-=item - discovery of existing environment to intelligently populate configuration defaults
+=item discovery of existing environment to intelligently populate configuration defaults
 
 =back
 
@@ -747,7 +772,7 @@ Note that if your task definition references an image by digest
 (e.g. C<@sha256:...>), ECS will continue to use that exact image. In that case,
 you must register a new task definition to update the image.
 
-For best results, use this command only when your service’s task definition
+For best results, use this command only when your service's task definition
 uses an image tag that can be re-resolved, such as C<:latest> or a CI-generated
 version tag.
 
@@ -756,7 +781,7 @@ version tag.
  run-task task-name
 
 Launches a one-shot Fargate task. By default, the command waits for the
-task to complete and streams the task’s logs to STDERR. Use the C<--no-wait>
+task to complete and streams the task's logs to STDERR. Use the C<--no-wait>
 option to launch the task and return immediately.
 
 When you register a task definition, ECS records the image digest of the
@@ -881,7 +906,7 @@ in the task's log_group section:
  log_group:
    retention_days: 30
 
-=head2 Notes
+=head2 Log Group Notes
 
 =over 4
 
@@ -1716,7 +1741,7 @@ is provisioned. When creating a new ALB, C<app-FargateStack> will also
 create the necessary listeners and listener rules for the ports you
 have configured.
 
-=head3 Why Does the Framework Force the Use of an Load Balancer?
+=head3 Why Does the Framework Force the Use of a Load Balancer?
 
 While it is possible to avoid the use or the creation of a load balancer
 for your service, the framework forces you to use one for at least two
@@ -1770,16 +1795,12 @@ configuration
 
 =item * This framework assumes that the
 L<operatingSystemFamily|https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters_ec2.html#runtime-platform_ec2>
-is "LINUX" and the C<cpuArchitecture> is "X86_54" LINUX. This is
+is "LINUX" and the C<cpuArchitecture> is "X86_64" LINUX. This is
 unlikely to change.
 
 =back
 
 =head1 TROUBLESHOOTING
-
-=head2 When trying to run a task I get this message:
-
- [2025/08/05 03:40:58] run-task: subnet-id: [subnet-7c160c37] is in a public subnet...consider running your jobs in a private subnet
 
 =head2 When trying to run a task I get this message:
 
@@ -1904,7 +1925,7 @@ ECS and Fargate.
 
 You may have just built and pushed a new image to ECR using the same
 tag (e.g. C<latest>), but when you launch a task or deploy a service,
-ECS appears to continue using the old image.  Here’s why.
+ECS appears to continue using the old image.  Here's why.
 
 =head3 One-off tasks: C<run-task> uses a fixed image digest
 
@@ -1914,7 +1935,7 @@ When you run a task using:
 
 ECS uses the exact task definition revision as registered. If the
 image was specified using a tag like C<:latest>, ECS resolves that tag
-once—at the time the task starts—and stores the resolved digest
+once -- at the time the task starts -- and stores the resolved digest
 (e.g. C<sha256:...>).
 
 This means:
@@ -1986,8 +2007,8 @@ To see whether your task definition uses a tag or a digest, run:
 
 Look at the C<image> field under C<containerDefinitions>. It will either be:
 
-  image: http-service:latest     # tag — will be re-resolved by --force-new-deployment
-  image: http-service@sha256:... # digest — frozen, cannot be re-resolved
+  image: http-service:latest     # tag -- will be re-resolved by --force-new-deployment
+  image: http-service@sha256:... # digest -- frozen, cannot be re-resolved
 
 =head3 Best practices
 
@@ -2018,7 +2039,7 @@ itself.
 
 =over 4
 
-=item * destroy {task-name}
+=item * destroy [task-name]
 
 Destroy all resources for all tasks or for one task. Buckets and
 queues will not be deleted.
@@ -2027,6 +2048,16 @@ queues will not be deleted.
 
 =item * Add support for more advance configuration options for some
 resources
+
+=item * More documentation and recipes
+
+=item * explain [task-name]
+
+=item * certificates for internal http services
+
+=item * multiple http services ???
+
+=item * path based routing
 
 =back
 

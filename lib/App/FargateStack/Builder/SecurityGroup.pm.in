@@ -25,7 +25,9 @@ sub build_security_group {
   $security_groups //= {};
   $config->{security_groups} = $security_groups;
 
-  my $security_group_name = $security_groups->{fargate}->{group_name} // $config->{app}->{name} . '-sg';
+  my $default_security_group_name = $self->create_default('security-group');
+
+  my $security_group_name = $security_groups->{fargate}->{group_name} // $default_security_group_name;
 
   my $security_group_id = $security_groups->{fargate}->{group_id};
 

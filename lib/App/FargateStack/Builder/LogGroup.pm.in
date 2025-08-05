@@ -16,13 +16,9 @@ sub build_log_groups {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
   my $log_groups = $self->get_log_groups;
-
-  my $tasks = $config->{tasks};
 
   my $logs = $self->fetch_logs;
 
