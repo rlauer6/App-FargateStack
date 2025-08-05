@@ -1,3 +1,23 @@
+Tue Aug  5 04:01:14 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.18]:
+	* README.md: generated
+	* VERSION: bump
+	* docker/Makefile
+	(images): new target
+	(realclean): remove images, etc
+	* examples/README.md: wip
+	* lib/App/ECS.pm.in
+	(update_service)
+	- + --desired-count
+	* lib/App/FargateStack.pm.in
+	(cmd_run_task):
+	- assign public IP if subnet is public
+	(default_service_name): fix bug
+	(update_task_count): service_name, not service
+	* lib/App/FargateStack/Pod.pm.in
+	- troubleshoot tipso
+
 Mon Aug  4 18:20:45 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.17]:

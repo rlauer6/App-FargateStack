@@ -1734,9 +1734,134 @@ configuration
 
 =item * Support for only 1 EFS filesystem per task
 
+=item * This framework assumes that the
+L<operatingSystemFamily|https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_definition_parameters_ec2.html#runtime-platform_ec2>
+is "LINUX" and the C<cpuArchitecture> is "X86_54" LINUX. This is
+unlikely to change.
+
 =back
 
 =head1 TROUBLESHOOTING
+
+=head2 When trying to run a task I get this message:
+
+ [2025/08/05 03:40:58] run-task: subnet-id: [subnet-7c160c37] is in a public subnet...consider running your jobs in a private subnet
+
+=head2 When trying to run a task I get this message:
+
+ [2025/08/05 03:40:58] run-task: subnet-id: [subnet-7c160c37] is in a public subnet...consider running your jobs in a private subnet
+
+This warning indicates that the Fargate task is being placed in a
+subnet that has a direct route to the internet via an Internet
+Gateway - commonly referred to as a public subnet.
+
+While this is not a fatal error, running tasks in public subnets is
+discouraged unless absolutely necessary.
+
+=head3 Why is this a problem?
+
+Running tasks in public subnets introduces several risks:
+
+=over 4
+
+=item * Accidental exposure to the public internet
+
+If the task is assigned a public IP, it may be reachable from outside
+your VPC, increasing the attack surface.
+
+=item * Unintended network dependency
+
+Tasks in public subnets often rely on the Internet Gateway for
+outbound access. This may bypass intended logging, monitoring, or
+firewall controls.
+
+=item * Reduced security posture
+
+Public subnets rely heavily on correctly configured security groups. A
+misconfiguration could expose sensitive tasks or data.
+
+=back
+
+=head3 Best Practice
+
+Use private subnets for most Fargate workloads. These do not have a
+direct route to the internet and are safer by default.
+
+If your task needs outbound internet access (e.g., to pull images from
+ECR or reach external APIs), use one of the following:
+
+=over 4
+
+=item * A NAT Gateway (for private subnet egress)
+
+=item * VPC endpoints (for AWS services like ECR, CloudWatch, and
+Secrets Manager)
+
+=back
+
+=head3 When is it acceptable to use a public subnet?
+
+If you're deploying a public-facing HTTP or HTTPS service, then using
+a public subnet (or attaching the task to a public-facing ALB) may be
+appropriate. In all other cases, prefer private subnets.
+
+=head2 My task fails with this message:
+
+ ResourceInitializationError: unable to pull secrets or registry auth:
+ The task cannot pull registry auth from Amazon ECR: There is a
+ connection issue between the task and Amazon ECR. Check your task
+ network configuration. operation error ECR: GetAuthorizationToken,
+ exceeded maximum number of attempts, 3, https response error
+ StatusCode: 0, RequestID: , request send failed, Post
+ "https://api.ecr.us-east-1.amazonaws.com/": dial tcp 44.213.79.10:443:
+ i/o timeout
+
+This error usually occurs when your task is launched in a subnet that
+does not have outbound access to the internet. Internet access - or a
+properly configured VPC endpoint - is required for Fargate to
+authenticate with ECR and pull your container image.
+
+=head3 Common causes
+
+=over 4
+
+=item * The task was placed in a public subnet but was not assigned a
+public IP.
+
+=item * The task was placed in a private subnet without access to a
+NAT gateway or VPC endpoints.
+
+=back
+
+Even though the subnet may have a route to an Internet Gateway (i.e.,
+it is technically a "public" subnet), if the task does not receive a
+public IP, it cannot use that route to reach external services like
+ECR or Secrets Manager.
+
+=head3 How to fix it
+
+=over 4
+
+=item * If using public subnets, ensure the task is assigned a public
+IP.
+
+=item * If using private subnets, ensure a NAT gateway is available
+and the subnet has a route to it.
+
+=item * Alternatively, configure VPC endpoints for ECR, Secrets
+Manager, and related services to avoid needing internet access
+altogether.
+
+=back
+
+=head3 Note on Subnet Selection
+
+C<App::FargateStack> attempts to prevent this situation by analyzing
+your VPC configuration during planning. It categorizes subnets as
+private or public and evaluates whether they provide the necessary
+network access to launch a Fargate task successfully. The framework
+warns if you attempt to use a subnet that lacks internet or endpoint
+access.
 
 =head2 Why is my task or service still using an old image?
 

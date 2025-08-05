@@ -3,9 +3,11 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -ec
 
-.PHONY: all check-env helloworld http-test
+.PHONY: all check-env helloworld http-test images
 
 all: check-env README.md
+
+images: helloworld http-test
 
 check-env:
 	@if [ -z "$$AWS_PROFILE" ]; then \
@@ -23,7 +25,12 @@ clean:
 
 realclean:
 	rm -f *.repo *.id
-	docker rmi helo
+	for a in $$(docker images | grep helloworld | awk '{print $$1}'); do \
+	  docker rmi $$a; \
+	done;
+	for a in $$(docker images | grep http-test | awk '{print $$1}'); do \
+	  docker rmi $$a; \
+	done;
 
 ########################################################################
 # pattern rules
@@ -50,7 +57,8 @@ HELLOWORLD_DEPS= \
     helloworld.repo
 
 helloworld.id: $(HELLOWORLD_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) | tee |  grep 'Successfully built' | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-helloworld.log
+	grep 'Successfully built' build-helloworld.log | awk '{print $$3}' > $@
 
 helloworld: helloworld.id
 
@@ -67,7 +75,8 @@ HTTP_TEST_DEPS = \
 http-test: http-test.id
 
 http-test.id: $(HTTP_TEST_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) | grep 'Successfully built' | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-http-test.log
+	grep 'Successfully built' build-http-test.log | awk '{print $$3}' > $@
 
 install: http-test.id helloworld.id
 	./deploy-to-ecr helloworld:latest | grep '^latest' | awk '{print $$3}' > helloworld.digest

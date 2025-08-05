@@ -326,8 +326,9 @@ sub update_service {
     'update-service' => [
       '--cluster' => $cluster_name,
       '--service' => $service_name,
-      ($task_definition) ? ( '--task-definition' => $task_definition ) : (),
-      $force             ? '--force-new-deployment'                    : (),
+      defined $desired_count ? ( '--desired-count' => $desired_count )     : (),
+      ($task_definition)     ? ( '--task-definition' => $task_definition ) : (),
+      $force                 ? '--force-new-deployment'                    : (),
     ]
   );
 }

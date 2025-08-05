@@ -241,6 +241,7 @@ sub cmd_run_task {
     if !$task;
 
   my $subnet_id = $self->get_subnet_id;
+  my $is_public = $FALSE;
 
   if ( !$subnet_id ) {
     my @subnets = @{ $self->get_subnets->{private} // [] };
@@ -256,6 +257,7 @@ sub cmd_run_task {
     $self->log_error(
       'run-task: subnet-id: [%s] is in a public subnet...consider running your jobs in a private subnet',
       $subnet_id );
+    $is_public = $TRUE;
   }
   elsif ( none { $subnet_id eq $_ } @{ $self->get_subnets->{private} // [] } ) {
     log_die( $self, 'subnet: [%s] is not in a public or private subnet in this VPC.', $subnet_id );
@@ -265,7 +267,7 @@ sub cmd_run_task {
     awsvpcConfiguration => {
       subnets        => [$subnet_id],
       securityGroups => [ $config->{security_groups}->{fargate}->{group_id} ],
-      assignPublicIp => 'DISABLED',
+      assignPublicIp => $is_public ? 'ENABLED' : 'DISABLED',
     }
   };
 
@@ -399,7 +401,20 @@ sub get_default_service_name {
 ########################################################################
   my ($self) = @_;
 
-  return map { $self->get_default_task_name($_) // () } qw(http https daemon);
+  my ($service_name) = $self->get_args;
+
+  return $service_name
+    if $service_name;
+
+  my @service_names;
+
+  foreach (qw(http https daemon)) {
+    my $service_name = $self->get_default_task_name($_);
+    next if !$service_name;
+    push @service_names, $service_name;
+  }
+
+  return @service_names;
 }
 
 ########################################################################
@@ -408,8 +423,6 @@ sub cmd_create_service {
   my ($self) = @_;
 
   my ( $task_name, $err ) = $self->get_default_service_name();
-
-  $self->get_logger->info('here');
 
   croak sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
     if !$task_name || $err;
@@ -515,7 +528,7 @@ sub update_task_count {
   my $result = $ecs->update_service(
     cluster_name  => $cluster_name,
     desired_count => $desired_count,
-    service       => $task_name,
+    service_name  => $task_name,
   );
 
   log_die( $self, "ERROR: could not update service: [%s]\n%s", $task_name, $ecs->get_error )
