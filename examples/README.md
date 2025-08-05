@@ -17,10 +17,48 @@ directory to try out the framework.
 
 # Minimal Configurations for Tasks
 
+Assuming your AWS account includes a VPC with internet access, the
+power of `App::Fargate` lies in its ability to provision a fully
+functional Fargate task with just a few key inputs -- depending on the
+type of workload you want to deploy.
+
+In most cases, you need to provide only three pieces of information:
+
+- The application name
+- The ECR image name
+- The deployment type (`task`, `http`, or `https`)
+
+Once provided, `App::Fargate` will analyze your environment, discover
+the necessary AWS resources (like subnets, security groups, and IAM
+roles), and generate a complete configuration by filling in any
+missing details. You'll be able to review and customize the generated
+values before running the `apply` command to launch your task.
+
+| Task Type         | Required Values |
+|-------------------|-----------------|
+| task              | 3               |
+| task (scheduled)  | 4               |
+| daemon            | 3               |
+| http              | 4               |
+| https             | 4               |
+
+Below you'll find a breakdown of each task type, along with the
+minimal configuration required to get started.
+
 ## One-shot Jobs
 
 The `minimal-task.yml` configuration defines a one-shot (ephemeral)
-workload. You can run this task at any time after your cluster has
+workload. 
+
+---
+app:
+  name: my-one-shot
+tasks:
+  my-one-shot:
+    type: task
+    image: helloworld:latest
+
+You can run this task at any time after your cluster has
 been created:
 
 ```sh

@@ -54,6 +54,7 @@
   * [SUBNET SELECTION](#subnet-selection)
   * [REQUIRED SECTIONS](#required-sections)
   * [FULL SCHEMA OVERVIEW](#full-schema-overview)
+* [TASK SIZE](#task-size)
 * [ENVIRONMENT VARIABLES](#environment-variables)
   * [BASIC USAGE](#basic-usage)
   * [SECURITY NOTE](#security-note)
@@ -91,6 +92,10 @@
     * [Why is this a problem?](#why-is-this-a-problem)
     * [Best Practice](#best-practice)
     * [When is it acceptable to use a public subnet?](#when-is-it-acceptable-to-use-a-public-subnet)
+  * [My task fails with this message:](#my-task-fails-with-this-message)
+    * [Common causes](#common-causes)
+    * [How to fix it](#how-to-fix-it)
+    * [Note on Subnet Selection](#note-on-subnet-selection)
   * [Why is my task or service still using an old image?](#why-is-my-task-or-service-still-using-an-old-image)
     * [One-off tasks: `run-task` uses a fixed image digest](#one-off-tasks-run-task-uses-a-fixed-image-digest)
     * [Services: `create-service` and `update-service` use frozen images too](#services-create-service-and-update-service-use-frozen-images-too)
@@ -1034,59 +1039,99 @@ For task types `http` or `https`, you must also specify a domain name:
 The framework will expand and update your configuration file with default values as needed.
 Here is the full schema outline. All keys are optional unless otherwise noted:
 
-    ---
-    account:
-    alb:
-      arn:
-      name:
-      port:
-      type:
-    app:
-      name:             # required
-      version:
-    certificate_arn:
-    cluster:
-      arn:
-      name:
-    default_log_group:
-    domain:              # required for http/https tasks
-    id:
-    last_updated:
-    region:
-    role:
-      arn:
-      name:
-      policy_name:
-    route53:
-      profile:
-      zone_id:
-    security_groups:
-      alb:
-        group_id:
-        group_name:
-      fargate:
-        group_id:
-        group_name:
-    subnets:
-      private:
-      public:
-    tasks:
-      my-task:
-        arn:
-        cpu:
-        family:
-        image:           # required
-        log_group:
-          arn:
-          name:
-          retention_days:
-        memory:
-        name:
-        target_group_arn:
-        target_group_name:
-        task_definition_arn:
-        type:            # required (daemon, task, http, https)
-    vpc_id:
+     ---
+     account:
+     alb:
+       arn:
+       name:
+       port:
+       type:
+     app:
+       name:             # required
+       version:
+     certificate_arn:
+     cluster:
+       arn:
+       name:
+     default_log_group:
+     domain:              # required for http/https tasks
+     id:
+     last_updated:
+     region:
+     role:
+       arn:
+       name:
+       policy_name:
+     route53:
+       profile:
+       zone_id:
+     security_groups:
+       alb:
+         group_id:
+         group_name:
+       fargate:
+         group_id:
+         group_name:
+     subnets:
+       private:
+       public:
+     tasks:
+       my-task:
+         arn:
+         cpu:
+         family:
+         image:           # required
+         log_group:
+           arn:
+           name:
+           retention_days:
+         memory:
+         name:
+         size:
+         target_group_arn:
+         target_group_name:
+         task_definition_arn:
+         type:            # required (daemon, task, http, https)
+     vpc_id:
+
+[Back to Table of Contents](#table-of-contents)
+
+# TASK SIZE
+
+To simplify task configuration, the framework supports a shorthand key called
+`size` that maps to common CPU and memory combinations supported by Fargate.
+
+If specified, the `size` parameter should be one of the following profile names:
+
+    tiny     => 256 CPU, 512 MB memory
+    small    => 512 CPU, 1 GB memory
+    medium   => 1024 CPU, 2 GB memory
+    large    => 2048 CPU, 4 GB memory
+    xlarge   => 4096 CPU, 8 GB memory
+    2xlarge  => 8192 CPU, 16 GB memory
+
+When a `size` is provided, the framework will automatically populate the
+corresponding `cpu` and `memory` values in the task definition. If you
+manually specify `cpu` or `memory` alongside `size`, those manual values
+will take precedence and override the defaults from the profile.
+
+**Important:** If you change the `size` after an initial deployment, you should
+remove any manually defined `cpu` and `memory` keys in your configuration.
+This ensures that the framework can correctly apply the new profile values
+without conflict.
+
+If neither `size`, `cpu`, nor `memory` are provided, the framework will infer
+a sensible default size based on the task type. For example:
+
+    - "http" or "https" => "medium"
+    - "task"            => "small"
+    - "task" + schedule => "medium"
+    - "daemon"          => "medium"
+
+This behavior helps minimize configuration boilerplate while still providing
+sane defaults.
+
+[Back to Table of Contents](#table-of-contents)
 
 # ENVIRONMENT VARIABLES
 
@@ -1682,6 +1727,53 @@ Secrets Manager)
 If you're deploying a public-facing HTTP or HTTPS service, then using
 a public subnet (or attaching the task to a public-facing ALB) may be
 appropriate. In all other cases, prefer private subnets.
+
+## My task fails with this message:
+
+    ResourceInitializationError: unable to pull secrets or registry auth:
+    The task cannot pull registry auth from Amazon ECR: There is a
+    connection issue between the task and Amazon ECR. Check your task
+    network configuration. operation error ECR: GetAuthorizationToken,
+    exceeded maximum number of attempts, 3, https response error
+    StatusCode: 0, RequestID: , request send failed, Post
+    "https://api.ecr.us-east-1.amazonaws.com/": dial tcp 44.213.79.10:443:
+    i/o timeout
+
+This error usually occurs when your task is launched in a subnet that
+does not have outbound access to the internet. Internet access - or a
+properly configured VPC endpoint - is required for Fargate to
+authenticate with ECR and pull your container image.
+
+### Common causes
+
+- The task was placed in a public subnet but was not assigned a
+public IP.
+- The task was placed in a private subnet without access to a
+NAT gateway or VPC endpoints.
+
+Even though the subnet may have a route to an Internet Gateway (i.e.,
+it is technically a "public" subnet), if the task does not receive a
+public IP, it cannot use that route to reach external services like
+ECR or Secrets Manager.
+
+### How to fix it
+
+- If using public subnets, ensure the task is assigned a public
+IP.
+- If using private subnets, ensure a NAT gateway is available
+and the subnet has a route to it.
+- Alternatively, configure VPC endpoints for ECR, Secrets
+Manager, and related services to avoid needing internet access
+altogether.
+
+### Note on Subnet Selection
+
+`App::FargateStack` attempts to prevent this situation by analyzing
+your VPC configuration during planning. It categorizes subnets as
+private or public and evaluates whether they provide the necessary
+network access to launch a Fargate task successfully. The framework
+warns if you attempt to use a subnet that lacks internet or endpoint
+access.
 
 ## Why is my task or service still using an old image?
 

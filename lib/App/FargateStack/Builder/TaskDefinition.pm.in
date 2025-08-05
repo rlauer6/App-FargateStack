@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die);
+use App::FargateStack::Builder::Utils qw(log_die choose);
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
@@ -20,13 +20,9 @@ sub register_task_definition {
 ########################################################################
   my ( $self, $task_name ) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
   my $ecs = $self->get_ecs;
-
-  my $dryrun = $self->get_dryrun;
-
-  my $tasks = $config->{tasks};
 
   my $family = $tasks->{$task_name}->{family};
 
@@ -59,8 +55,8 @@ sub register_task_definition {
         if !$result;
 
       $tasks->{$task_name}->{arn} = $result->{taskDefinition}->{taskDefinitionArn};
-    }
 
+    }
   }
   else {
     $self->log_info( 'task: [%s] unchanged...skipping', $task_name );
@@ -68,6 +64,16 @@ sub register_task_definition {
     $tasks->{$task_name}->{arn} = $task_definitions[-1];
 
     $self->inc_existing_resources( task => [ $task_definitions[-1] ] );
+  }
+
+  if ( !$tasks->{$task_name}->{image_digest} ) {
+    # update image digest in configuration
+    my $latest_image  = $self->get_latest_image($task_name);
+    my $latest_digest = $latest_image->{imageDigest};
+
+    $self->log_warn( 'task: updating image digest in config: [%s]', $latest_digest );
+
+    $tasks->{$task_name}->{image_digest} = $latest_digest;
   }
 
   return;
@@ -113,56 +119,116 @@ sub task_execution_role {
 }
 
 ########################################################################
+sub define_port_mapping {
+########################################################################
+  my ( $task, $type ) = @_;
+
+  return
+    if $type !~ /^http/xsm;
+
+  # use port or specify container_port, host_port - pick your poison
+  my $port           = $task->{port}           // $DEFAULT_PORT;
+  my $container_port = $task->{container_port} // $DEFAULT_PORT;
+
+  return [
+    { protocol      => 'tcp',
+      containerPort => 0 + $container_port,
+      hostPort      => 0 + $port,
+    }
+  ];
+}
+
+########################################################################
+sub define_task_size {
+########################################################################
+  my ( $task, $type ) = @_;
+
+  my ( $cpu, $memory, $size ) = @{$task}{qw(cpu memory size)};
+
+  return ( $cpu, $memory, $size )
+    if defined $size || defined $cpu || defined $memory;
+
+  my $logical_type = choose {
+    return 'web'    if $type =~ /http/xsm;
+    return 'daemon' if $type eq 'daemon';
+    return 'job'    if $type eq 'task' && $task->{schedule};
+    return 'task';
+  };
+
+  $size = $ECS_TASK_PROFILE_TYPES{$logical_type};
+
+  if ($size) {
+    my $profile = $ECS_TASK_PROFILES{$size};
+
+    croak sprintf "ERROR: unknown profile: [%s], valid profiles: [%s]\n", $size, join q{,},
+      keys %ECS_TASK_PROFILES
+      if !$profile;
+
+    $cpu    //= $profile->{cpu};
+    $memory //= $profile->{memory};
+  }
+
+  return ( $cpu, $memory, $size );
+}
+
+########################################################################
 sub create_taskdef_files {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $services = $config->{tasks};
+  my ( $config, $services ) = $self->common_args(qw(config tasks));
 
   foreach my $task_name ( keys %{$services} ) {
     my $task = $services->{$task_name};
 
-    my @portMappings;
+    my $type = $task->{type};
 
-    if ( $task->{type} =~ /^http/xsm ) {
-
-      # use port or specify container_port, host_port - pick your poison
-      my $default_port = $task->{port} // $DEFAULT_PORT;
-      $task->{port} = $default_port;
-      $task->{container_port} //= $DEFAULT_PORT;
-
-      @portMappings = (
-        { protocol      => 'tcp',
-          containerPort => 0 + $task->{container_port},
-          hostPort      => 0 + $task->{port},
-        }
-      );
+    # -- port mappings --
+    my $portMapping = define_port_mapping( $task, $type );
+    if ($portMapping) {
+      @{$task}{qw(container_port host_port)} = @{ $portMapping->[0] }{qw(containerPort hostPort)};
     }
 
+    # -- log group/stream prefix --
+    #
+    # Note: the default log group name was set earlier...and task will
+    # be updated when (and if) we create the log group...
     my $log_group = $task->{log_group}->{name} // $config->{default_log_group};
 
+    # from App::Fargate::Builder::Logs (we set this because we use it later on to create log group)
     $self->update_log_groups( $log_group => $task_name );
 
     my $stream_prefix = $task->{log_group}->{prefix} // $config->{app}->{name};
 
-    my ( $image, $image_version ) = $task->{image} =~ /([^:]+)(:.*)?$/xsm;
-    $image_version //= ':latest';
+    # -- image name --
+    my ( $image_name, $image_tag ) = $task->{image} =~ /^([^:]+)(?::(.+))?$/xsm;
+    $image_tag //= 'latest';
 
-    $image = sprintf '%s.dkr.ecr.us-east-1.amazonaws.com/%s%s', $self->get_account, $image, $image_version;
+    my $image = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s:%s',
+      $self->get_account,
+      $config->{region},
+      $image_name,
+      $image_tag;
 
+    # -- environment --
     my @environment
       = map { { name => $_, value => $task->{environment}->{$_} } } keys %{ $task->{environment} // {} };
 
-    # update config...
-    $task->{memory} //= $DEFAULT_MEMORY_SIZE;
+    # -- task name/family  --
+    my ( $name, $family ) = @{$task}{qw(name family)};
     $task->{name}   //= $task_name;
-    $task->{cpu}    //= $DEFAULT_CPU_SIZE;
     $task->{family} //= $task_name;
 
+    # -- task size --
+    my ( $cpu, $memory, $size ) = define_task_size( $task, $type );
+    $task->{size}   //= $size;
+    $task->{memory} //= $memory // $DEFAULT_MEMORY_SIZE;
+    $task->{cpu}    //= $cpu    // $DEFAULT_CPU_SIZE;
+
+    # -- secrets (from App::Fargate::Builder::Secrets)
     my $secrets = $self->add_secrets($task) // [];
 
+    # -- efs mounts --
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
     my $taskdef = {
@@ -179,7 +245,7 @@ sub create_taskdef_files {
           },
           environment  => \@environment,
           secrets      => $secrets,
-          portMappings => \@portMappings,
+          portMappings => $portMapping // [],
           essential    => JSON::true,
           name         => $task->{name},
           $task->{command} ? ( command => [ $task->{command} ] ) : (),
@@ -194,6 +260,8 @@ sub create_taskdef_files {
       volumes                 => $volumes // [],
 
     };
+
+    $self->log_trace( sub { return Dumper( [ taskdef => $taskdef ] ); } );
 
     $self->write_taskdef( $task_name, $taskdef );
   }
@@ -258,6 +326,18 @@ sub compare_task_definition {
     next if Compare( $taskdef->{$k}, $current_taskdef->{$k} );
 
     $self->log_warn( 'task: [%s] %s changed...forces new task definition', $task_name, $k );
+
+    $self->log_trace(
+      sub {
+        return Dumper(
+          [ taskdef      => $taskdef->{$k},
+            "current_$k" => $current_taskdef->{$k},
+            current      => $current_taskdef
+          ]
+        );
+      }
+    );
+
     $self->display_diffs( $taskdef->{$k}, $current_taskdef->{$k}, { title => sprintf '%s changes', $k } );
 
     $status = $FALSE;
@@ -292,4 +372,5 @@ sub compare_task_definition {
 
   return;
 }
+
 1;

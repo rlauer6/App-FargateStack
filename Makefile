@@ -152,9 +152,7 @@ README.md: README.md.in
 	  md-utils.pl > $@
 
 clean:
-	rm README.md
-	rm README.md.in
-	rm README.pod
+	rm -f README.md README.md.in README.pod
 	find lib -name '*.pm' -exec rm -f {} \;
 	rm -f *.tar.gz
 	rm -f provides extra-files resources

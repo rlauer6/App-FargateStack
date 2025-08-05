@@ -228,7 +228,8 @@ sub cmd_run_task {
 ########################################################################
   my ($self) = @_;
 
-  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
+  my ( $config, $tasks, $dryrun, $cluster, $security_groups )
+    = $self->common_args(qw(config tasks dryrun cluster security_groups));
 
   my $task_name = $self->get_default_task_name('task');
 
@@ -266,7 +267,7 @@ sub cmd_run_task {
   my $network_configuration = {
     awsvpcConfiguration => {
       subnets        => [$subnet_id],
-      securityGroups => [ $config->{security_groups}->{fargate}->{group_id} ],
+      securityGroups => [ $security_groups->{fargate}->{group_id} ],
       assignPublicIp => $is_public ? 'ENABLED' : 'DISABLED',
     }
   };
@@ -274,13 +275,25 @@ sub cmd_run_task {
   # check for latest image...
   $self->check_latest_image($task_name);
 
-  my $cluster_name = $config->{cluster}->{name};
+  # this may be null if we are in dryrun mode and the config has not been updated
+  my $cluster_name
+    = $dryrun && !$cluster->{name}
+    ? sprintf '%s-cluster', $config->{app}->{name}
+    : $cluster->{name};
 
-  $self->log_warn( 'run-task: cluster: [%s] launching task: [%s] in subnet: [%s]',
-    $cluster_name, $task_name, $subnet_id );
+  $self->log_warn( 'run-task: cluster: [%s] launching task: [%s] in subnet: [%s]...%s',
+    $cluster_name, $task_name, $subnet_id, $dryrun );
+
+  $self->log_trace( sub { return Dumper( [ awsvpcConfiguration => $network_configuration ] ); } );
+
+  return $SUCCESS
+    if $dryrun;
+
+  log_die( $self, 'run-task: cluster has not been created yet...run "apply" first' )
+    if !$cluster_name;
 
   my $result = $self->get_ecs->run_task(
-    cluster               => $cluster_name,
+    cluster               => $cluster->{name},
     task_definition       => $task_name,
     network_configuration => $network_configuration,
   );
@@ -365,7 +378,7 @@ sub check_latest_image {
   my $latest_digest  = $latest_image->{imageDigest};
   my $current_digest = $tasks->{$task_name}->{image_digest} // $EMPTY;
 
-  if ( $current_digest ne $latest_digest ) {
+  if ( $current_digest && $current_digest ne $latest_digest ) {
     $self->log_error('run-task: You are not running the latest image!');
     $self->log_error( 'run-task: [%s] != [%s]', $latest_digest, $current_digest );
     $self->log_error('run-task: Run "app-Fargate register-task" to align the latest image with your task');

@@ -16,23 +16,19 @@ sub build_fargate_cluster {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $cluster, $dryrun ) = $self->common_args(qw(config cluster dryrun));
 
   my $ecs = $self->get_ecs;
 
-  my $cluster_name = $config->{cluster}->{name};
+  my ( $cluster_name, $cluster_arn ) = @{ $cluster // {} }{qw(name arn)};
 
   if ( !$cluster_name ) {
+    $config->{cluster} //= {};
     $cluster_name = $config->{app}->{name} . '-cluster';
-    $config->{cluster}->{name} = $cluster_name;
+    $cluster->{name} = $cluster_name;
   }
 
   ## - cluster exists? -
-
-  my $cluster_arn = $config->{cluster}->{arn};
-
   if ( !$cluster_arn || !$self->get_cache ) {
     # - validate cluster arn
     $cluster_arn = $ecs->cluster_exists($cluster_name);
@@ -42,7 +38,7 @@ sub build_fargate_cluster {
     $self->log_info( sprintf 'cluster: [%s] exists...%s', $cluster_name, $self->get_cache );
 
     $self->inc_existing_resources( cluster => [$cluster_arn] );
-    $config->{cluster}->{arn} = $cluster_arn;
+    $cluster->{arn} = $cluster_arn;
 
     return;
   }
@@ -60,14 +56,14 @@ sub build_fargate_cluster {
   return
     if $dryrun;
 
-  my $cluster = $ecs->create_cluster($cluster_name);
+  my $result = $ecs->create_cluster($cluster_name);
 
   log_die( $self, "ERROR: could not create cluster [%s]\n%s", $cluster_name, $ecs->get_error )
-    if !$cluster || $ecs->get_error;
+    if !$result || $ecs->get_error;
 
   $self->log_warn( sprintf 'cluster: [%s] created...', $cluster_name );
 
-  $config->{cluster}->{arn} = $cluster->{cluster}->{clusterArn};
+  $cluster->{arn} = $result->{cluster}->{clusterArn};
 
   return $TRUE;
 }

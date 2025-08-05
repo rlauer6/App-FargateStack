@@ -8,7 +8,7 @@ use App::ECR;
 use App::ECS;
 use App::ElbV2;
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase log_die);
 use App::Route53;
 use App::STS;
 use Carp;
@@ -45,7 +45,7 @@ sub init {
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
 
   log_die( $self, 'ERROR: when applying changes --no-update is not allowed' )
-    if !$dryrun && !$self->get_update;
+    if !$dryrun && !$self->get_update && $command eq 'apply';
 
   my $config = $self->_init_config;
 

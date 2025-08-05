@@ -1,3 +1,44 @@
+Tue Aug  5 08:40:48 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.19]:
+	* Makefile
+	- fix clean (-f)
+	* README.md: generated
+	* VERSION: bump
+	* examples/README.md: wip
+	* lib/App/FargateStack.pm.in
+	(cmd_run_task)
+	- refactoring
+	- add dryun mode
+	- croak if no cluster created yet
+	(check_latest_image)
+	- only croak if an image is actually defined in the configuration
+	* lib/App/FargateStack/Builder/Cluster.pm.in
+	(build_fargate_cluster)
+	- refactoring
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in
+	(build_security_group)
+	- refactoring
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(register_task_definition)
+	- refactoring
+	- save image digest when we register definition
+	(define_port_mapping): new
+	(define_task_size): new
+	(create_taskdef_files)
+	- refactoring using above
+	- add profile sizes
+	(compare_task_definition): add trace message
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(common_args): +security_groups
+	* lib/App/FargateStack/Constants.pm.in
+	- + %ECS_TASK_PROFILES, %ECS_TASK_PROFILE_TYPES
+	- + task size help topic
+	* lib/App/FargateStack/Init.pm.in
+	(init): only carp if command eq apply
+	* lib/App/FargateStack/Pod.pm.in
+	- + TASK SIZE
+
 Tue Aug  5 04:01:14 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.18]:

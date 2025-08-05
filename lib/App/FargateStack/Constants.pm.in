@@ -57,6 +57,22 @@ Readonly::Scalar our $SEC_PER_MIN  => 60;
 Readonly::Scalar our $SEC_PER_HOUR => 60 * $SEC_PER_MIN;
 Readonly::Scalar our $SEC_PER_DAY  => 24 * $SEC_PER_HOUR;
 
+Readonly::Hash our %ECS_TASK_PROFILES => (
+  tiny      => { cpu => 256,  memory => 512 },
+  small     => { cpu => 512,  memory => 1024 },
+  medium    => { cpu => 1024, memory => 2048 },
+  large     => { cpu => 2048, memory => 4096 },
+  xlarge    => { cpu => 4096, memory => 8192 },
+  '2xlarge' => { cpu => 8192, memory => 16_384 },
+);
+
+Readonly::Hash our %ECS_TASK_PROFILE_TYPES => (
+  web    => 'medium',
+  job    => 'medium',
+  daemon => 'medium',
+  task   => 'tiny',
+);
+
 Readonly::Scalar our $QUEUE_ATTRIBUTES => ToCamelCase(
   [ qw(
       delay_seconds
@@ -112,7 +128,11 @@ END_OF_TEXT
 A description of using the framework to create scheduled and one-shot workloads.
 END_OF_TEXT
   ],
-
+  'task size' => [
+    'TASK SIZE' => <<'END_OF_TEXT'
+Using the "size:" key to set the task's memory and cpu parameters.
+END_OF_TEXT
+  ],
   'http services' => [
     'HTTP SERVICES' => <<'END_OF_TEXT'
 A description of how the framework can provision a fully functional
@@ -219,6 +239,8 @@ our @EXPORT = (
     $DEFAULT_MEMORY_SIZE
     $DEFAULT_PORT
     $DEFAULT_RULE_ID
+    %ECS_TASK_PROFILES
+    %ECS_TASK_PROFILE_TYPES
     $EMPTY
     $EVENT_SCHEDULER_TYPE_URL
     $FALSE

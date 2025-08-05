@@ -1149,13 +1149,47 @@ Here is the full schema outline. All keys are optional unless otherwise noted:
         retention_days:
       memory:
       name:
+      size:
       target_group_arn:
       target_group_name:
       task_definition_arn:
       type:            # required (daemon, task, http, https)
   vpc_id:
 
-=cut
+=head1 TASK SIZE
+
+To simplify task configuration, the framework supports a shorthand key called
+C<size> that maps to common CPU and memory combinations supported by Fargate.
+
+If specified, the C<size> parameter should be one of the following profile names:
+
+  tiny     => 256 CPU, 512 MB memory
+  small    => 512 CPU, 1 GB memory
+  medium   => 1024 CPU, 2 GB memory
+  large    => 2048 CPU, 4 GB memory
+  xlarge   => 4096 CPU, 8 GB memory
+  2xlarge  => 8192 CPU, 16 GB memory
+
+When a C<size> is provided, the framework will automatically populate the
+corresponding C<cpu> and C<memory> values in the task definition. If you
+manually specify C<cpu> or C<memory> alongside C<size>, those manual values
+will take precedence and override the defaults from the profile.
+
+B<Important:> If you change the C<size> after an initial deployment, you should
+remove any manually defined C<cpu> and C<memory> keys in your configuration.
+This ensures that the framework can correctly apply the new profile values
+without conflict.
+
+If neither C<size>, C<cpu>, nor C<memory> are provided, the framework will infer
+a sensible default size based on the task type. For example:
+
+  - "http" or "https" => "medium"
+  - "task"            => "small"
+  - "task" + schedule => "medium"
+  - "daemon"          => "medium"
+
+This behavior helps minimize configuration boilerplate while still providing
+sane defaults.
 
 =head1 ENVIRONMENT VARIABLES
 
