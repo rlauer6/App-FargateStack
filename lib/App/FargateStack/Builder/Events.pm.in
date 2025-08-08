@@ -139,7 +139,7 @@ sub create_event_target {
   my $security_group = $config->{security_groups}->{fargate}->{group_id};
 
   my $target = [
-    { Id            => $DEFAULT_RULE_ID,
+    { Id            => $self->create_default( 'rule-id', $task_name ),
       Arn           => $config->{cluster}->{arn},
       RoleArn       => $events_role->{arn},
       EcsParameters => {
@@ -156,7 +156,7 @@ sub create_event_target {
     }
   ];
 
-  my $rule_name = sprintf '%s-schedule', $task_name;
+  my $rule_name = $self->create_default( 'rule-name', $task_name );
 
   my $event = $self->fetch_events;
 
@@ -198,7 +198,7 @@ sub create_event_target {
 
   if ($current_target) {
     $self->log_warn( 'events: deleting target for rule [%s]...', $rule_name );
-    $event->remove_targets( $rule_name, $DEFAULT_RULE_ID );
+    $event->remove_targets( $rule_name, $self->create_default( 'rule-id', $task_name ) );
   }
 
   $self->log_warn( 'events: creating target for rule [%s]...', $rule_name );
@@ -228,14 +228,14 @@ sub build_events_iam_role {
 
   my $default_name = $self->normalize_name( $config->{app}->{name} );
 
-  my $role_name = $self->create_events_role($default_name);
+  my $role_name = $self->create_events_role();
 
   my $policy_name = $config->{events_role}->{policy_name};
 
   my $policy;
 
   if ( !$policy_name || !$self->get_cache ) {
-    $policy_name = sprintf 'Events%sPolicy', $default_name;
+    $policy_name = $self->create_default( 'policy-name', 'events' );
     $policy      = $iam->get_role_policy( $role_name, $policy_name );
   }
   elsif ( $self->get_cache ) {

@@ -56,5 +56,9 @@ else
         exit 1;
     fi
 
-    SCRIPT_NAME=$(basename "$0") perl $PERL5LIBDIR $MODULINO_RUN "$@"
+    if test -n "$CARP_ALWAYS"; then
+        CARP_ALWAYS="-MCarp::Always"
+    fi
+
+    SCRIPT_NAME=$(basename "$0") perl $CARP_ALWAYS $PERL5LIBDIR $MODULINO_RUN "$@"
 fi

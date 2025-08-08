@@ -136,9 +136,7 @@ sub create_listeners {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $elb = $self->get_elb;
 
@@ -279,22 +277,16 @@ sub create_target_group {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
   my $elb = $self->get_elb;
 
   # we would not be here unless we have an HTTP service
-  my $task = $config->{tasks}->{ $self->get_http };
+  my $task_name = $self->get_http;
+  my $task      = $tasks->{$task_name};
 
+  $task->{target_group_name} //= $self->create_default('target-group-name');
   my $target_group_name = $task->{target_group_name};
-
-  if ( !$target_group_name ) {
-    $target_group_name = sprintf '%s-tg', $config->{app}->{name};
-
-    $task->{target_group_name} = $target_group_name;
-  }
 
   if ( my $target_group = $elb->target_group_exists($target_group_name) ) {
     $self->log_info( 'http-service: target group [%s] exists...skipping', $target_group_name );
@@ -374,9 +366,7 @@ sub create_alb {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $elb = $self->get_elb();
 
@@ -437,7 +427,7 @@ sub create_alb {
 
     $config->{security_groups}->{alb}->{group_id} = $alb_sg;
 
-    $config->{security_groups}->{alb}->{name} = $self->get_ec2->find_security_group_name($alb_sg);
+    $config->{security_groups}->{alb}->{group_name} = $self->get_ec2->find_security_group_name($alb_sg);
 
     $self->inc_existing_resources( security_groups => [$alb_sg] );
 
@@ -445,7 +435,7 @@ sub create_alb {
   }
 
   # --create-alb forces creation of a new ALB
-  if ( !$self->get_create_alb ) {
+  if ( !$self->get_create_alb && !$config->{alb}->{create} ) {
     my $alb_type = $config->{alb}->{type};
 
     $self->log_warn( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB',
@@ -465,8 +455,13 @@ sub create_alb {
 
     my $security_group_name = $self->get_ec2->find_security_group_name($security_group_id);
 
-    if ( $alb_arn
-      && $elb->validate_alb( arn => $alb_arn, scheme => $self->is_https ? 'internet-facing' : 'internal' ) ) {
+    if (
+      $alb_arn
+      && $elb->validate_alb(
+        arn    => $alb_arn,
+        scheme => $self->is_https ? 'internet-facing' : 'internal'
+      )
+    ) {
       # set this for later
       $self->set_alb( $elb->get_alb );
 
@@ -505,14 +500,21 @@ sub create_alb {
   }
 
   # create an alb
-  $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
+  if ( $self->get_create_alb || $config->{alb}->{create} ) {
+    $self->log_warn( 'http-service: ALB creation forced by configuration or option...will be created...%s',
+      $dryrun );
+  }
+  else {
+    $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
+  }
 
   my $alb_sg   = $self->create_alb_security_group;
   my $alb_type = $self->is_https ? 'public' : 'private';
 
   my $subnets = [ @{ $self->get_subnets->{$alb_type} }[ ( 0, 1 ) ] ];
 
-  my $alb_name = $config->{alb}->{name} // $config->{app}->{name} . '-alb';
+  $config->{alb}->{name} //= $self->create_default('alb-name');
+  my $alb_name = $config->{alb}->{name};
 
   $self->inc_required_resources(
     alb => sub {
@@ -548,7 +550,7 @@ sub create_alb_security_group {
   # create security groups
   my $ec2 = $self->get_ec2;
 
-  my $sg_name = sprintf '%s-alb-sg', $config->{app}->{name};
+  my $sg_name = $self->create_default('alb-security-group-name');
   $self->inc_required_resources( security_groups => [$sg_name] );
 
   $self->log_info( 'http-service: ALB security group [%s] will be created...%s', $sg_name, $dryrun );
@@ -578,7 +580,7 @@ sub create_alias {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $domain = $config->{domain};
 
@@ -586,8 +588,6 @@ sub create_alias {
 
   return
     if !$domain;
-
-  my $dryrun = $self->get_dryrun;
 
   my $route53 = $self->get_route53;
 

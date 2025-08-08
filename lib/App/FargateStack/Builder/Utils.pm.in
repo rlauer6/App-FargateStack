@@ -7,6 +7,7 @@ use Carp;
 use Data::Dumper;
 use English qw(no_match_vars);
 use JSON;
+use List::Util qw(any);
 use Scalar::Util qw(reftype);
 use Time::Piece;
 use Time::HiRes qw(time);
@@ -23,6 +24,7 @@ our @EXPORT = qw(
   ToCamelCase
   choose
   common_args
+  confirm
   display_diffs
   dmp
   elapsed_time
@@ -45,9 +47,19 @@ sub create_default {
 
   my $default = $App::FargateStack::Constants::DEFAULT_NAMES{$what};
 
-  my $app_name = $self->get_config->{app}->{name};
-
   return ref $default ? $default->( $self, @args ) : $default;
+}
+
+########################################################################
+sub confirm {
+########################################################################
+  my ( $prompt, @args ) = @_;
+
+  print sprintf "$prompt [y/N] ", @args;
+
+  chomp( my $answer = <> );
+
+  return $answer =~ /^y(es)?$/xsmi;
 }
 
 ########################################################################
@@ -58,12 +70,19 @@ sub common_args {
   my $config = $self->get_config;
 
   my $var_pool = {
-    config          => $config,
-    cache           => $self->get_cache,
-    dryrun          => $self->get_dryrun,
+    config => $config,
+    cache  => $self->get_cache,
+    dryrun => $self->get_dryrun,
+    # these just avoid a bunch of hash digging
     tasks           => $config->{tasks},
     cluster         => $config->{cluster},
     security_groups => $config->{security_groups},
+    route53         => $config->{route53},
+    alb             => $config->{alb},
+    app             => $config->{app},
+    subnets         => $config->{subnets},
+    role            => $config->{role},
+    events_role     => $config->{events_role},
   };
 
   $self->set__var_pool($var_pool);
@@ -271,6 +290,16 @@ sub normalize_name {
   my ( $self, $name ) = @_;
 
   return join q{}, map {ucfirst} split /[_-]+/xsm, $name;
+}
+
+########################################################################
+sub is_service_running {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $services = $self->get_ecs->list_services( $self->get_config->{cluster}->{name}, 'serviceArns' );
+
+  return any {/\/$task_name/xsm} @{$services};
 }
 
 ########################################################################

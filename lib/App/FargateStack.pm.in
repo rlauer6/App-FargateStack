@@ -16,7 +16,6 @@ use App::FargateStack::Constants;
 use App::FargateStack::Pod;
 use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
 use CLI::Simple;
-use Carp::Always;
 use Carp;
 use Data::Dumper;
 use Date::Parse qw(str2time);
@@ -207,7 +206,7 @@ sub cmd_service_status {
 ########################################################################
 sub get_default_task_name {
 ########################################################################
-  my ( $self, $type ) = @_;
+  my ( $self, $type, $filter ) = @_;
 
   my $tasks = $self->common_args('tasks');
 
@@ -218,9 +217,14 @@ sub get_default_task_name {
   return $task_name
     if $task_name;
 
-  my ( $default_task_name, $err ) = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
+  my @tasks = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
 
-  return $err ? $EMPTY : $default_task_name;
+  if ($filter) {
+    @tasks = grep { defined $tasks->{$_}->{$filter} } @tasks;
+  }
+
+  # more than 1, error or we found just 1
+  return $tasks[1] ? $EMPTY : $tasks[0];
 }
 
 ########################################################################
@@ -240,6 +244,9 @@ sub cmd_run_task {
 
   log_die( $self, "ERROR: no such task [%s] defined in config\n", $task_name )
     if !$task;
+
+  log_die( $self, "ERROR: [%s] is not a task\n", $task_name )
+    if $task->{type} ne 'task';
 
   my $subnet_id = $self->get_subnet_id;
   my $is_public = $FALSE;
@@ -477,7 +484,7 @@ sub check_task {
 }
 
 ########################################################################
-sub cmd_delete_service {
+sub cmd_remove_service {
 ########################################################################
   my ($self) = @_;
 
@@ -587,7 +594,7 @@ sub cmd_update_service {
 }
 
 ########################################################################
-sub cmd_register {
+sub cmd_register_task_definition {
 ########################################################################
   my ($self) = @_;
 
@@ -745,7 +752,7 @@ sub cmd_update_target {
 
   $self->set_skip_register($TRUE);
 
-  return $self->cmd_register(@args);
+  return $self->cmd_register_task_definition(@args);
 }
 
 ########################################################################
@@ -868,11 +875,146 @@ sub cmd_update_policy {
 }
 
 ########################################################################
+sub cmd_destroy {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  print {*STDERR} "TBD\n";
+
+  return $SUCCESS;
+}
+########################################################################
 sub cmd_ {
 ########################################################################
   my ( $self, @args ) = @_;
 
+  print {*STDERR} "TBD\n";
+
   return $SUCCESS;
+}
+
+########################################################################
+sub cmd_delete_schedule {
+########################################################################
+  my ($self) = @_;
+
+  my $tasks = $self->get_config->{tasks};
+
+  my $task_name = $self->get_default_task_name( 'task', 'schedule' );
+
+  croak sprintf "usage: %s delete-schedule task-name\n", $ENV{SCRIPT_NAME}
+    if !$task_name;
+
+  croak sprintf "ERROR: %s is not a schedule task\n", $task_name
+    if $tasks->{$task_name}->{type} ne 'task' || !$tasks->{$task_name}->{schedule};
+
+  # $task_name must be a schedule because we filtered above
+  if ( scalar keys %{$tasks} == 1 ) {
+    print {*STDERR} <<"END_OF_ERROR";
+This is the only task in your configuration.
+
+If you want to stop the task from running, consider:
+  * Running: disable-scheduled-task $task_name
+    (This leaves the task in place but disables the EventBridge rule.)
+
+If you're finished with this task and want to remove all artifacts,
+you can run:
+  * destroy
+
+Deletion aborted to prevent unintended removal of the entire stack.
+END_OF_ERROR
+    exit 1;
+  }
+
+  return $self->_delete_task( $task_name, 'scheduled' );
+}
+
+########################################################################
+sub cmd_delete_task {
+########################################################################
+  my ($self) = @_;
+
+  my $tasks = $self->get_config->{tasks};
+
+  my $task_name = $self->get_default_task_name('task');
+
+  croak sprintf "usage: %s delete-task task-name\n", $ENV{SCRIPT_NAME}
+    if !$task_name;
+
+  croak sprintf "ERROR: [%s] is a not a task\n", $task_name
+    if $tasks->{$task_name}->{type} ne 'task';
+
+  croak sprintf "ERROR: [%s] is a scheduled task...use 'delete-schedule'\n", $task_name
+    if $tasks->{$task_name}->{schedule};
+
+  if ( scalar keys %{$tasks} == 1 ) {
+    print {*STDERR} <<"END_OF_ERROR";
+This is the only task in your configuration.
+
+If you're finished with this task and want to remove all artifacts,
+you can run:
+  * destroy
+
+Deletion aborted to prevent unintended removal of the entire stack.
+END_OF_ERROR
+    exit 1;
+  }
+
+  return $self->delete_task_resources( $task_name, 'task' );
+}
+
+########################################################################
+sub cmd_delete_daemon {
+########################################################################
+  my ($self) = @_;
+
+  my $tasks     = $self->get_config->{tasks};
+  my $task_name = $self->get_default_task_name( 'task', 'daemon' );
+
+  croak "usage: $ENV{SCRIPT_NAME} delete-daemon task-name\n"
+    if !$task_name;
+
+  croak sprintf "ERROR: [%s] is not a daemon\n", $task_name
+    if $tasks->{$task_name}->{type} ne 'daemon';
+
+  if ( scalar keys %{$tasks} == 1 ) {
+    print {*STDERR} <<'END_OF_ERROR';
+This is the only task in your configuration.
+
+You can stop the daemon from running with the "stop-service" command.
+END_OF_ERROR
+  }
+
+  return $self->delete_task_resources( $task_name, 'daemon' );
+}
+
+########################################################################
+sub cmd_delete_http {
+########################################################################
+  my ($self) = @_;
+
+  my $tasks = $self->get_config->{tasks};
+
+  my ( $task_name, $err ) = $self->get_default_service_name();
+
+  croak "usage: $ENV{SCRIPT_NAME} delete-http task-name\n"
+    if !$task_name || $err;
+
+  croak "ERROR: [$task_name] is not an http task"
+    if !$tasks->{$task_name}->{type} =~ /^https?/xsm;
+
+  if ( scalar keys %{$tasks} == 1 ) {
+    my $msg = <<'END_OF_WARNING';
+WARNING: This is the only task in your configuration.
+
+ - You can stop the http service from running with the "stop-service" command.
+ - You can delete only the service with the "delete-service" command.
+
+END_OF_WARNING
+    print {*STDERR} colored( $msg, 'bright_red' );
+  }
+
+  return $self->delete_task_resources( $task_name, $tasks->{$task_name}->{type} );
 }
 
 ########################################################################
@@ -951,6 +1093,43 @@ sub fetch_option_defaults {
 }
 
 ########################################################################
+sub build_section_paths {
+########################################################################
+  my @items = @_;  # list of strings like '1:Title'
+
+  my %paths;
+  my @stack;
+
+  foreach my $line (@items) {
+    next if $line !~ /^(\d+):(.*)$/xsm;
+
+    my ( $level, $title ) = ( $1, $2 );
+    $level = int $level;  # Normalize level
+
+    # Adjust the stack to this level
+    $#stack = $level - 2;               # level 1 means index 0, so -2 to truncate above
+    $stack[ $level - 1 ] = $title;
+
+    # Join the stack up to this level
+    my $path = join '/', @stack[ 0 .. $level - 1 ];
+    $paths{$title} = $path;
+  }
+
+  return %paths;
+}
+
+sub parse_pod_sections {
+  my $pod = slurp_file( $INC{'App/FargateStack/Pod.pm'} );
+  my @sections;
+
+  while ( $pod =~ /=head(\d+)\s+(.*?)$/gxsm ) {
+    push @sections, "$1:$2";
+  }
+
+  return build_section_paths(@sections);
+}
+
+########################################################################
 sub help {
 ########################################################################
   my ($self) = @_;
@@ -958,12 +1137,19 @@ sub help {
   my $subject = lc join $SPACE, @ARGV;
   $subject =~ s/\s+$//xsm;
 
-  my ($section) = grep {/^$subject$/xsm} keys %{ $self->commands };
+  my %pod_sections = parse_pod_sections();
+  my $section;
 
-  if ( $section ne 'help' ) {
-    $section = "COMMAND LIST/Command Descriptions/$section";
+  if ( $subject && $subject ne 'help' ) {
+    my ( $pod_section, $err ) = grep {/^$subject/smi} keys %pod_sections;
+
+    if ($pod_section) {
+      $section = $pod_sections{$pod_section};
+      $section =~ s/[?]/\\?/gxsm;
+    }
   }
-  else {
+
+  if ( !$section ) {
     $section = $HELP_SUBJECTS{$subject} // $EMPTY;
 
     if ( $subject && !$section && $subject ne 'help' ) {
@@ -1062,6 +1248,7 @@ sub main {
     help|h
     config|c=s
     color!
+    confirm-all!
     create-alb|C
     dryrun|d
     force|f
@@ -1072,6 +1259,7 @@ sub main {
     history|H!
     max-events|m=i
     profile|p=s
+    purge_config
     region|r=s
     route53-profile|R=s
     skip-register|s
@@ -1100,12 +1288,16 @@ sub main {
 
   my %commands = (
     'create-service'         => [ \&cmd_create_service, 'error' ],
-    'delete-service'         => [ \&cmd_delete_service, 'error' ],
     'disable-scheduled-task' => \&cmd_disable_scheduled_task,
     'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
-    'list-tasks'             => [ \&cmd_list_tasks,    'error' ],
-    'list-zones'             => [ \&cmd_list_zones,    'error' ],
-    'reset-history'          => [ \&cmd_reset_history, 'info', { init => $FALSE } ],
+    'delete-schedule'        => \&cmd_delete_schedule,
+    'delete-daemon'          => \&cmd_delete_daemon,
+    'delete-task'            => \&cmd_delete_task,
+    'delete-http-service'    => \&cmd_delete_http,
+    'list-tasks'             => [ \&cmd_list_tasks,     'error' ],
+    'list-zones'             => [ \&cmd_list_zones,     'error' ],
+    'remove-service'         => [ \&cmd_remove_service, 'error' ],
+    'reset-history'          => [ \&cmd_reset_history,  'info', { init => $FALSE } ],
     'run-task'               => \&cmd_run_task,
     'start-service'          => [ \&cmd_update_service, 'error' ],
     'stop-service'           => [ \&cmd_update_service, 'error' ],
@@ -1114,11 +1306,12 @@ sub main {
     'update-target'          => \&cmd_update_target,
     apply                    => \&cmd_apply,
     default                  => [ \&cmd_explain, 'error' ],
-    help                     => [ \&help,        'error', { init => $FALSE } ],
-    logs                     => [ \&cmd_logs,    'error' ],
+    destroy                  => \&cmd_destroy,
+    help                     => [ \&help,     'error', { init => $FALSE } ],
+    logs                     => [ \&cmd_logs, 'error' ],
     plan                     => \&cmd_plan,
     redeploy                 => \&cmd_redeploy,
-    register                 => \&cmd_register,
+    register                 => \&cmd_register_task_definition,
     status                   => [ \&cmd_service_status, 'error' ],
     version                  => [ \&cmd_version, 'error', { init => $FALSE } ],
   );
@@ -1129,6 +1322,10 @@ sub main {
     extra_options   => \@extra_options,
     option_specs    => \@option_specs,
     abbreviations   => $TRUE,
+    error_handler   => sub {
+      print {*STDERR} shift;
+      return $FALSE;
+    },
   );
 
   $fargate_stack->run();

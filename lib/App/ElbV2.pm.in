@@ -129,12 +129,46 @@ sub describe_listeners {
 }
 
 ########################################################################
+sub describe_rules {
+########################################################################
+  my ( $self, $listener_arn, $query ) = @_;
+
+  croak "no listener arn\n"
+    if !$listener_arn;
+
+  return $self->command(
+    'describe-rules' => [
+      '--listener-arn' => $listener_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
+}
+
+########################################################################
 sub describe_load_balancers {
 ########################################################################
   my ( $self, $query, $arn ) = @_;
 
   return $self->command( 'describe-load-balancers' =>
       [ $arn ? ( '--load-balancer-arns' => $arn ) : (), $query ? ( '--query' => $query ) : (), ] );
+}
+
+########################################################################
+sub delete_load_balancer {
+########################################################################
+  my ( $self, $alb_arn, $query ) = @_;
+
+  return $self->command(
+    'delete-load-balancer' => [ '--load-balancer-arn' => $alb_arn, $query ? ( '--query' => $query ) : (), ] );
+}
+
+########################################################################
+sub delete_rule {
+########################################################################
+  my ( $self, $rule_arn, $query ) = @_;
+
+  return $self->command(
+    'delete-rule' => [ '--rule-arn' => $rule_arn, $query ? ( '--query' => $query ) : (), ] );
 }
 
 ########################################################################
@@ -161,6 +195,19 @@ sub describe_load_balancer {
       '--load-balancer-arn' => $arn,
       $query ? ( '--query' => $query ) : (),
       map { ( '--filters' => $_ ) } @filters
+    ]
+  );
+}
+
+########################################################################
+sub describe_tags {
+########################################################################
+  my ( $self, $arn, $query ) = @_;
+
+  return $self->command(
+    'describe-tags' => [
+      '--resource-arns' => $arn,
+      $query ? ( '--query' => $query ) : (),
     ]
   );
 }
@@ -445,21 +492,6 @@ sub fetch_rule_arns_by_domain {
     if !$rules || !@{$rules};
 
   return [ map { $_->{RuleArn} } @{$rules} ];
-}
-
-########################################################################
-sub describe_rules {
-########################################################################
-  my ( $self, $listener_arn, $query ) = @_;
-
-  return $self->command(
-    'describe-rules' => [
-      '--listener-arn' => $listener_arn,
-      $query ? ( '--query' => $query ) : (),
-    ]
-  );
-
-  return;
 }
 
 ########################################################################

@@ -9,6 +9,7 @@ use Data::Dumper;
 use File::Temp qw(tempfile);
 use JSON;
 use Scalar::Util qw(reftype);
+use List::Util qw(pairs);
 
 use parent qw(App::Command);
 
@@ -264,9 +265,9 @@ sub deregister_task_definition {
 ########################################################################
 sub delete_task_definitions {
 ########################################################################
-  my ( $self, $task_definitions, $deregister ) = @_;
+  my ( $self, $task_definitions ) = @_;
 
-  croak "usage: delete_task_definitions(task-definitions, [query])\n"
+  croak "usage: delete_task_definitions(task-definitions, [options])\n"
     if !$task_definitions;
 
   if ( !ref $task_definitions ) {
@@ -276,12 +277,11 @@ sub delete_task_definitions {
   my @task_definition_list = @{$task_definitions};
 
   # - ECS requires dregistratrion before deletion
-  if ($deregister) {
-    foreach my $def (@task_definition_list) {
-      my $result = $self->deregister_task_definition($def);
-      croak sprintf "ERROR: could not deregister: [%s]\n%s", $def, $self->get_error
-        if !$result;
-    }
+  foreach my $def (@task_definition_list) {
+    my $result = $self->deregister_task_definition($def);
+
+    croak sprintf "ERROR: could not deregister: [%s]\n%s", $def, $self->get_error
+      if !$result;
   }
 
   while ( my @batch = splice @task_definition_list, 0, 10 ) {
@@ -376,6 +376,21 @@ sub update_service {
       defined $desired_count ? ( '--desired-count' => $desired_count )     : (),
       ($task_definition)     ? ( '--task-definition' => $task_definition ) : (),
       $force                 ? '--force-new-deployment'                    : (),
+    ]
+  );
+}
+
+########################################################################
+sub tag_resource {
+########################################################################
+  my ( $self, $arn, @tags ) = @_;
+
+  my $tag_string = join q{}, map { sprintf 'Key=%s,Value=%s', @{$_} } pairs @tags;
+
+  return $self->command(
+    'add-tags',
+    [ '--tags'         => $tag_string,
+      '--resoure-arns' => $arn,
     ]
   );
 }

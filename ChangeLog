@@ -1,3 +1,71 @@
+Fri Aug  8 06:33:14 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.22]:
+	* README.md: generated
+	* VERSION: bump
+	* bin/app-FargateStack: CARP_ALWAYS
+	* lib/App/ECS.pm.in
+	(delete_definitions): always deregister
+	(tag_resource): new
+	* lib/App/ElbV2.pm.in
+	(delete_load_balancer): new
+	(delete_rule): new
+	(describe_tags): new
+	* lib/App/FargateStack.pm.in
+	- remove Carp::Always and make it an option to app-Fargate script
+	(get_default_task_name):
+	- use filter arg to support task type
+	- refactoring
+	(cmd_run_task)
+	- make sure this is a task
+	(cmd_remove_service): new from cmd_delete_service
+	(cmd_register_task_definition): new from cmd_register
+	(cmd_destroy): new, but nt yet implemented
+	(build_section_paths): new
+	(cmd_delete_schedule): new
+	(cmd_delete_task): new
+	(cmd_delete_daemon): new
+	(cmd_delete_http): new
+	(help)
+	- use =head(n) sections as help topics
+	(main)
+	- ---confirm-all, --purge-config
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- move task-definition section break
+	(configure_alb): whitespace
+	(remove_listener_rules): new
+	(delete_task_resources): new
+	(is_our_alb): new
+	(remove_alb): new
+	(remove_alias_record): new
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(create_event_target): use create_default, not "1"
+	(build_events_iam_role)
+	- create_events_role()
+	- use create_default() for policy_name
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(create_listeners)
+	- refactoring
+	(create_target_group)
+	- likewise
+	- use create_default() for target group name
+	(create_alb)
+	- {group_name} not {name}
+	- flag in config for creating new ALB
+	- message about creation of new ALB if requested in config
+	- use create_default() for ALB name
+	(create_alias): refactoring
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	- export confirm()
+	(confirm): new
+	(is_service_running): new
+	* lib/App/FargateStack/Constants.pm.in
+	(DEFAULT_NAMES): added more default naming subs
+	* lib/App/FargateStack/Pod.pm.in
+	- updated to reflect new commands, options
+
+
 Tue Aug  5 16:04:58 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.21]:

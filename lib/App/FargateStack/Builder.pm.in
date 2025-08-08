@@ -3,18 +3,20 @@ package App::FargateStack::Builder;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die confirm);
+
+use CLI::Simple::Constants qw(:booleans);
 use Carp;
 use Data::Dumper;
+use Digest::MD5 qw(md5_hex);
 use English qw(-no_match_vars);
 use File::Temp qw(tempfile);
-use List::Util qw(pairs);
-use Text::ASCIITable::EasyTable;
+use List::Util qw(pairs any none);
 use Scalar::Util qw(reftype);
+use Text::ASCIITable::EasyTable;
 use YAML qw(DumpFile);
-
-use Digest::MD5 qw(md5_hex);
-
-use App::FargateStack::Constants;
+use Term::ANSIColor;
 
 use Role::Tiny;
 
@@ -84,6 +86,9 @@ sub build {
     $self->register_task_definition($task);
   }
 
+  $self->benchmark('task-definition');
+  $self->section_break;
+
   ## -- events --
   if ( $self->has_events ) {
     $self->build_events;
@@ -97,9 +102,6 @@ sub build {
     $self->benchmark('http-service');
     $self->section_break;
   }
-
-  $self->benchmark('task-definition');
-  $self->section_break;
 
   # -- route53 (create alias)
   if ( $self->get_http ) {
@@ -255,10 +257,9 @@ sub configure_alb {
   my $is_secure = $self->has_https_service;
 
   # default ALB type is private with a listener on port 80
-  my $alb_config = $config->{alb} // {
-    type => $is_secure ? 'public' : 'private',
-    port => $is_secure ? '443'    : '80',
-  };
+  my $alb_config = $config->{alb} // {};
+  $alb_config->{type} //= $is_secure ? 'public' : 'private';
+  $alb_config->{port} //= $is_secure ? '443'    : '80';
 
   # if it was already defined as public w/o a port, then 443 and
   # redirect 80 -> 443
@@ -273,6 +274,465 @@ sub configure_alb {
     if $alb_config->{type} !~ /^public|private$/xsm;
 
   $config->{alb} = $alb_config;
+
+  return;
+}
+
+########################################################################
+sub remove_listener_rules {
+########################################################################
+  my ( $self, $alb_arn, $tg_arn ) = @_;
+
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
+
+  my $elb = $self->get_elb;
+
+  my $domain = $config->{domain};
+
+  my $listeners = $elb->describe_listeners( $alb_arn, 'Listeners' );
+
+  foreach my $listener ( @{$listeners} ) {
+    my $rules = $elb->describe_rules( $listener->{ListenerArn}, 'Rules' );
+
+    foreach my $rule ( @{$rules} ) {
+      my $action     = $rule->{Actions}->[0];
+      my $conditions = $rule->{Conditions}->[0];
+
+      next if $conditions->{Field} ne 'host-header' || $conditions->{Values}->[0] ne $domain;
+
+      $self->log_warn( 'removing App::Fargate provisioned listener rule type: [%s] for port:[%s]...%s',
+        $action->{Type}, $listener->{Port}, $dryrun );
+
+      if ( !$dryrun ) {
+        $elb->delete_rule( $rule->{RuleArn} );
+      }
+
+      last;
+    }
+  }
+
+  return;
+}
+
+########################################################################
+# type = task|scheduled|daemon|https?
+########################################################################
+sub delete_task_resources {
+########################################################################
+  my ( $self, $task_name, $type ) = @_;
+
+  my ( $config, $tasks, $dryrun, $security_groups )
+    = $self->common_args(qw(config tasks dryrun security_groups));
+
+  my $ecs = $self->get_ecs;
+
+  my $ec2 = $self->get_ec2;
+
+  return $SUCCESS
+    if !confirm(
+    sprintf 'Are you sure you want to delete the %s (%s) task?',
+    colored( $task_name, 'bright_yellow' ),
+    colored( $type,      'bright_white' )
+    );
+
+  # check to see if service is running before removing resources
+  my $task_type = $tasks->{$task_name}->{type};
+
+  if ( $task_type =~ /^(?:https?|daemon)$/xsm ) {
+
+    if ( $self->is_service_running($task_name) ) {
+      log_die( $self, 'ERROR: service [%s] is still running...stop service first.', $task_name )
+        if !$self->get_force;
+
+      $self->log_error( 'WARNING: service [%s] is still running...you should stop service first.', $task_name );
+    }
+  }
+
+  if ( !$dryrun ) {
+    $self->log_error('WARNING: "dryrun" mode not enabled...resources will be removed!');
+  }
+
+  my $confirm_all = $self->get_confirm_all;
+
+  ######################################################################
+  # -- delete security group
+  ######################################################################
+  my $result;
+  my $confirmed;
+
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete security_group: [%s]?',
+    colored( $security_groups->{fargate}->{group_name}, 'bright_white' ) )
+    : $TRUE;
+
+  if ( !$dryrun && $confirmed ) {
+    $result = $ec2->delete_security_group( $security_groups->{fargate}->{group_id} );
+
+    croak sprintf "ERROR: could not delete security_group: %s\n", $ec2->get_error
+      if !$result && $ec2->get_error !~ /invalidgroupid/xsmi;
+
+    delete $security_groups->{fargate};
+  }
+  else {
+    $self->log_warn( 'security group deletion skipped...%s', $dryrun );
+  }
+
+  ######################################################################
+  # -- delete log group
+  ######################################################################
+  my $log_group = $tasks->{$task_name}->{log_group}->{name};
+
+  $confirmed
+    = $confirm_all ? confirm( 'Delete log_group: [%s]?', colored( $log_group, 'bright_white' ) ) : $TRUE;
+
+  if ( $confirmed && !$dryrun ) {
+    my $logs = App::Logs->new( $self->get_global_options );
+    $result = $logs->delete_log_group($log_group);
+
+    croak sprintf "ERROR: could not delete log group: %s\n", $logs->get_error
+      if !$result && $logs->get_error !~ /resourcenotfoundexception/xsmi;
+
+    delete $tasks->{$task_name}->{log_group};
+  }
+  else {
+    $self->log_warn( 'log group deletion skipped...%s', $dryrun );
+  }
+
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete roles & policies for task: [%s]?', colored( $task_name, 'bright_white' ) )
+    : $TRUE;
+
+  if ( $confirmed && !$dryrun ) {
+    # -- delete role
+    require App::IAM;
+
+    my $iam   = App::IAM->new( $self->get_global_options );
+    my @roles = ( 'role', $type eq 'scheduled' ? 'events_role' : () );
+
+    foreach my $r (@roles) {
+      ####################################################################
+      # -- delete role policy
+      ####################################################################
+      $result = $iam->delete_role_policy( $config->{$r}->{name}, $config->{$r}->{policy_name} );
+
+      croak sprintf "ERROR: could not delete role policy: %s\n", $iam->get_error
+        if !$result && $iam->get_error !~ /nosuchentity/xsmi;
+
+      delete $config->{$r}->{policy_name};
+
+      ####################################################################
+      # -- delete role
+      ####################################################################
+      $result = $iam->delete_role( $config->{$r}->{name} );
+
+      croak sprintf "ERROR: could not delete role: %s\n", $iam->get_error
+        if !$result && $iam->get_error !~ /nosuchentity/xsmi;
+
+      delete $config->{$r}->{name};
+    }
+  }
+  else {
+    $self->log_warn( 'role & policy deletion skipped...%s', $dryrun );
+  }
+
+  ######################################################################
+  # -- delete schedule task
+  ######################################################################
+  if ( $type eq 'scheduled' ) {
+    $confirmed
+      = $confirm_all ? confirm( 'Delete scheduled task: [%s]', colored( $task_name, 'bright_white' ) ) : $TRUE;
+
+    if ( $confirmed && !$dryrun ) {
+      # -- delete target event
+      my $events = App::Events->new( $self->get_global_options );
+
+      my $rule_name = $self->create_default( 'rule-name', $task_name );
+      my $rule_id   = $self->create_default( 'rule-id',   $task_name );
+
+      ####################################################################
+      # -- remove target
+      ####################################################################
+      $result = $events->remove_target( $rule_name, $rule_id );
+      croak sprintf "ERROR: could not remove target: %s\n", $events->get_error
+        if !$result && $events->get_error !~ /resourcenotfound/xsm;
+
+      ####################################################################
+      # -- delete rule
+      ####################################################################
+      $result = $events->delete_rule($rule_name);
+      croak sprintf "ERROR: could not remove rule: %s\n", $events->get_error
+        if !$result && $events->get_error;
+    }
+    else {
+      $self->log_warn( 'event deletion skipped...%s', $dryrun );
+    }
+  }
+
+  ######################################################################
+  # -- delete task definitions
+  ######################################################################
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete all task definitions for: [%s]', colored( $task_name, 'bright_white' ) )
+    : $TRUE;
+  if ( $confirmed && !$dryrun ) {
+    my $task_definitions = $ecs->list_task_definitions($task_name);
+
+    if ( $task_definitions && @{$task_definitions} ) {
+      $ecs->delete_task_definitions( $task_definitions, deregister => $TRUE );
+    }
+
+    $task_definitions = $ecs->list_task_definitions($task_name);
+
+    # this should happen...delete_task_definitions() will croak if a
+    # task definition cannot be deregistered and deleted
+    croak "ERROR: could not delete all task definitions\n"
+      if @{$task_definitions};
+
+    delete $tasks->{$task_name}->{arn};
+  }
+  else {
+    $self->log_warn( 'task definition deletion skipped...%s', $dryrun );
+  }
+
+  ######################################################################
+  # -- delete service
+  ######################################################################
+
+  if ( $type =~ /^(?:daemon|https?)$/xsm ) {
+    $confirmed = $confirm_all ? confirm( 'Delete %s service?', colored( $type, 'bright_white' ) ) : $TRUE;
+
+    if ( $confirmed && !$dryrun ) {
+      my $service_name = $task_name;
+      my $cluster_name = $config->{cluster}->{name};
+
+      my $result = $ecs->delete_service( $cluster_name, $service_name );
+
+      croak sprintf "ERROR: could not delete ECS service: %s\n", $ecs->get_error
+        if !$result && $ecs->get_error !~ /ServiceNotFoundException/xsmi;
+
+      if ( $ecs->get_error ) {
+        $self->log_warn( 'service: [%s] was not found...', $service_name );
+      }
+    }
+    else {
+      $self->log_warn( 'service deletion skipped...%s', $dryrun );
+    }
+  }
+
+  ######################################################################
+  # -- delete cluster
+  ######################################################################
+
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete cluster: [%s]', colored( $config->{cluster}->{name}, 'bright_white' ) )
+    : $TRUE;
+
+  if ( $confirmed && !$dryrun ) {
+    $result = $ecs->delete_cluster( $config->{cluster}->{name} );
+
+    croak sprintf "ERROR: could not delete cluster: %s\n", $ecs->get_error
+      if !$result && $ecs->get_error !~ /nosuchentity/xsmi;
+
+    delete $config->{cluster};
+  }
+  else {
+    $self->log_warn( 'cluster deletion skipped...%s', $dryrun );
+  }
+
+  ######################################################################
+  # -- delete http(s)
+  ######################################################################
+  my $alb_arn          = $config->{alb}->{arn};
+  my $target_group_arn = $tasks->{$task_name}->{target_group_arn};
+
+  if ( $type =~ /^(?:https?)$/xsm ) {
+    $confirmed = $confirm_all ? confirm( 'Delete %s task?', colored( $type, 'bright_white' ) ) : $TRUE;
+
+    if ($confirmed) {
+      ####################################################################
+      # -- remove ALB
+      ####################################################################
+      my $is_our_alb = $self->is_our_alb( $alb_arn, $target_group_arn );
+      $confirmed = $confirm_all ? confirm( 'Delete ALB: [%s]?', colored( $alb_arn, 'bright_white' ) ) : $TRUE;
+
+      # dryrun && is_our_elb checked by remove_alb
+      if ( !$self->remove_alb( $alb_arn, $target_group_arn ) ) {
+        $self->log_warn( 'ALB has NOT been removed...listener rules for: [%s]...will be removed...%s',
+          $task_name, $dryrun );
+        # dryun checked by remove_listener_rules
+        $self->remove_listener_rules($alb_arn);
+      }
+
+      $self->log_warn( 'Listener rules have been removed for: [%s]...%s', $task_name, $dryrun );
+
+      ####################################################################
+      # -- remove security group
+      ####################################################################
+      $self->log_warn( 'security group for ALB on task: [%s] will be removed...%s', $task_name, $dryrun );
+
+      if ( $is_our_alb && !$dryrun ) {
+        $self->get_ec2->delete_security_group( $config->{security_groups}->{alb}->{group_id} );
+        delete $config->{security_groups}->{alb};
+      }
+      else {
+        if ( !$is_our_alb ) {
+          $self->log_warn(
+            'not our ALB...leaving security group: [%s] in place',
+            $config->{security_groups}->{alb}->{group_name}
+          );
+        }
+        else {
+          $self->log_warn( 'ALB security group deletion skipped...%s', $dryrun );
+        }
+      }
+    }
+    else {
+      $self->log_warn('deletion of http task skipped...');
+    }
+  }
+
+  ####################################################################
+  # -- remove target group
+  ####################################################################
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete target group for task: [%s]', colored( $task_name, 'bright_white' ) )
+    : $TRUE;
+
+  if ( $confirmed && !$dryrun ) {
+    $self->log_warn( 'target group for task: [%s] will be removed...%s', $task_name, $dryrun );
+
+    $self->get_elb->delete_target_group($target_group_arn);
+    delete $tasks->{$task_name}->{target_group_arn};
+  }
+  else {
+    $self->log_warn( 'target group deletion skipped...%s', $dryrun );
+  }
+
+  ####################################################################
+  # -- remove alias record
+  ####################################################################
+  $confirmed
+    = $confirm_all
+    ? confirm( 'Delete alias record for: [%s]', colored( $config->{domain}, 'bright_white' ) )
+    : $TRUE;
+
+  if ( $confirmed && !$dryrun ) {
+    $self->log_warn( 'alias record for: [%s] will be removed...%s', $config->{domain}, $dryrun );
+
+    $self->remove_alias_record($alb_arn);
+  }
+  else {
+    $self->log_warn( 'alias record deletion skipped...%s', $dryrun );
+  }
+
+  ######################################################################
+  # NOTE: Skeletons of deleted tasks are left in the confguration file
+  # for single task config and for multi-task configs. --purge-config
+  # will allow purging of tasks in multi-task configs only...
+  ######################################################################
+  if ( $self->get_purge_config ) {
+    delete $tasks->{$task_name};
+  }
+
+  if ( !$dryrun ) {
+    $self->update_config;
+  }
+
+  return $SUCCESS;
+}
+
+########################################################################
+sub is_our_alb {
+########################################################################
+  my ( $self, $alb_arn, $tg_arn ) = @_;
+
+  my $elb = $self->get_elb;
+
+  $tg_arn  //= $self->get_target_group_arn;
+  $alb_arn //= $self->get_alb_arn;
+
+  my $tags = $elb->describe_tags( $alb_arn, 'TagDescriptions[].Tags[]' );
+
+  my ($ours) = grep { $_->{Key} eq 'CreatedBy' && $_->{Value} eq 'FargateStack' } @{$tags};
+
+  return $TRUE
+    if $ours;
+
+  # get listener rules and see if our ALB is default by finding
+  # default and seeing if its target group (if any) is our target
+  # group...
+  my $result = $elb->describe_listeners( $alb_arn, 'Listeners[0]' );
+
+  $result = $elb->describe_rules( $result->{ListenerArn}, 'Rules[]' );
+
+  my ($default) = grep { $_->{IsDefault} } @{$result};
+
+  my $default_tg_arn = $default->{Actions}->[0]->{TargetGroupArn};
+
+  return $default_tg_arn && $default_tg_arn eq $tg_arn;
+}
+
+########################################################################
+sub remove_alb {
+########################################################################
+  my ( $self, $alb_arn, $tg_arn ) = @_;
+
+  if ( !$self->is_our_alb( $alb_arn, $tg_arn ) ) {
+    $self->log_warn( 'not an ALB provisioned by App::Fargate...will not be removed...%s', $self->get_dryrun );
+    return $FALSE;  ## your precious is safe!
+  }
+
+  $self->log_warn( 'removing App::Fargate provisioned ALB...%s', $self->get_dryrun );
+
+  return $TRUE
+    if $self->get_dryrun;  ## yes, we would have deleted your precious ALB!
+
+  return $self->get_elb->delete_load_balancer($alb_arn);  ## failsafe for now (delete_load_balancer does not exist)
+}
+
+########################################################################
+sub remove_alias_record {
+########################################################################
+  my ( $self, $alb_arn ) = @_;
+
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
+
+  $alb_arn //= $config->{alb}->{arn};
+
+  my $elb = $self->get_elb;
+
+  my $domain = $config->{domain};
+
+  my $query = 'LoadBalancers[0].{zone_id: CanonicalHostedZoneId, dns_name: DNSName}';
+
+  my $alb_info = $elb->describe_load_balancers( $alb_arn, $query );
+
+  my $change_batch = {
+    Comment => 'Delete alias record',
+    Changes => [
+      { Action            => 'DELETE',
+        ResourceRecordSet => {
+          Name        => $domain,
+          Type        => 'A',
+          AliasTarget => {
+            HostedZoneId         => $alb_info->{zone_id},
+            DNSName              => $alb_info->{dns_name},
+            EvaluateTargetHealth => 'false',
+          }
+        }
+      }
+    ]
+  };
+
+  my $result = $self->get_route53->change_resource_record_set( $config->{route53}->{zone_id}, $change_batch );
+
+  log_die( $self, "could not delete alias record for [%s]\n%s", $domain, $self->get_route53->get_error )
+    if !$result;
 
   return;
 }

@@ -102,6 +102,33 @@ Readonly::Hash our %DEFAULT_NAMES => (
 
     return sprintf '%s%sPolicy', $type, $self->normalize_name($app_name);
   },
+  'rule-id' => sub {
+    my ( $self, $task_name ) = @_;
+    return sprintf '%s-target', $task_name;
+  },
+  'rule-name' => sub {
+    my ( $self, $task_name ) = @_;
+    return sprintf '%s-schedule', $task_name;
+  },
+  'target-group-name' => sub {
+    my ($self) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+    return sprintf '%s-tg', $app_name;
+  },
+  'alb-name' => sub {
+    my ($self) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+    return sprintf '%s-alb', $app_name;
+  },
+  'alb-security-group-name' => sub {
+    my ($self) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+
+    return sprintf '%s-alb-sg', $app_name;
+  },
 );
 
 require App::FargateStack::Builder::Utils;

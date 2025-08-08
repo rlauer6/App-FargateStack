@@ -27,7 +27,10 @@
     * [help](#help)
     * [apply](#apply)
     * [create-service](#create-service)
-    * [delete-service](#delete-service)
+    * [delete-daemon](#delete-daemon)
+    * [delete-scheduled-task](#delete-scheduled-task)
+    * [delete-task](#delete-task)
+    * [delete-http-service](#delete-http-service)
     * [disable-scheduled-task](#disable-scheduled-task)
     * [enable-scheduled-task](#enable-scheduled-task)
     * [list-tasks](#list-tasks)
@@ -35,6 +38,8 @@
     * [logs](#logs)
     * [plan              ](#plan-)
     * [redeploy](#redeploy)
+    * [register-task-definition](#register-task-definition)
+    * [remove-service](#remove-service)
     * [run-task](#run-task)
     * [status](#status)
     * [stop-task](#stop-task)
@@ -43,6 +48,7 @@
     * [update-policy](#update-policy)
     * [update-target](#update-target)
     * [version              ](#version-)
+  * [Notes on Deletion of Resources](#notes-on-deletion-of-resources)
 * [CLOUDWATCH LOG GROUPS](#cloudwatch-log-groups)
   * [Log Group Notes](#log-group-notes)
 * [IAM PERMISSIONS](#iam-permissions)
@@ -206,34 +212,39 @@ object-oriented use. As such, this section is intentionally omitted.
 
 ## Commands
 
-    Command                Arguments            Description
-    -------                ---------            -----------
-    apply                                       reads config and creates resources
-    create-service         task-name            create a new service (see Note 4)
-    delete-service         task-name            delete an existing service
-    disable-scheduled-task task-name            disable a scheduled task
-    enable-scheduled-task task-name             enable a scheduled task
-    help                   [subject]            displays general help or help on a particular subject (see Note 2)
-    list-tasks                                  list running tasks
-    list-zones             domain               list the hosted zones for a domain
-    logs                   task-name start end  display CloudWatch logs (see Note 5)
-    plan                                        reads config and reports on resource creation
-    register               task-name            register a task name
-    run-task               task-name            launches an adhoc task
-    start-service          task-name [count]    starts a service
-    status                 task-name            provides the current status for a task
-    stop-service           task-name            stops a running service
-    update-policy                               updates the ECS policy in the event of resource changes
-    update-target          task-name            force update of target definition
-    version                                     display the current version number
+    Command                  Arguments            Description
+    -------                  ---------            -----------
+    apply                                         reads config and creates resources
+    create-service           task-name            create a new service (see Note 4)
+    delete-task              task-name            deletes all resources associated with a task (See Note 11)
+    delete-scheduled-task    task-name            deletes all resources associated with a scheduled task (See Note 11)
+    delete-daemon            task-name            deletes all resources associated with a daemon  (See Note 11)
+    delete-http-service      task-name            deletes all resources associated with a http service  (See Note 11)
+    disable-scheduled-task   task-name            disable a scheduled task
+    enable-scheduled-task t  ask-name             enable a scheduled task
+    help                     [subject]            displays general help or help on a particular subject (see Note 2)
+    list-tasks                                    list running tasks
+    list-zones               domain               list the hosted zones for a domain
+    logs                     task-name start end  display CloudWatch logs (see Note 5)
+    plan                                          reads config and reports on resource creation
+    register-task-definition task-name            creates a new task definition revision
+    remove-service           task-name            removes an existing service but does not delete the task
+    run-task                 task-name            launches an adhoc task
+    start-service            task-name [count]    starts a service
+    status                   task-name            provides the current status for a task
+    stop-service             task-name            stops a running service
+    update-policy                                 updates the ECS policy in the event of resource changes
+    update-target            task-name            force update of target definition
+    version                                       display the current version number
 
 ## Options
 
     -h, --help                 help
-        --cache, --no-cache    use the configuration file as the source of truth (see Note 8)
+    --cache, --no-cache        use the configuration file as the source of truth (see Note 8)
     -c, --config               path to the .yml configuration
     -C, --create-alb           forces creation of a new ALB, prevents use of an existing ALB
     --color, --no-color        default: color
+    --confirm-all              confirm deletion of all resources
     -d, --dryrun               just report actions, do not apply
     -f, --force                force action (depends on context)
     --history, --no-history    save cli parameters to .fargatestack/defaults.json
@@ -242,7 +253,8 @@ object-oriented use. As such, this section is intentionally omitted.
     --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
     --log-poll-time            amount of time in seconds to sleep between requesting new log events
     -p, --profile              AWS profile (see Note 1)
-        --route53-profile      set this if your Route 53 zones are in a different account (See Note 10)
+    --purge-config             remove deleted tasks from multi-task configs
+    --route53-profile          set this if your Route 53 zones are in a different account (See Note 10)
     -s, --skip-register        skips registering a new task definition when using update-target (See Note 7)
     -u, --update, --no-update  update config (See Note 9)
     -U, --unlink, --no-unlink  delete or keep temp files (default: --unlink)
@@ -330,6 +342,17 @@ optionally `--no-update`) with `plan`.
 - (10) Set `--route53-profile` to the profile that has
 permissions to manage your hosted zones. By default the script will
 use the default profile.
+- (11) Deleting a task, daemon, or http service will delete all of
+the resources associated with that task.
+    - For scheduled tasks you can disable the job from running instead of
+    deleting its resources.
+    - For services (daemons or HTTP services) you
+    can stop them or delete the service (`delete-service`) instead of
+    deleting all of the resources. 
+    - These resources will **NOT** be removed:
+
+            - ECR image associated with a task
+            - An ACM certificate provisioned by App::Fargate
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -613,23 +636,62 @@ updates configuration file with resource details.
 
     create-service service-name
 
-When you provision an HTTP, HTTPS or daemon service the framework
-provisions all of the components for you to execute the task. It
-**does not** however, start the service. Use this command to create and
-start the service.
+When you provision an HTTP, HTTPS, or daemon service, the framework
+sets up all the necessary infrastructure components -- but it **does not**
+automatically start the ECS service.
+
+Use this command to start the service:
 
     app-FargateTask start-service service-name
 
-If you want to provision more than 1 task for your service add a count argument.
+If you want to start multiple tasks for the service, you can include a
+count argument:
 
     app-FargateTask start-service service-name 2
 
-### delete-service
+### delete-daemon
 
-    delete-service service-name
+    delete-daemon task-name
 
-This command will delete a service. If you just want to temporarily
-stop the service use the `stop-service` command.
+Deletes the AWS resources associated with a task of type
+`daemon`. Consider removing the service
+(["remove-service"](#remove-service)) or stopping the service
+(["stop-service"](#stop-service)) if you do not want to delete the actual
+resources.
+
+See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for additional details.
+
+### delete-scheduled-task
+
+    delete-scheduled-task task-name
+
+Deletes the AWS resources associated with a task of type `task` that
+includes a `schedule:` key.
+
+See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for additional details.
+
+### delete-task
+
+    delete-task task-name
+
+Deletes the AWS resources associated with a task of type `task`.
+
+See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for additional details.
+
+### delete-http-service
+
+Deletes the AWS resources associated with a task of type `http` or `https`.
+
+If the Application Load Balancer (ALB) used by the service was
+provisioned by `App::Fargate`, it will be automatically
+deleted. However, if the ALB was discovered but not created by
+`App::Fargate`, it will be preserved. In that case, only the listener
+rules provisioned by `App::Fargate` will be removed.
+
+This command will also not delete any ACM certificate that was
+provisioned by `App::Fargate`.
+
+See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for additional details.
 
 ### disable-scheduled-task
 
@@ -734,6 +796,38 @@ For best results, use this command only when your service's task definition
 uses an image tag that can be re-resolved, such as `:latest` or a CI-generated
 version tag.
 
+### register-task-definition
+
+    register-task-definition task-name
+
+Creates a new task definition revision in ECS for the specified task.
+
+Under normal circumstances, you should not need to run this command
+manually. Task definitions are automatically registered when you
+execute `plan` or `apply`.
+
+This command is provided for exceptional cases where you need to force
+a new revision using a previously generated task definition file.
+
+**Warning:** You should not manually modify the generated file
+(`taskdef-{task-name}.json`), as doing so may cause
+`App::FargateStack` to lose track of your task's configuration.
+
+### remove-service
+
+    remove-service service-name
+
+Deletes a running ECS service without removing any of the underlying
+AWS resources.
+
+If you simply want to stop the service temporarily, use the
+`stop-service` command instead.
+
+This command does not delete associated infrastructure such as the
+target group, security group, or load balancer listener rules. To
+delete those resources, see ["delete-daemon"](#delete-daemon) or
+["delete-http-service"](#delete-http-service), depending on the task type.
+
 ### run-task
 
     run-task task-name
@@ -829,6 +923,20 @@ changes if not in `--dryrun` mode.
 ### version              
 
 Outputs the current version of `App::FargateStack`.
+
+## Notes on Deletion of Resources
+
+- You will be prompted to confirm the operation before any task is
+deleted.
+- If the specified task is the only one defined in your configuration
+file, its configuration will not be fully removed. Instead, the task's
+provisioned resource ARNs and names will be deleted, leaving behind a
+minimal configuration skeleton. This allows you to re-provision the
+task later by running `plan` against the skeleton, avoiding the need
+to recreate it from scratch.
+- `App::FargateStack` does not delete ECR images associated with tasks.
+- ACM certificates provisioned by `App::FargateStack` will not be
+deleted.
 
 [Back to Table of Contents](#table-of-contents)
 
