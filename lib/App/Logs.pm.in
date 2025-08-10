@@ -32,6 +32,20 @@ sub describe_log_groups {
     ]
   );
 }
+########################################################################
+sub delete_log_group {
+########################################################################
+  my ( $self, $log_group_name, $query ) = @_;
+
+  $log_group_name //= $self->get_log_group_name;
+
+  return $self->command(
+    'delete-log-group' => [
+      $log_group_name ? ( '--log-group-name' => $log_group_name ) : (),
+      $query          ? ( '--query'          => $query )          : ()
+    ]
+  );
+}
 
 ########################################################################
 sub log_group_exists {

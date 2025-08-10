@@ -3,14 +3,9 @@ package App::FargateStack::Init;
 use strict;
 use warnings;
 
-use App::EC2;
-use App::ECR;
-use App::ECS;
-use App::ElbV2;
 use App::FargateStack::Constants;
 use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase log_die);
-use App::Route53;
-use App::STS;
+
 use Carp;
 use Data::Dumper;
 use English qw(no_match_vars);
@@ -53,22 +48,13 @@ sub init {
 
   $self->_init_account;
 
-  my $ec2 = $self->_init_ec2( $config->{vpc_id}, %{ $self->get_global_options } );
+  my $vpc_id = $config->{vpc_id};
 
-  $self->set_ecs(
-    App::ECS->new(
-      ec2 => $ec2,
-      %{ $self->get_global_options },
-    )
-  );
+  my $ec2 = $self->_init_ec2( $vpc_id, %{ $self->get_global_options } );
 
-  my $elb = App::ElbV2->new(
-    vpc_id => $config->{vpc_id},
-    ec2    => $ec2,
-    %{ $self->get_global_options },
-  );
+  $self->fetch_ecs->set_ec2($ec2);
 
-  $self->set_elb($elb);
+  my $elb = $self->fetch_elbv2( vpc_id => $vpc_id, ec2 => $ec2 );
 
   # this will determine if we have an http service defined, configure
   # the ALB if it is not set explicitly and check on required parameters
@@ -110,7 +96,7 @@ sub _init_ec2 {
 
   my $subnets = $config->{subnets};
 
-  my $ec2 = App::EC2->new(
+  my $ec2 = $self->fetch_ec2(
     vpc_id => $config->{vpc_id},
     ( $self->get_cache && $subnets ) ? ( subnets => $subnets ) : (),
     %{ $self->get_global_options },
@@ -212,7 +198,7 @@ sub _init_tasks {
   return
     if $self->get_cache;
 
-  my $ecr = App::ECR->new( $self->get_global_options );
+  my $ecr = $self->fetch_ecr();
 
   $ecr->validate_images(@images);
 
@@ -231,9 +217,7 @@ sub _init_account {
     return;
   }
 
-  my $sts = App::STS->new( profile => $self->get_profile, %{ $self->get_global_options } );
-
-  $self->set_sts($sts);
+  my $sts = $self->fetch_sts();
 
   $self->log_info('init: determining AWS account value...');
 
@@ -308,7 +292,7 @@ sub _init_route53 {
 
   my $command = $self->command;
 
-  my @route53_commands = qw(apply plan list-zones);
+  my @route53_commands = qw(apply plan list-zones delete-http-service);
 
   return
     if none { $command eq $_ } @route53_commands;
@@ -343,14 +327,11 @@ sub _init_route53 {
     }
   );
 
-  my $route53 = App::Route53->new(
+  my $route53 = $self->fetch_route53(
     hosted_zone_id => $zone_id,
-    elb            => $self->get_elb,
-    %{ $self->get_global_options },
-    profile => $profile,
+    elb            => $self->get_elbv2,
+    profile        => $profile,
   );
-
-  $self->set_route53($route53);
 
   return
     if !$self->get_http && $command =~ /apply|plan|list-zones/xsm;

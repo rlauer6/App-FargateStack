@@ -3,6 +3,8 @@ package App::AWS;
 use strict;
 use warnings;
 
+use App::FargateStack::Constants;
+use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
 use List::Util qw(none);
@@ -60,6 +62,42 @@ sub command {
   }
 
   return $obj ? $obj : $result;
+}
+
+########################################################################
+sub check_result {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my $msg    = $args{message} // 'Operation failed';
+  my $params = $args{params} || [];
+  my $regexp = $args{regexp};
+
+  my $croak = $args{croak} // $TRUE;
+
+  my $result = $self->get_last_result;
+  my $err    = $self->get_error // q{};
+
+  return $TRUE
+    if $result;
+
+  # Accept either a qr// or a plain string for regexp
+  if ( defined $regexp && ref $regexp ne 'Regexp' ) {
+    $regexp = qr/$regexp/xsm;
+  }
+
+  return $FALSE
+    if $regexp && $err && $err =~ $regexp;
+
+  my $base_msg = sprintf $msg, @$params;
+  my $full_msg = $base_msg . "\n$err";
+
+  croak $full_msg
+    if $croak;
+
+  $self->log_warn($full_msg);
+
+  return $FALSE;
 }
 
 1;

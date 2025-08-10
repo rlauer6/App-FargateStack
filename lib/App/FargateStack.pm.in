@@ -490,7 +490,7 @@ sub cmd_remove_service {
 
   my ( $task_name, $err ) = $self->get_default_service_name();
 
-  croak "usage: %s delete-service task-name\n", $ENV{SCRIPT_NAME}
+  croak "usage: %s remove-service task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name || $err;
 
   my ( $config, $cluster ) = $self->common_args(qw(config cluster));
@@ -1225,8 +1225,9 @@ sub main {
     config_name
     ec2
     ecs
+    ecr
     efs
-    elb
+    elbv2
     events
     existing_resources
     http

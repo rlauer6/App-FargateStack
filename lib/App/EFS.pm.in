@@ -28,4 +28,18 @@ sub describe_file_systems {
   );
 }
 
+########################################################################
+sub describe_mount_targets {
+########################################################################
+  my ( $self, $efs_id, $query ) = @_;
+
+  return $self->command(
+    'describe-mount-targets' => [
+      '--file-system-id' => $efs_id,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
+
+}
+
 1;

@@ -35,11 +35,9 @@ sub display_hosted_zones {
 ########################################################################
   my ( $self, $domain ) = @_;
 
-  if ( !$self->get_route53 ) {
-    $self->set_route53( App::Route53->new( $self->get_global_options ) );
-  }
+  my $route53 = $self->fetch_route53;
 
-  my $hosted_zones = $self->get_route53->list_hosted_zones;
+  my $hosted_zones = $route53->list_hosted_zones;
 
   return
     if !$hosted_zones || !@{ $hosted_zones->{HostedZones} };

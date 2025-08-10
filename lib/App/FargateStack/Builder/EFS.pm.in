@@ -96,7 +96,6 @@ sub add_efs_policy {
     ],
     Resource => \@efs_arns,
   };
-
 }
 
 1;

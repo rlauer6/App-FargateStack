@@ -19,16 +19,19 @@ Readonly::Scalar our $EMPTY => q{};
 Readonly::Scalar our $SPACE => q{ };
 Readonly::Scalar our $DASH  => q{-};
 
-Readonly::Scalar our $DEFAULT_CPU_SIZE           => 256;
-Readonly::Scalar our $DEFAULT_MEMORY_SIZE        => 512;
-Readonly::Scalar our $DEFAULT_PORT               => 80;
-Readonly::Scalar our $DEFAULT_RULE_ID            => '1';
-Readonly::Scalar our $DEFAULT_LOG_RETENTION_DAYS => 14;
-Readonly::Scalar our $DEFAULT_ECS_POLL_TIME      => 5;
-Readonly::Scalar our $DEFAULT_LOG_POLL_TIME      => 5;
-Readonly::Scalar our $DEFAULT_ECS_POLL_LIMIT     => 5 * 60 * 60;  # 5m
-Readonly::Scalar our $ACM_REQUEST_SLEEP_TIME     => 5;
-Readonly::Scalar our $IAM_POLICY_VERSION         => '2012-10-17';
+Readonly::Scalar our $DEFAULT_CPU_SIZE            => 256;
+Readonly::Scalar our $DEFAULT_MEMORY_SIZE         => 512;
+Readonly::Scalar our $DEFAULT_PORT                => 80;
+Readonly::Scalar our $DEFAULT_EFS_PORT            => 2049;
+Readonly::Scalar our $DEFAULT_RULE_ID             => '1';
+Readonly::Scalar our $DEFAULT_LOG_RETENTION_DAYS  => 14;
+Readonly::Scalar our $DEFAULT_ECS_POLL_TIME       => 5;
+Readonly::Scalar our $DEFAULT_LOG_POLL_TIME       => 5;
+Readonly::Scalar our $DEFAULT_ECS_POLL_LIMIT      => 5 * 60 * 60;  # 5m
+Readonly::Scalar our $DEFAULT_ALB_MAX_TRIES       => 120;
+Readonly::Scalar our $DEFAULT_ALB_POLL_SLEEP_TIME => 5;
+Readonly::Scalar our $ACM_REQUEST_SLEEP_TIME      => 5;
+Readonly::Scalar our $IAM_POLICY_VERSION          => '2012-10-17';
 
 Readonly::Scalar our $EFS_ARN_TEMPLATE             => 'arn:aws:elasticfilesystem:%s:%s:file-system/%s';
 Readonly::Scalar our $TASK_DEFINITION_ARN_TEMPLATE => 'arn:aws:ecs:%s:%s:task-definition/%s:*';
@@ -116,6 +119,12 @@ Readonly::Hash our %DEFAULT_NAMES => (
     my $app_name = $self->get_config->{app}->{name};
     return sprintf '%s-tg', $app_name;
   },
+  'cluster-name' => sub {
+    my ($self) = @_;
+
+    my $app_name = $self->get_config->{app}->{name};
+    return sprintf '%s-cluster', $app_name;
+  },
   'alb-name' => sub {
     my ($self) = @_;
 
@@ -147,8 +156,7 @@ Readonly::Scalar our $QUEUE_ATTRIBUTES => App::FargateStack::Builder::Utils::ToC
   ],
 );
 
-Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL =>
-  'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
+Readonly::Scalar our $EVENT_SCHEDULER_TYPE_URL => 'https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html';
 
 Readonly::Hash our %AWS_SERVICE_DOMAINS => (
   events => 'events.amazonaws.com',
@@ -296,9 +304,12 @@ our @EXPORT = (
     $DEFAULT_LOG_POLL_TIME
     $DEFAULT_ECS_POLL_TIME
     $DEFAULT_ECS_POLL_LIMIT
+    $DEFAULT_EFS_PORT
     $DEFAULT_MEMORY_SIZE
     $DEFAULT_PORT
     $DEFAULT_RULE_ID
+    $DEFAULT_ALB_MAX_TRIES
+    $DEFAULT_ALB_POLL_SLEEP_TIME
     %DEFAULT_NAMES
     %ECS_TASK_PROFILES
     %ECS_TASK_PROFILE_TYPES

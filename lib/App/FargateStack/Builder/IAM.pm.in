@@ -9,7 +9,7 @@ use Data::Compare;
 use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die choose);
+use App::FargateStack::Builder::Utils;
 use Text::Diff;
 use JSON;
 
@@ -257,25 +257,6 @@ sub create_role {
   }
 
   return $role_name;
-}
-
-########################################################################
-sub fetch_iam {
-########################################################################
-  my ($self) = @_;
-
-  require App::IAM;
-
-  my $iam = $self->get_iam;
-
-  return $iam
-    if $iam;
-
-  $iam = App::IAM->new( $self->get_global_options );
-
-  $self->set_iam($iam);
-
-  return $iam;
 }
 
 1;

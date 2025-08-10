@@ -413,6 +413,27 @@ sub create_security_group {
 }
 
 ########################################################################
+sub revoke_security_group_ingress {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $group_id, $port, $protocol, $source_group ) = @args{qw(group_id port protocol source_group)};
+
+  $protocol //= 'tcp';
+  $port     //= '80';
+
+  return $self->command(
+    'revoke-security-group-ingress' => [
+      '--group-id'     => $group_id,
+      '--port'         => $port,
+      '--protocol'     => $protocol,
+      '--source-group' => $source_group,
+    ]
+  );
+
+}
+
+########################################################################
 sub authorize_security_group_ingress {
 ########################################################################
   my ( $self, %args ) = @_;
@@ -451,6 +472,27 @@ sub validate_subnets {
   }
 
   return;
+}
+
+########################################################################
+sub delete_security_group {
+########################################################################
+  my ( $self, $security_group_id ) = @_;
+
+  return $self->command( 'delete-security-group' => [ '--group-id' => $security_group_id ] );
+}
+
+########################################################################
+sub describe_network_interfaces {
+########################################################################
+  my ( $self, $eni_list, $query ) = @_;
+
+  return $self->command(
+    'describe-network-interfaces' => [
+      '--network-interface-ids' => ( ref $eni_list ? @{$eni_list} : $eni_list ),
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
 }
 
 1;

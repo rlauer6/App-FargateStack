@@ -33,8 +33,7 @@ sub build_http_service {
   my $ec2 = $self->get_ec2;
 
   if ( $ec2->is_sg_authorized( $fargate_sg, $alb_sg ) ) {
-    $self->log_info(
-      q{http-service:security-group-ingress: ALB's security group: [%s] already authorized...skipping},
+    $self->log_info( q{http-service:security-group-ingress: ALB's security group: [%s] already authorized...skipping},
       $alb_sg );
   }
   else {
@@ -65,15 +64,13 @@ sub attach_certificate {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun, $alb ) = $self->common_args(qw(config dryrun alb));
 
   my $domain = $config->{domain};
 
-  my $alb_arn = $config->{alb}->{arn};
+  my $alb_arn = $alb->{arn};
 
-  my $elb = $self->get_elb;
+  my $elb = $self->fetch_elbv2;
 
   if ( !$alb_arn || $alb_arn =~ /[?]{3}/xsm ) {
     $self->log_warn('http-service: no ALB created yet, cannot attach certificate');
@@ -110,8 +107,7 @@ sub attach_certificate {
 
   my $result = $elb->add_listener_certificate( $listener_arn, $certificate_arn );
 
-  log_die( $self, "ERROR: could not add certificate [%s] to ALB [%s]\n%s",
-    $certificate_arn, $alb_arn, $elb->get_error )
+  log_die( $self, "ERROR: could not add certificate [%s] to ALB [%s]\n%s", $certificate_arn, $alb_arn, $elb->get_error )
     if !$result;
 
   $self->log_warn( 'http-service: successfully added certificate for [%s] to ALB', $domain );
@@ -124,7 +120,7 @@ sub fetch_listeners_by_port {
 ########################################################################
   my ( $self, $alb_arn ) = @_;
 
-  my $elb = $self->get_elb;
+  my $elb = $self->get_elbv2;
 
   my $listeners = $elb->describe_listeners( $alb_arn, q{Listeners} );
 
@@ -138,7 +134,7 @@ sub create_listeners {
 
   my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
-  my $elb = $self->get_elb;
+  my $elb = $self->get_elbv2;
 
   my ( $alb_arn, $alb_type, $alb_port, $alb_redirect ) = @{ $config->{alb} }{qw(arn type port redirect_80)};
 
@@ -236,8 +232,7 @@ sub create_listeners {
 
     my $priority = @priorities ? $priorities[-1] + 1 : 100;
 
-    $self->log_warn( 'http-service: listener rule for [%s] on port: [%s] will be created...%s',
-      $domain, $port, $dryrun );
+    $self->log_warn( 'http-service: listener rule for [%s] on port: [%s] will be created...%s', $domain, $port, $dryrun );
 
     $self->inc_required_resources(
       listener_rules => [
@@ -279,7 +274,7 @@ sub create_target_group {
 
   my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
-  my $elb = $self->get_elb;
+  my $elb = $self->get_elbv2;
 
   # we would not be here unless we have an HTTP service
   my $task_name = $self->get_http;
@@ -368,26 +363,20 @@ sub create_alb {
 
   my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
-  my $elb = $self->get_elb();
+  my $elb = $self->fetch_elbv2();
 
   # if we have defined on in the config, verify
   if ( $config->{alb}->{arn} ) {
     my $alb = $elb->describe_load_balancer( $config->{alb}->{arn} );
 
-    log_die(
-      $self,
-      "ERROR: could not describe load balancer: [%s]\n%s",
-      $config->{alb}->{arn},
-      $elb->get_error
-    ) if !$alb;
+    log_die( $self, "ERROR: could not describe load balancer: [%s]\n%s", $config->{alb}->{arn}, $elb->get_error ) if !$alb;
 
     $alb = $alb->{LoadBalancers}->[0];
     $self->set_alb($alb);
 
     $self->log_trace( sub { return Dumper( [ alb => $alb ] ); } );
 
-    $self->log_info( 'http-service: load balancer [%s] defined in config and verified...skipping',
-      $alb->{LoadBalancerName} );
+    $self->log_info( 'http-service: load balancer [%s] defined in config and verified...skipping', $alb->{LoadBalancerName} );
 
     $self->inc_existing_resources( alb => $alb->{LoadBalancerArn} );
 
@@ -420,8 +409,7 @@ sub create_alb {
 
     if ( !$alb_sg ) {
       $alb_sg = $security_groups->[0];
-      $self->log_warn(
-        'http-service: could not find a security group for ALB [%s] with 443 ingress, using [%s]',
+      $self->log_warn( 'http-service: could not find a security group for ALB [%s] with 443 ingress, using [%s]',
         $alb->{LoadBalancerName}, $alb_sg );
     }
 
@@ -438,8 +426,7 @@ sub create_alb {
   if ( !$self->get_create_alb && !$config->{alb}->{create} ) {
     my $alb_type = $config->{alb}->{type};
 
-    $self->log_warn( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB',
-      $alb_type );
+    $self->log_warn( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB', $alb_type );
 
     my ( $alb_arn, $security_group_id ) = eval { return $elb->find_alb($alb_type); };
 
@@ -479,13 +466,12 @@ sub create_alb {
 
       my $query = sprintf 'LoadBalancers[?LoadBalancerArn == `%s`]|[0].SecurityGroups', $alb_arn;
 
-      my $alb_security_groups = $elb->describe_load_balancers($query);
+      my $alb_security_groups = $elb->describe_load_balancers( query => $query );
 
       my $fargate_sg = $config->{security_groups}->{fargate}->{group_id} // 'not-provisioned-yet';
 
       if ( none { $_ eq $fargate_sg } @{$alb_security_groups} ) {
-        $self->log_warn( 'http-service: will add security group %s to load balancer...%s',
-          $fargate_sg, $dryrun );
+        $self->log_warn( 'http-service: will add security group %s to load balancer...%s', $fargate_sg, $dryrun );
 
         if ( !$dryrun ) {
           $elb->set_security_groups( $alb_arn, @{$alb_security_groups}, $fargate_sg );
@@ -501,8 +487,7 @@ sub create_alb {
 
   # create an alb
   if ( $self->get_create_alb || $config->{alb}->{create} ) {
-    $self->log_warn( 'http-service: ALB creation forced by configuration or option...will be created...%s',
-      $dryrun );
+    $self->log_warn( 'http-service: ALB creation forced by configuration or option...will be created...%s', $dryrun );
   }
   else {
     $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
@@ -596,7 +581,7 @@ sub create_alias {
 
   my $alb_arn = $config->{alb}->{arn};
 
-  my $elb = $self->get_elb;
+  my $elb = $self->get_elbv2;
 
   my $alb = $elb->describe_load_balancer( $alb_arn, 'LoadBalancers[0]' );
 
@@ -618,8 +603,7 @@ sub create_alias {
   return
     if $dryrun;
 
-  log_die( $self, "ERROR: could not determine if an alias record exist for [%s]\n%s",
-    $domain, $route53->get_error )
+  log_die( $self, "ERROR: could not determine if an alias record exist for [%s]\n%s", $domain, $route53->get_error )
     if !$result;
 
   $result = $route53->create_alias(

@@ -104,7 +104,7 @@ sub get_alb_subnets {
 
   my $query = 'LoadBalancers[].AvailabilityZones[].SubnetId';
 
-  my $subnet_ids = $elb->describe_load_balancers( $query, $alb_arn );
+  my $subnet_ids = $elb->describe_load_balancers( query => $query, arn => $alb_arn );
 
   return @{$subnet_ids};
 }

@@ -147,10 +147,12 @@ sub describe_rules {
 ########################################################################
 sub describe_load_balancers {
 ########################################################################
-  my ( $self, $query, $arn ) = @_;
+  my ( $self, %args ) = @_;
 
-  return $self->command( 'describe-load-balancers' =>
-      [ $arn ? ( '--load-balancer-arns' => $arn ) : (), $query ? ( '--query' => $query ) : (), ] );
+  my ( $query, $arn ) = @args{qw(query arn)};
+
+  return $self->command(
+    'describe-load-balancers' => [ $arn ? ( '--load-balancer-arns' => $arn ) : (), $query ? ( '--query' => $query ) : (), ] );
 }
 
 ########################################################################
@@ -163,12 +165,20 @@ sub delete_load_balancer {
 }
 
 ########################################################################
+sub delete_target_group {
+########################################################################
+  my ( $self, $target_group_arn, $query ) = @_;
+
+  return $self->command(
+    'delete-target-group' => [ '--target-group-arn' => $target_group_arn, $query ? ( '--query' => $query ) : (), ] );
+}
+
+########################################################################
 sub delete_rule {
 ########################################################################
   my ( $self, $rule_arn, $query ) = @_;
 
-  return $self->command(
-    'delete-rule' => [ '--rule-arn' => $rule_arn, $query ? ( '--query' => $query ) : (), ] );
+  return $self->command( 'delete-rule' => [ '--rule-arn' => $rule_arn, $query ? ( '--query' => $query ) : (), ] );
 }
 
 ########################################################################
@@ -253,7 +263,7 @@ sub _find_alb_of_type {
 
   my $query = sprintf 'LoadBalancers[?Scheme == `%s` && VpcId == `%s`]', $type, $vpc_id;
 
-  my $albs = $self->describe_load_balancers($query);
+  my $albs = $self->describe_load_balancers( query => $query );
 
   $self->get_logger->debug( Dumper( [ albs => $albs ] ) );
 
@@ -292,8 +302,7 @@ sub create_rule {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ( $listener_arn, $priority, $conditions, $default_action )
-    = @args{qw(listener_arn priority conditions default_action)};
+  my ( $listener_arn, $priority, $conditions, $default_action ) = @args{qw(listener_arn priority conditions default_action)};
 
   return $self->command(
     'create-rule' => [
@@ -317,7 +326,7 @@ sub validate_alb {
 
   my $query = sprintf 'LoadBalancers[?LoadBalancerArn == `%s` && Scheme == `%s`]', $alb_arn, $scheme;
 
-  my $albs = $self->describe_load_balancers($query);
+  my $albs = $self->describe_load_balancers( query => $query );
 
   croak "ERROR: unable to find ALB: %s\n%s", $alb_arn, $self->get_error
     if !$albs;

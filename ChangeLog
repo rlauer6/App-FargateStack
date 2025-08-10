@@ -1,3 +1,86 @@
+Sun Aug 10 08:24:22 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.23]:
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(check_result): new
+	* lib/App/EC2.pm.in
+	(revoke_security_group_ingress): new
+	(delete_security_group): new
+	* lib/App/ECS.pm.in
+	(delete_cluster): new
+	* lib/App/EFS.pm.in
+	(describe_mount_targets): new
+	* lib/App/ElbV2.pm.in
+	(delete_target_group): new
+	(describe_rules): refactoring
+	(describe_load_balancers): take k/v/ pairs now
+	(_find_alb_of_type): describe_load_balancers signature change
+	(validate_alb): likewise
+	* lib/App/FargateStack.pm.in
+	(cmd_remove_service): fix usage message
+	(main): +elbv2, -elb, +ecr
+	* lib/App/FargateStack/Builder.pm.in
+	(remove_listener_rules)
+	- elbv2, don't need target arn, use domain
+	- make conditional more obvious (check domain)
+	(delete_task_resources)
+	- refactore, debugged
+	(is_our_alb): must pass alb_arn, tg_arn now
+	(remove_alb): removed
+	(remove_alias_record)
+	- refactoring
+	- describe_load_balancers signature change
+	- #JSON::false, not 'false'
+	(_delete_service): new
+	(_delete_task_definitions): new
+	(_delete_scheduled_task): new
+	(_delete_roles): new
+	(_delete_http): new
+	(_delete_log_group): new
+	(_delete_target_group): new
+	(_delete_cluster): new
+	(_delete_security_group): new
+	(_delete_alias_record): new
+	(wait_for_alb_delete): new
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(attach_certificate):
+	- fetch_elbv2, not get_elb
+	- refactoring
+	(create_listeners): likewise
+	(create_target_group): likewise
+	(create_alias): likewise
+	(create_alb)
+	- likewise
+	- describe_load_balancers signature change
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	- removed fetch_iam()
+	* lib/App/FargateStack/Builder/Service.pm.in
+	- describe_load_balancers signature change
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_cli_api): new
+	(fetch_*): new
+	(is_service_running)
+	- need to check runningCount
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_EFS_PORT, $DEFAULT_ALB_MAX_TRIES, $DEFAULT_ALB_POLL_SLEEPT_TIME
+	(%DEFAULT_NAMES): + cluster-name
+	* lib/App/FargateStack/Init.pm.in
+	(init): refactoring, fetch_*
+	(_init_ec2): likewise
+	(_init_tasks): likewise
+	(_init_account): likewise
+	(_init_route53)
+	* lib/App/FargateStack/Route53.pm.in
+	(display_hosted_zones): use fetch_route53
+	* lib/App/IAM.pm.in
+	(delete_role): new
+	* lib/App/Logs.pm.in
+	(delete_log_group): new
+	* lib/App/Route53.pm.in
+	- + elbv2, -elb
+	(create_alias): fetch_elbv2
+
 Fri Aug  8 06:33:14 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.22]:
