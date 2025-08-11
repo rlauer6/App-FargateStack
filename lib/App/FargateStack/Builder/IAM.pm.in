@@ -36,23 +36,20 @@ sub build_iam_role {
   my $role_name = $self->create_fargate_role();
 
   my $policy_name = $role->{policy_name} // $self->create_default( 'policy-name', 'ecs' );
-  $role->{policy_name} = $policy_name;
 
   ######################################################################
   # create policy - see if policy needs to be created or updated
   ######################################################################
-  my ( $policy, $role_policy );
-
   # if we turned caching off OR we don't have an ARN yet, check to see
   # if the policy exists
-  if ( !$cache || !$role->{arn} ) {
-    $role->{arn} = $EMPTY;
-    $policy = $iam->get_role_policy( $role_name, $policy_name );
 
-    log_die( $self, "ERROR: could not get role policy: [%s] for role [%s]\n%s\n",
-      $policy_name, $role_name, $iam->get_error )
-      if !$policy && $iam->get_error !~ /cannot\sbe\sfound/xsm;
-  }
+  my $policy = $iam->get_role_policy( $role_name, $policy_name );
+
+  $iam->check_result(
+    message => 'ERROR: could not get role policy: [%s] for role [%s]',
+    params  => [ $policy_name, $role_name ],
+    regexp  => qr/cannot\sbe\sfound/xsmi
+  );
 
   $self->log_trace(
     sub {
@@ -65,23 +62,11 @@ sub build_iam_role {
     }
   );
 
-  # if the policy exists OR we don't yet have an ARN we need to create
-  # the policy
-  if ( !$policy || !$role->{arn} ) {
-    $role_policy = $self->create_fargate_policy;
-  }
+  my $role_policy = $self->create_fargate_policy;
 
   my $policy_exists = $FALSE;
 
-  # if we don't have a policy object but we have an ARN then the
-  # policy is asssumed to exist
-  if ( !$policy && $role->{arn} ) {
-    $policy_exists = 1;
-  }
-  # if the policy exists and we fabricated a new policy, we need to
-  # compare them, -1 will indicate the policy exists but needs to be
-  # updated
-  elsif ( $policy && $role_policy ) {
+  if ($policy) {
     $policy_exists = Compare( $policy, $role_policy ) ? 1 : -1;
   }
 
@@ -126,6 +111,8 @@ sub build_iam_role {
   $self->log_warn( 'iam:policy: creating policy [%s] for role [%s]...', $policy_name, $role_name );
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
+
+  $config->{role}->{policy_name} = $policy_name;
 
   $self->log_trace( sub { return Dumper( [ 'iam:policy' => $role_policy ] ); } );
 

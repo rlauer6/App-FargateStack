@@ -118,7 +118,8 @@ $(TARBALL): buildspec.yml $(TARBALL_DEPS)
 	make-cpan-dist.pl -b $<
 
 README.pod: lib/App/FargateStack/Pod.pm
-	perldoc -u $< | perl -npe 's/^=head1/ \@TOC_BACK\@\n\n=head1/' > $@
+	VERSION=$$(cat VERSION); \
+	perldoc -u $< | sed 's/[@]PACKAGE_VERSION[@]/$$VERSION/' | perl -npe 's/^=head1/ \@TOC_BACK\@\n\n=head1/' > $@
 
 packages:
 	tmpfile=$$(mktemp); \

@@ -92,6 +92,8 @@ sub show_config {
 
   my $subnets = $self->get_subnets;
 
+  my $dryrun = $self->command eq 'plan' ? '(dryrun)' : $self->get_dryrun;
+
   $self->section_break;
 
   $self->log_info( '           account: [%s]', $self->get_account );
@@ -119,7 +121,7 @@ sub show_config {
   $self->log_info( '         log level: [%s]', $self->get_log_level // 'info' );
   $self->log_info( '             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
   $self->log_warn( '     update config: [%s]', $self->get_update ? 'yes' : 'no' );
-  $self->log_warn( '            dryrun: [%s]', $self->get_dryrun ? 'yes' : 'no' );
+  $self->log_warn( '            dryrun: [%s]', $dryrun           ? 'yes' : 'no' );
 
   return;
 }
@@ -1292,12 +1294,12 @@ sub main {
     'delete-schedule'        => \&cmd_delete_schedule,
     'delete-daemon'          => \&cmd_delete_daemon,
     'delete-task'            => \&cmd_delete_task,
-    'delete-service'         => \&cmd_remove_service,
+    'delete-service'         => [ \&cmd_remove_service, 'info' ],
     'delete-http-service'    => \&cmd_delete_http_service,
     'list-tasks'             => [ \&cmd_list_tasks, 'error' ],
     'list-zones'             => [ \&cmd_list_zones, 'error' ],
     'register-task'          => \&cmd_register_task_definition,
-    'remove-service'         => [ \&cmd_remove_service, 'error' ],
+    'remove-service'         => [ \&cmd_remove_service, 'info' ],
     'reset-history'          => [ \&cmd_reset_history,  'info', { init => $FALSE } ],
     'run-task'               => \&cmd_run_task,
     'start-service'          => [ \&cmd_update_service, 'info' ],

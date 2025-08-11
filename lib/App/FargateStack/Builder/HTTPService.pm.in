@@ -182,12 +182,12 @@ sub create_listeners {
     if ( !$listeners_by_port{$port} ) {
       $self->log_warn( 'http-service: listener for port [%s] will be created...%s', $port, $dryrun );
 
-      $self->inc_resource_required(
+      $self->inc_required_resources(
         listeners => [
           sub {
             my ($dryrun) = @_;
 
-            return $dryrun ? 'arn:???' : $self->get_listener_by_port( $alb_arn, $port );
+            return $dryrun ? 'arn:???' : $self->get_listeners_by_port( $alb_arn, $port );
           }
         ]
       );
@@ -197,9 +197,11 @@ sub create_listeners {
           alb_arn         => $alb_arn,
           port            => $port,
           default_actions => $default_actions{$port},
-          query           => 'Listeners',
+          query           => 'Listeners[0]',
           $needs_cert ? ( certificate_arn => $config->{certificate_arn} ) : (),
         );
+
+        $elb->check_result( message => 'ERROR: could not create listener for port: [%s]', $port );
       }
     }
     else {
@@ -216,6 +218,14 @@ sub create_listeners {
   foreach my $port (@ports) {
 
     my $listener = $listeners_by_port{$port};
+
+    $self->log_debug(
+      Dumper(
+        [ listener => $listener,
+          port     => $port
+        ]
+      )
+    );
 
     my $rules = $elb->fetch_rules_by_domain( $domain, $listener->{ListenerArn} );
 
@@ -367,10 +377,12 @@ sub create_alb {
 
   if ( !$alb ) {
     $alb = $config->{alb} = {};
+    $config->{alb} = $alb;
   }
 
   if ( !$security_groups ) {
     $security_groups = $config->{security_groups} = {};
+    $config->{security_groups} = $security_groups;
   }
 
   my $elb = $self->fetch_elbv2();
@@ -378,6 +390,7 @@ sub create_alb {
 
   # if we have defined one in the config, verify
   if ( my $alb_arn = $alb->{arn} ) {
+
     my $alb_info = $elb->describe_load_balancer( $alb_arn, 'LoadBalancers[0]' );
     $elb->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
 
@@ -511,18 +524,21 @@ sub create_alb {
   $self->inc_required_resources(
     alb => sub {
       my ($dryrun) = @_;
-      return $dryrun ? "arn:???/$alb_name" : $config->{alb}->{arn};
+      return $dryrun ? "arn:???/$alb_name" : $alb->{arn};
     }
   );
 
   if ( !$dryrun ) {
+    $elb->set_tags( { CreatedBy => 'FargateStack' } );
+
     my $alb_info = $elb->create_load_balancer(
       name            => $alb_name,
       subnets         => $subnets,
+      scheme          => $alb_type eq 'public' ? 'internet-facing' : 'internal',
       security_groups => [$alb_sg]
     );
 
-    $elb->check_result( message => 'ERROR: could not create load balancer: [%s]', params => $alb_name );
+    $elb->check_result( message => 'ERROR: could not create load balancer: [%s]', $alb_name );
 
     $alb->{arn} = $alb_info->{LoadBalancers}->[0]->{LoadBalancerArn};
 
@@ -537,34 +553,59 @@ sub create_alb_security_group {
 ########################################################################
   my ($self) = @_;
 
-  my ( $config, $dryrun, $app ) = $self->common_args(qw(config dryrun app));
+  my ( $config, $dryrun, $app, $security_groups ) = $self->common_args(qw(config dryrun app security_groups));
+  $security_groups //= {};
+  $config->{security_groups} = $security_groups;
 
   # create security groups
   my $ec2 = $self->fetch_ec2;
 
   my $sg_name = $self->create_default('alb-security-group-name');
-  $self->inc_required_resources( security_groups => [$sg_name] );
 
-  $self->log_info( 'http-service: ALB security group [%s] will be created...%s', $sg_name, $dryrun );
+  my $query  = sprintf 'SecurityGroups[?GroupName == `%s`].{group_id: GroupId}', $sg_name;
+  my $result = $ec2->describe_security_group( $sg_name, $query );
+  $ec2->check_result( message => 'ERROR: could not describe security group: [%s]', $sg_name );
 
-  my $sg_description = sprintf 'allow in-bound 443 & 80 to %s-alb', $app->{name};
+  $self->log_debug( [ result => $result, error => $ec2->get_error ] );
 
-  return
-    if $dryrun;
-
-  my $sg = $ec2->create_security_group( $sg_name, $sg_description );
-
-  $config->{security_groups}->{alb}->{group_id} = $sg->{GroupId};
-
-  foreach my $port (qw(80 443)) {
-    $ec2->authorize_security_group_ingress(
-      group_id => $sg->{GroupId},
-      port     => $port,
-      cidr     => '0.0.0.0/0',
-    );
+  if ( !$result ) {
+    $self->inc_required_resources( security_groups => [$sg_name] );
+    $self->log_info( 'http-service: ALB security group [%s] will be created...%s', $sg_name, $dryrun );
+  }
+  else {
+    $self->log_info( 'http-service: ALB security group [%s] exists...skipping', $sg_name );
   }
 
-  return $sg->{GroupId};
+  my $sg = $result->{group_id};
+
+  my @allow_ports = ( $config->{alb}->{port}, $config->{alb}->{redirect_80} ? 80 : () );
+
+  if ( !$sg && !$dryrun ) {
+    my $sg_description = sprintf 'allow in-bound port(s): [%s] to %s-alb', join( q{,}, @allow_ports ), $app->{name};
+
+    $sg = $ec2->create_security_group( $sg_name, $sg_description );
+    $ec2->check_result( message => 'ERROR: could not create security group: [%s]', $sg_name );
+
+    $security_groups->{alb}->{group_id} = $sg;
+  }
+  else {
+    $sg = 'sg-????';
+  }
+
+  $self->log_info( 'http-service: authorizing ingress for [%s] on port(s): [%s]...%s',
+    $sg, join( q{, }, @allow_ports ), $dryrun );
+
+  if ( !$dryrun ) {
+    foreach my $port (@allow_ports) {
+      $ec2->authorize_security_group_ingress(
+        group_id => $sg,
+        port     => $port,
+        cidr     => '0.0.0.0/0',
+      );
+    }
+  }
+
+  return $sg;
 }
 
 ########################################################################
@@ -584,24 +625,27 @@ sub create_alias {
   my $route53 = $self->fetch_route53;
 
   my $alb_arn = $config->{alb}->{arn};
+  my $elb     = $self->fetch_elbv2;
+  my ( $alb_dns_name, $alb_zone_id );
 
-  my $elb = $self->fetch_elbv2;
+  if ($alb_arn) {
 
-  my $alb = $elb->describe_load_balancer( $alb_arn, 'LoadBalancers[0]' );
+    my $alb = $elb->describe_load_balancer( $alb_arn, 'LoadBalancers[0]' );
 
-  my ( $alb_dns_name, $alb_zone_id ) = @{$alb}{qw(DNSName CanonicalHostedZoneId)};
+    ( $alb_dns_name, $alb_zone_id ) = @{$alb}{qw(DNSName CanonicalHostedZoneId)};
 
-  my $result = $route53->find_alias_record(
-    zone_id     => $zone_id,
-    dns_name    => $alb_dns_name,
-    domain_name => $domain
-  );
+    my $result = $route53->find_alias_record(
+      zone_id     => $zone_id,
+      dns_name    => $alb_dns_name,
+      domain_name => $domain
+    );
 
-  $route53->check_result( message => 'ERROR: could not determine if an alias record exists for: [%s]', $domain );
+    $route53->check_result( message => 'ERROR: could not determine if an alias record exists for: [%s]', $domain );
 
-  if ( $result && @{$result} ) {
-    $self->log_info( 'http-service: alias record for [%s] exists...skipping', $domain );
-    return;
+    if ( $result && @{$result} ) {
+      $self->log_info( 'http-service: alias record for [%s] exists...skipping', $domain );
+      return;
+    }
   }
 
   $self->log_warn( 'route53: alias for [%s] will be created...%s', $domain, $dryrun );
@@ -610,7 +654,10 @@ sub create_alias {
   return
     if $dryrun;
 
-  $result = $route53->create_alias(
+  log_die( $self, 'ERROR: ALB has not been created yet?' )
+    if !$alb_dns_name || !$alb_zone_id;
+
+  my $result = $route53->create_alias(
     elb          => $elb,
     domain       => $domain,
     zone_id      => $zone_id,
@@ -623,6 +670,19 @@ sub create_alias {
   $self->log_warn( 'http-service: successfully create alias record for [%s]', $domain );
 
   return;
+}
+
+########################################################################
+sub get_listeners_by_port {
+########################################################################
+  my ( $self, $alb_arn ) = @_;
+
+  my $elb = $self->fetch_elbv2;
+
+  my $listeners = $elb->describe_listeners( $alb_arn, 'Listeners' );
+  $elb->check_result( message => 'ERROR: could not describe listeners for: [%s]', $alb_arn );
+
+  return map { $_->{Port} => $_->{ListenerArn} } @{$listeners};
 }
 
 1;

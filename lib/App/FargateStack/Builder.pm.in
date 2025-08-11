@@ -41,7 +41,7 @@ sub build {
     }
   }
 
-  $self->log_info( 'beginging %s phase...', $dryrun ? 'plan' : 'apply' );
+  $self->log_info( 'beginning %s phase...', $dryrun ? 'plan' : 'apply' );
   $self->section_break;
 
   # -- task definitions --
@@ -552,7 +552,7 @@ sub _delete_task_definitions {
       croak "ERROR: could not delete all task definitions\n"
         if @{$task_definitions};
 
-      delete $tasks->{$task_name}->{task_definition_arn};
+      delete $tasks->{$task_name}->{arn};
     }
   }
   else {
@@ -628,9 +628,9 @@ sub _delete_roles {
 
     foreach my $r (@roles) {
       my $role = $config->{$r};
-      my ( $role_name, $policy_name ) = @{$role}{qw(name policy_name)};
+      my ( $role_arn, $role_name, $policy_name ) = @{$role}{qw(arn name policy_name)};
 
-      if ( !defined $role_name ) {
+      if ( !defined $role_name && !defined $role_arn ) {
         $self->log_warn('iam: role not defined in configuration...skipping deletion');
         delete $role->{arn};
         next;
@@ -680,9 +680,11 @@ sub _delete_log_group {
 
   my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
 
-  my $log_group = $tasks->{$task_name}->{log_group}->{name};
+  my $task = $tasks->{$task_name};
 
-  if ( !$log_group ) {
+  my ( $log_group, $log_group_arn ) = @{ $task->{log_group} }{qw(name arn)};
+
+  if ( !$log_group && !$log_group_arn ) {
     $self->log_warn('logs: log group not defined in configuration file...skipping deletion');
     return;
   }
@@ -695,6 +697,9 @@ sub _delete_log_group {
   }
 
   my $logs = $self->fetch_logs();
+  if ( !$log_group ) {
+    $log_group = ( split /:/xsm, $log_group_arn )[-1];
+  }
 
   $self->log_warn( 'logs: log group: [%s] will be deleted...%s', $log_group, $dryrun );
 
@@ -837,9 +842,18 @@ sub _delete_http {
   ####################################################################
   # -- remove ALB if it was provisioned by App::FargateStack
   ####################################################################
+
+  if ( !$self->alb_exists($alb_arn) ) {
+    delete $config->{alb}->{arn};
+    $self->log_warn( 'elbv2: ALB: [%s] does not exists...skipping deletion', $alb_arn );
+    return;
+  }
+
   my $is_our_alb = $self->is_our_alb( $alb_arn, $target_group_arn );
 
   if ( !$is_our_alb ) {
+    $self->log_warn('elbv2: ALB was not provisioned by App::FargateStack...only deleting listerner rules.');
+
     my $confirmed = $confirm_all ? confirm( 'elbv2: delete listener rules on ALB: [%s]?', $alb_arn ) : $TRUE;
 
     if ($confirmed) {
@@ -878,10 +892,23 @@ sub _delete_http {
       # -- remove security group
       ####################################################################
       $self->log_warn( 'elbv2: security group for ALB on task: [%s] will be removed...%s', $task_name, $dryrun );
-      $ec2->delete_security_group($alb_sg);
+      $ec2->revoke_security_group_ingress(
+        group_id     => $config->{security_groups}->{fargate}->{group_id},
+        source_group => $alb_sg,
+        port         => $config->{alb}->{port},
+        protocol     => 'tcp',
+      );
+
+      my $err = 'dependency';
+
+      while ( $err =~ /dependency/xsmi ) {
+        $ec2->delete_security_group($alb_sg);
+        sleep 2;
+        $err = $ec2->get_error;
+      }
 
       $ec2->check_result(
-        message => 'could not delete security group: [%s]',
+        message => 'ERROR: could not delete security group: [%s]',
         params  => [$alb_sg],
         regexp  => qr/notfound/xsmi
       );
@@ -897,6 +924,20 @@ sub _delete_http {
 }
 
 ########################################################################
+sub alb_exists {
+########################################################################
+  my ( $self, $alb_arn ) = @_;
+
+  return
+    if !$alb_arn;
+
+  my $elbv2 = $self->fetch_elbv2;
+  $elbv2->describe_load_balancer($alb_arn);
+
+  return $elbv2->get_error =~ /notfound/xsmi ? $FALSE : $TRUE;
+}
+
+########################################################################
 sub wait_for_alb_delete {
 ########################################################################
   my ($self) = @_;
@@ -909,6 +950,9 @@ sub wait_for_alb_delete {
 
   while ( $tries-- > 0 ) {
     my $result = $elbv2->describe_load_balancer($alb_arn);
+
+    $self->log_debug( Dumper( [ result => $result ] ) );
+
     return $TRUE if !$result && $elbv2->get_error =~ /notfound/xsmi;
     sleep $DEFAULT_ALB_POLL_SLEEP_TIME;
   }
@@ -961,33 +1005,37 @@ sub remove_alias_record {
 
   my $domain = $config->{domain};
 
-  my $query = 'LoadBalancers[0].{zone_id: CanonicalHostedZoneId, dns_name: DNSName}';
-
-  my $alb_info = $elb->describe_load_balancers( query => $query, arn => $alb_arn );
-  $elb->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
-
-  my $change_batch = {
-    Comment => 'Delete alias record',
-    Changes => [
-      { Action            => 'DELETE',
-        ResourceRecordSet => {
-          Name        => $domain,
-          Type        => 'A',
-          AliasTarget => {
-            HostedZoneId         => $alb_info->{zone_id},
-            DNSName              => $alb_info->{dns_name},
-            EvaluateTargetHealth => $JSON::false,
-          }
-        }
-      }
-    ]
-  };
-
   my $route53 = $self->fetch_route53;
 
-  $route53->change_resource_record_sets( $config->{route53}->{zone_id}, $change_batch );
+  my $zone_id = $config->{route53}->{zone_id};
+
+  my $query = sprintf 'ResourceRecordSets[?Name == `%s.`]', $domain;
+
+  my $resource_record_set = $route53->list_resource_record_sets( $zone_id, $query );
   $route53->check_result(
-    message => 'could not delete alias record for domain: [%s]',
+    message => 'ERROR: could not list resource record sets in zone: [%s]',
+    params  => [$zone_id],
+    regexp  =>
+  );
+
+  if ( !@{$resource_record_set} ) {
+    $self->log_warn( 'route53: alias record for: [%s]not found...skipping deletion', $domain );
+    return;
+  }
+
+  my $change_batch = {
+    ChangeBatch => {
+      Changes => [
+        { Action            => 'DELETE',
+          ResourceRecordSet => $resource_record_set->[0],
+        }
+      ]
+    }
+  };
+
+  $route53->change_resource_record_sets( $zone_id, $change_batch );
+  $route53->check_result(
+    message => 'ERROR: could not delete alias record for domain: [%s]',
     params  => [$domain],
     regexp  => qr/not\sfound/xsmi,
     warn    => $TRUE,

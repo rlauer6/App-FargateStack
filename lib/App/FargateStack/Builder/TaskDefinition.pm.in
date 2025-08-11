@@ -318,7 +318,7 @@ sub compare_task_definition {
     return;
   }
 
-  $config->{tasks}->{$task_name}->{task_definition_arn} = $current_taskdef->{taskDefinitionArn};
+  $config->{tasks}->{$task_name}->{arn} = $current_taskdef->{taskDefinitionArn};
 
   my $status = -s $taskdef_file ? $TRUE : $FALSE;
 

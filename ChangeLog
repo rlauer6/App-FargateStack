@@ -1,3 +1,69 @@
+Mon Aug 11 15:59:40 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.28]:
+	* VERSION: bump
+	* lib/App/ElbV2.pm.in
+	(create_load_balancer)
+	- refactoring
+	- croak if no subnets or security groups defined
+	- format subnets, security group as lists
+	(create_listener)
+	- add default_actions
+	* lib/App/FargateStack.pm.in
+	(show_config): dryrun might be set later by command
+	(main): set info level for delete-service
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- typo
+	- arn, not task_definition_arn
+	(_delete_roles)
+	- refactoring
+	(_delete_log_group)
+	- refactoring
+	(_delete_http)
+	- remove alb arn if it does not exist
+	- log message about deleting listener rules
+	- revoke ALB ingress before deletion of sg
+	(alb_exists): new
+	(remove_alias_record)
+	- check for alias record
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(create_listeners)
+	- get_listeners_by_port
+	- return hash, not array
+	- check_result after creating
+	(create_alb)
+	- refactoring
+	- set alb object in config
+	- set security_group object in config
+	- set scheme based on alb type
+	(create_alb_security_group)
+	- refactoring
+	- check for existence of sg
+	- authorize ingress based on configured ports (don't hard code)
+	(create_alias)
+	- don't check if we don't have an ALB
+	(get_listeners_by_port): new
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- always check, no caching
+	- check_result after api calls
+	- set policy_name in config
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	(build_log_groups)
+	- update name in config
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(compare_task_definition)
+	- arn, not task_definition_arn
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- set subnets in config
+	* lib/App/FargateStack/Logs.pm.in
+	- whitespace
+	* lib/App/Route53.pm.in
+	(list_resource_record_sets): new
+
+
 Mon Aug 11 07:40:44 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.27]:

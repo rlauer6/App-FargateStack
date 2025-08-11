@@ -63,7 +63,8 @@ sub build_log_groups {
     log_die( $self, "ERROR: could not create group: [%s]\n%s", $group, $logs->get_error )
       if !$result;
 
-    $task->{log_group}->{arn} = $result->{logGroupArn};
+    $task->{log_group}->{arn}  = $result->{logGroupArn};
+    $task->{log_group}->{name} = ( split /:/xsm, $result->{logGroupArn} )[-1];
 
     my $retention_days = $task->{log_group}->{retention_days} //= $DEFAULT_LOG_RETENTION_DAYS;
     $task->{log_group}->{retention_days} = $retention_days;

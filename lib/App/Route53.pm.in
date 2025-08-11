@@ -3,6 +3,7 @@ package App::Route53;
 use strict;
 use warnings;
 
+use Carp;
 use File::Temp qw(tempfile);
 use Data::Dumper;
 use JSON;
@@ -162,6 +163,22 @@ sub find_hosted_zone {
   my $query = sprintf 'HostedZones[?Name==`%s` && Config.PrivateZone ==`%s`]', $domain, $type;
 
   return $self->command( 'list-hosted-zones' => [ '--query' => $query ] );
+}
+
+########################################################################
+sub list_resource_record_sets {
+########################################################################
+  my ( $self, $zone_id, $query ) = @_;
+
+  croak "usage: list_resource_record_set(zone-id, [query])\n"
+    if !$zone_id;
+
+  return $self->command(
+    'list-resource-record-sets' => [
+      '--hosted-zone-id' => $zone_id,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
 }
 
 ########################################################################

@@ -91,23 +91,25 @@ sub create_load_balancer {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my $lb_name = $args{name} // $self->get_name;
+  my ( $lb_name, $type, $scheme, $subnets, $security_groups, $tags ) = @args{qw(name type scheme subnets security_groups tags)};
 
-  my $type   = $args{type}   // 'application';
-  my $scheme = $args{scheme} // 'internet-facing';
+  $type    //= 'application';
+  $scheme  //= 'internet-facing';
+  $lb_name //= $self->get_name;
 
-  my $subnets         = join q{ }, @{ $args{subnets} // [] };
-  my $security_groups = join q{ }, @{ $args{security_groups} };
+  croak "ERROR: subnets must be an array ref\n"
+    if !$subnets || !ref $subnets;
 
-  my $tags = $args{tags};
+  croak "ERROR: security_groups must be an array ref\n"
+    if !$security_groups || !ref $security_groups;
 
   return $self->command(
     'create-load-balancer' => [
       '--name'            => $lb_name,
       '--type'            => $type,
       '--scheme'          => $scheme,
-      '--subnets'         => $subnets,
-      '--security-groups' => $security_groups,
+      '--subnets'         => @{$subnets},
+      '--security-groups' => @{$security_groups},
       $tags ? ( '--tags' => $self->format_tags($tags) ) : ()
     ]
   );
@@ -470,10 +472,10 @@ sub create_listener {
   my ( $self, %args ) = @_;
 
   my ( $alb_arn, $tg_arn, $port, $default_actions, $certificate_arn, $query )
-    = @args{qw(alb_arn target_group_arn port certificate_arn query)};
+    = @args{qw(alb_arn target_group_arn port default_actions certificate_arn query)};
 
   $certificate_arn //= $self->get_certificate_arn;
-  my $protocol //= $certificate_arn ? 'HTTPS' : 'HTTP';
+  my $protocol = $certificate_arn ? 'HTTPS' : 'HTTP';
 
   croak "port is a required argument\n"
     if !$port;
@@ -483,9 +485,9 @@ sub create_listener {
       '--load-balancer-arn' => $alb_arn,
       '--protocol'          => $protocol,
       '--port'              => $port,
-      '--default-actions'   => $default_actions,
-      $query           ? ( '--query'        => $query )                                        : (),
-      $certificate_arn ? ( '--certificates' => sprintf 'CertificateArn=%s', $certificate_arn ) : (),
+      $default_actions ? ( '--default-actions' => $default_actions )                              : (),
+      $query           ? ( '--query'           => $query )                                        : (),
+      $certificate_arn ? ( '--certificates'    => sprintf 'CertificateArn=%s', $certificate_arn ) : (),
     ]
   );
 }

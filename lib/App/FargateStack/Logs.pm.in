@@ -102,8 +102,7 @@ sub show_log_events {
     my ( $timestamp, $message ) = @{$e}{qw(timestamp message)};
     $timestamp = $self->get_log_time ? scalar localtime $timestamp / 1000 : $EMPTY;
 
-    print {*STDOUT} sprintf "%s - %s\n", $self->get_color ? colored( $timestamp, 'green' ) : $timestamp,
-      $message;
+    print {*STDOUT} sprintf "%s - %s\n", $self->get_color ? colored( $timestamp, 'green' ) : $timestamp, $message;
   }
 
   return;
