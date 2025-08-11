@@ -29,7 +29,7 @@ sub build_service {
 
   $self->log_warn( 'service: creating %d service(s) [%s]', scalar(@desired_services), join q{,}, @desired_services );
 
-  my $public_ip = $config->{alb} && $config->{alb}->{type} eq 'public';
+  my $public_ip = $FALSE;
 
   foreach my $task_name (@desired_services) {
 
@@ -80,9 +80,10 @@ sub get_service_subnets {
 
   if ($alb_arn) {
     $self->get_logger->warn('service: service will be placed in the same AZs as load balancer.');
-    return $self->get_alb_subnets($alb_arn);
+    return $self->get_task_subnets($alb_arn);
   }
 
+  # this is for tasks and services other than HTTP or HTTPS
   my $subnets = $self->get_subnets->{private};
 
   if ( !$subnets || !@{$subnets} ) {
@@ -98,19 +99,50 @@ sub get_service_subnets {
 }
 
 ########################################################################
-sub get_alb_subnets {
+sub get_task_subnets {
 ########################################################################
   my ( $self, $alb_arn ) = @_;
 
+  # fetch ALB AZs
   my $elb = $self->fetch_elbv2;
 
-  my $query = 'LoadBalancers[].AvailabilityZones[].SubnetId';
-
-  my $subnet_ids = $elb->describe_load_balancers( query => $query, arn => $alb_arn );
+  my $az_names = $elb->describe_load_balancers(
+    arn   => $alb_arn,
+    query => 'LoadBalancers[].AvailabilityZones[].ZoneName',
+  );
 
   $elb->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
 
-  return @{$subnet_ids};
+  # fetch AZs of private subnets
+  my $ec2 = $self->fetch_ec2;
+
+  my $private_subnets = $self->get_config->{subnets}->{private} // [];
+
+  # we should not be able to get here...since we check this on startup
+  if ( !$private_subnets || !@{$private_subnets} ) {
+    $self->log_error('ERROR: no private subnets available.');
+    $self->log_errror('App::FargateStack does not support placing tasks in a public subnets for HTTP services.');
+    exit 1;
+  }
+
+  my $result = $ec2->describe_subnets(
+    { subnets => $private_subnets,
+      query   => 'Subnets[].{az_name:AvailabilityZone,subnet_id:SubnetId}'
+    }
+  );
+
+  $ec2->check_result( message => 'ERROR: could not describe subnets: [%s]', join q{,}, @{$private_subnets} );
+
+  $self->log_debug( sub { return Dumper( [ subnet => $result ] ) } );
+
+  my %subnets_by_zone = map { $_->{az_name} => $_->{subnet_id} } @{$result};
+
+  $self->log_debug( sub { return Dumper( [ subnets_by_zone => \%subnets_by_zone ] ) } );
+
+  # Best practice: pick subnets whose AZs match the ALB's AZs, preserve order
+  my @selected = grep {defined} @subnets_by_zone{ @{$az_names} };
+
+  return @selected;
 }
 
 1;

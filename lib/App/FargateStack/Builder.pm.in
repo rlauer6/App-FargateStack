@@ -27,12 +27,21 @@ sub build {
 
   $self->benchmark;
 
-  my $config = $self->get_config;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $domain = $config->{domain};
 
   my $subnets = $self->get_subnets();
 
+  $self->section_break;
+
+  if ( !$self->get_force && !$dryrun ) {
+    if ( !confirm('You are about to apply changes and possibly create resources. Proceed?') ) {
+      $self->log_die('Aborting...');
+    }
+  }
+
+  $self->log_info( 'beginging %s phase...', $dryrun ? 'plan' : 'apply' );
   $self->section_break;
 
   # -- task definitions --

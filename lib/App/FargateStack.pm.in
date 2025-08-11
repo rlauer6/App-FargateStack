@@ -73,7 +73,7 @@ sub init_logger {
   if ( !$self->get_color ) {
     $log4perl_conf =~ s/ColoredLevels//xsm;
 
-    if ( $self->get_log_level =~ /debug|trace/xsm ) {
+    if ( $self->get_log_level && $self->get_log_level =~ /debug|trace/xsm ) {
       $log4perl_conf =~ s/ConversionPattern(.*?)$/ConversionPattern = [%d] (%M:%L) %m%n/xsm;
     }
   }
@@ -92,32 +92,34 @@ sub show_config {
 
   my $subnets = $self->get_subnets;
 
-  $self->log_info( 'init:           account: [%s]', $self->get_account );
-  $self->log_info( 'init:           profile: [%s]', $self->get_profile );
-  $self->log_info( 'init:    profile source: [%s]', $self->get_profile_source );
-  $self->log_info( 'init:            region: [%s]', $self->get_region );
   $self->section_break;
 
-  $self->log_info( 'init:   route53 profile: [%s]', $config->{route53}->{profile} // q{-} );
-  $self->log_info( 'init:   route53 zone_id: [%s]', $config->{route53}->{zone_id} // q{-} );
+  $self->log_info( '           account: [%s]', $self->get_account );
+  $self->log_info( '           profile: [%s]', $self->get_profile );
+  $self->log_info( '    profile source: [%s]', $self->get_profile_source );
+  $self->log_info( '            region: [%s]', $self->get_region );
   $self->section_break;
 
-  $self->log_info( 'init:          app name: [%s]', $config->{app}->{name} );
-  $self->log_info( 'init:       app version: [%s]', $config->{app}->{version} // q{-} );
-  $self->log_info( 'init:     https service: [%s]', $self->get_http           // q{-} );
-  $self->log_info( 'init:  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
+  $self->log_info( '   route53 profile: [%s]', $config->{route53}->{profile} // q{-} );
+  $self->log_info( '   route53 zone_id: [%s]', $config->{route53}->{zone_id} // q{-} );
   $self->section_break;
 
-  $self->log_info( 'init:    subnets in VPC: [%s]', $config->{vpc_id} );
-  $self->log_info( '                 public: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
-  $self->log_info( '                private: [%s]', join q{,}, @{ $subnets->{private} || [] } );
+  $self->log_info( '          app name: [%s]', $config->{app}->{name} );
+  $self->log_info( '       app version: [%s]', $config->{app}->{version} // q{-} );
+  $self->log_info( '     https service: [%s]', $self->get_http           // q{-} );
+  $self->log_info( '  scheduled events: [%s]', $self->has_events ? 'yes' : 'no' );
   $self->section_break;
 
-  $self->log_info( 'init:            config: [%s]', $self->get_config_name );
-  $self->log_info( 'init:         log level: [%s]', $self->get_log_level // 'info' );
-  $self->log_info( 'init:             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
-  $self->log_warn( 'init:     update config: [%s]', $self->get_update ? 'yes' : 'no' );
-  $self->log_warn( 'init:            dryrun: [%s]', $self->get_dryrun ? 'yes' : 'no' );
+  $self->log_info( '    subnets in VPC: [%s]', $config->{vpc_id} );
+  $self->log_info( '            public: [%s]', join q{,}, @{ $subnets->{public}  || [] } );
+  $self->log_info( '           private: [%s]', join q{,}, @{ $subnets->{private} || [] } );
+  $self->section_break;
+
+  $self->log_info( '            config: [%s]', $self->get_config_name );
+  $self->log_info( '         log level: [%s]', $self->get_log_level // 'info' );
+  $self->log_info( '             cache: [%s]', $self->get_cache ? 'enabled' : 'disabled' );
+  $self->log_warn( '     update config: [%s]', $self->get_update ? 'yes' : 'no' );
+  $self->log_warn( '            dryrun: [%s]', $self->get_dryrun ? 'yes' : 'no' );
 
   return;
 }
@@ -493,7 +495,7 @@ sub cmd_remove_service {
   die "usage: %s remove-service task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name || $err;
 
-  my ( $config, $cluster ) = $self->common_args(qw(config cluster));
+  my ( $config, $cluster, $dryrun ) = $self->common_args(qw(config cluster dryrun));
 
   my $cluster_name = $cluster->{name};
 
@@ -501,12 +503,15 @@ sub cmd_remove_service {
 
   $self->check_task( $task_name, 'warn' );
 
-  my $ecs = $self->get_ecs;
+  $self->log_warn( 'remove-service: task [%s] will be deleted...%s', $task_name, $dryrun );
+
+  return $SUCCESS
+    if $dryrun;
+
+  my $ecs = $self->fetch_ecs;
 
   my $result = $ecs->delete_service( $cluster->{name}, $task_name );
-
-  log_die( $self, "ERROR: could not stop service %s\n%s", $task_name, $ecs->get_error )
-    if $ecs->get_error;
+  $ecs->check_result( message => 'ERROR: could not stop service %s', $task_name );
 
   return $SUCCESS;
 }
@@ -982,7 +987,7 @@ END_OF_ERROR
 }
 
 ########################################################################
-sub cmd_delete_http {
+sub cmd_delete_http_service {
 ########################################################################
   my ($self) = @_;
 
@@ -1287,7 +1292,8 @@ sub main {
     'delete-schedule'        => \&cmd_delete_schedule,
     'delete-daemon'          => \&cmd_delete_daemon,
     'delete-task'            => \&cmd_delete_task,
-    'delete-http-service'    => \&cmd_delete_http,
+    'delete-service'         => \&cmd_remove_service,
+    'delete-http-service'    => \&cmd_delete_http_service,
     'list-tasks'             => [ \&cmd_list_tasks, 'error' ],
     'list-zones'             => [ \&cmd_list_zones, 'error' ],
     'register-task'          => \&cmd_register_task_definition,

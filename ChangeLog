@@ -1,3 +1,47 @@
+Mon Aug 11 07:40:44 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.27]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/EC2.pm.in
+	(describe_subnet)
+	- refactoring
+	- allow list of subnets
+	(describe_subnets)
+	- refactoring
+	- allow hash of args
+	* lib/App/FargateStack/Init.pm.in
+	(_init_ec2)
+	- log messages
+	- check for 2 subnets
+	- always validate subnets
+	(_init_tasks)
+	- make sure we have private subnets if http service
+	- log messages
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- confirm apply
+	- log messages
+	* lib/App/FargateStack.pm.in
+	(init_logger): avoid uninitialized warning
+	(show_config): tidy up output
+	(cmd_remove_service)
+	- refactoring
+	- log messages
+	- cmd_delete_http => cmd_delete_http_service
+	(main): likewise
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service)
+	- always try to place task in private subnet
+	(get_service_subnets)
+	- get_alb_subnets => get_task_subnets
+	- do not allow placement of tasks in public subnets for http services
+	(get_task_subnets)
+	- align ALB, task AZs
+	* lib/App/FargateStack/Pod.pm.in
+	- tweak section on warning about public subnets
+	- blurb about task placement
+
 Mon Aug 11 05:25:47 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.26]:

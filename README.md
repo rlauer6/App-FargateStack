@@ -60,6 +60,7 @@
   * [GETTING STARTED](#getting-started)
   * [VPC AND SUBNET DISCOVERY](#vpc-and-subnet-discovery)
   * [SUBNET SELECTION](#subnet-selection)
+    * [Task placement and Availability Zones](#task-placement-and-availability-zones)
   * [REQUIRED SECTIONS](#required-sections)
   * [FULL SCHEMA OVERVIEW](#full-schema-overview)
 * [TASK SIZE](#task-size)
@@ -95,10 +96,11 @@
   * [Roadmap for HTTP Services](#roadmap-for-http-services)
 * [CURRENT LIMITATIONS](#current-limitations)
 * [TROUBLESHOOTING](#troubleshooting)
-  * [When trying to run a task I get this message:](#when-trying-to-run-a-task-i-get-this-message)
-    * [Why is this a problem?](#why-is-this-a-problem)
-    * [Best Practice](#best-practice)
-    * [When is it acceptable to use a public subnet?](#when-is-it-acceptable-to-use-a-public-subnet)
+  * [Warning: task placed in a public subnet](#warning-task-placed-in-a-public-subnet)
+    * [Why this matters](#why-this-matters)
+    * [Recommended pattern](#recommended-pattern)
+    * [When is a public subnet acceptable?](#when-is-a-public-subnet-acceptable)
+    * [Note on image pulls](#note-on-image-pulls)
   * [My task fails with this message:](#my-task-fails-with-this-message)
     * [Common causes](#common-causes)
     * [How to fix it](#how-to-fix-it)
@@ -113,6 +115,7 @@
 * [SEE ALSO](#see-also)
 * [AUTHOR](#author)
 * [LICENSE](#license)
+* [POD ERRORS](#pod-errors)
 ---
 [Back to Table of Contents](#table-of-contents)
 
@@ -216,6 +219,7 @@ object-oriented use. As such, this section is intentionally omitted.
     -------                  ---------            -----------
     apply                                         reads config and creates resources
     create-service           task-name            create a new service (see Note 4)
+    delete-service           task-name            alias for remove-service
     delete-task              task-name            deletes all resources associated with a task (See Note 11)
     delete-scheduled-task    task-name            deletes all resources associated with a scheduled task (See Note 11)
     delete-daemon            task-name            deletes all resources associated with a daemon  (See Note 11)
@@ -1145,6 +1149,50 @@ If subnets are explicitly specified in your configuration, the
 framework will validate them and warn if they are not reachable or are
 not usable for Fargate tasks.
 
+### Task placement and Availability Zones
+
+The framework places each task’s ENI into exactly one subnet, which fixes
+that task in a single AZ. A service can span multiple AZs by listing
+subnets from at least two AZs.
+
+What the framework does:
+
+- Prefers private subnets
+
+    If private subnets are defined in the configuration, tasks are placed
+    there. If no private subnets are defined, the framework falls back to
+    public subnets.
+
+- Aligns ALB AZs with task placement
+
+    When a load balancer is used, the framework enables the ALB in the same
+    AZ set it selects for tasks (best practice). This is for resilience and
+    to avoid unnecessary cross-AZ hops; it is not a hard technical requirement.
+
+- Requires two subnets
+
+    The configuration must specify at least two subnets in different AZs.
+    If subnets are not specified, the framework attempts to discover them,
+    but still requires at least two usable subnets (either both private or
+    both public). If fewer than two are available, it errors with guidance.
+
+Notes on internet access and ALBs:
+
+- Internet-facing ALB
+
+    An internet-facing ALB must be created in public subnets. Tasks may (and
+    usually should) remain in private subnets behind it.
+
+- Egress from private subnets
+
+    For image pulls and outbound calls, use either a NAT Gateway in each AZ
+    or VPC endpoints for ECR (api and dkr) and S3.
+
+- Egress from public subnets
+
+    If tasks are placed in public subnets without endpoints or NAT, they
+    require `assignPublicIp=ENABLED` to reach ECR/S3.
+
 ## REQUIRED SECTIONS
 
 At minimum, your configuration must include the following:
@@ -1802,54 +1850,73 @@ unlikely to change.
 
 # TROUBLESHOOTING
 
-## When trying to run a task I get this message:
+## Warning: task placed in a public subnet
+
+When running a task you may see:
 
     [2025/08/05 03:40:58] run-task: subnet-id: [subnet-7c160c37] is in a public subnet...consider running your jobs in a private subnet
 
-This warning indicates that the Fargate task is being placed in a
-subnet that has a direct route to the internet via an Internet
-Gateway - commonly referred to as a public subnet.
+This means the task is being scheduled in a subnet that has a
+0.0.0.0/0 route to an Internet Gateway (a public subnet).
 
-While this is not a fatal error, running tasks in public subnets is
-discouraged unless absolutely necessary.
+While not fatal, placing tasks in public subnets is discouraged unless
+you have a specific need.
 
-### Why is this a problem?
+### Why this matters
 
-Running tasks in public subnets introduces several risks:
+Running tasks in public subnets can introduce risk and operational
+surprises:
 
-- Accidental exposure to the public internet
+- Accidental exposure
 
-    If the task is assigned a public IP, it may be reachable from outside
-    your VPC, increasing the attack surface.
+    If the task is assigned a public IP and the security group allows
+    inbound access, it may be reachable from the internet.
 
-- Unintended network dependency
+- Unintended dependency
 
-    Tasks in public subnets often rely on the Internet Gateway for
-    outbound access. This may bypass intended logging, monitoring, or
-    firewall controls.
+    Public-subnet egress typically relies on a public IP and the Internet
+    Gateway. That can bypass intended egress controls, logging, or central
+    inspection.
 
-- Reduced security posture
+- Narrow security margin
 
-    Public subnets rely heavily on correctly configured security groups. A
-    misconfiguration could expose sensitive tasks or data.
+    Safety depends entirely on security groups and NACLs. A small
+    misconfiguration can expose services or data.
 
-### Best Practice
+### Recommended pattern
 
-Use private subnets for most Fargate workloads. These do not have a
-direct route to the internet and are safer by default.
+Use private subnets for most Fargate workloads. Private subnets do not
+route directly to the internet.
 
-If your task needs outbound internet access (e.g., to pull images from
-ECR or reach external APIs), use one of the following:
+If the task needs outbound access (for example, to pull images from
+ECR or call external APIs), use one of:
 
-- A NAT Gateway (for private subnet egress)
-- VPC endpoints (for AWS services like ECR, CloudWatch, and
-Secrets Manager)
+- A NAT Gateway (private subnet egress to the internet)
+- VPC interface endpoints for ECR (ecr.api and ecr.dkr) and a
+gateway endpoint for S3, so image pulls stay inside the VPC with no
+public IPs
 
-### When is it acceptable to use a public subnet?
+For public-facing applications, the common pattern is: tasks in
+private subnets, fronted by a public Application Load Balancer in
+public subnets.
 
-If you're deploying a public-facing HTTP or HTTPS service, then using
-a public subnet (or attaching the task to a public-facing ALB) may be
-appropriate. In all other cases, prefer private subnets.
+### When is a public subnet acceptable?
+
+Use a public subnet only when the task itself must have a public IP
+and terminate client connections directly (uncommon). If you do:
+
+- Set assignPublicIp=ENABLED so the task can reach the internet
+via the Internet Gateway
+- Keep security groups locked down and monitor egress on TCP 443
+
+### Note on image pulls
+
+To pull from ECR, the task needs a path to ECR API, ECR DKR, and S3:
+
+- Public subnet: requires a public IP (assignPublicIp=ENABLED),
+unless you provision VPC endpoints
+- Private subnet: works via a NAT Gateway, or entirely private
+via VPC endpoints (no public IPs)
 
 ## My task fails with this message:
 
@@ -2018,3 +2085,11 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 1253:
+
+    Non-ASCII character seen before =encoding in 'task’s'. Assuming UTF-8

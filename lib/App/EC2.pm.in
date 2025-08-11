@@ -214,14 +214,16 @@ sub describe_vpc_nat_gateways {
 ########################################################################
 sub describe_subnet {
 ########################################################################
-  my ( $self, $subnet_id, $query ) = @_;
+  my ( $self, $subnets, $query ) = @_;
 
-  croak "usage: describe_subnets(subnet-id)\n"
-    if !$subnet_id;
+  croak "usage: describe_subnet(subnet-id)\n"
+    if !$subnets;
+
+  my @subnets = ref $subnets ? @{$subnets} : ($subnets);
 
   return $self->command(
     'describe-subnets' => [
-      '--subnet-id' => $subnet_id,
+      '--subnet-id' => @subnets,
       $query ? ( '--query' => $query ) : ()
     ]
   );
@@ -244,12 +246,23 @@ sub describe_security_group_rules {
 ########################################################################
 sub describe_subnets {
 ########################################################################
-  my ( $self, $vpc_id, $query ) = @_;
+  my ( $self, @args ) = @_;
 
-  $vpc_id //= $self->get_vpc_id;
+  my $params = ref $args[0] ? $args[0] : { vpc_id => $args[0], query => $args[1] };
+
+  $params->{vpc_id} //= $self->get_vpc_id;
+
+  my ( $vpc_id, $subnet_ids, $query ) = @{$params}{qw(vpc_id subnets query)};
+
+  my @subnets = $subnet_ids ? @{$subnet_ids} : ();
 
   return $self->command(
-    'describe-subnets' => [ '--filters', 'Name=vpc-id,Values=' . $vpc_id, $query ? ( '--query' => $query ) : () ] );
+    'describe-subnets' => [
+      $vpc_id  ? ( '--filters', 'Name=vpc-id,Values=' . $vpc_id ) : (),
+      $query   ? ( '--query' => $query )                          : (),
+      @subnets ? ( '--subnet-ids' => @subnets )                   : (),
+    ]
+  );
 }
 
 ########################################################################
