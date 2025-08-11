@@ -27,6 +27,7 @@ __PACKAGE__->mk_accessors(
     subnets
     tags
     vpc_id
+    _alb_cache
   )
 );
 
@@ -150,9 +151,22 @@ sub describe_load_balancers {
   my ( $self, %args ) = @_;
 
   my ( $query, $arn ) = @args{qw(query arn)};
+  $query //= q{};
+  $arn   //= q{};
 
-  return $self->command(
+  my $alb_cache = $self->get__alb_cache // {};
+  my $cache_key = sprintf '%s|%s', $arn, $query;
+
+  return $alb_cache->{$cache_key}
+    if $alb_cache->{$cache_key} && !$args{no_cache};
+
+  my $result = $self->command(
     'describe-load-balancers' => [ $arn ? ( '--load-balancer-arns' => $arn ) : (), $query ? ( '--query' => $query ) : (), ] );
+
+  $alb_cache->{$cache_key} = $result;
+  $self->set__alb_cache($alb_cache);
+
+  return $result;
 }
 
 ########################################################################
@@ -160,8 +174,10 @@ sub delete_load_balancer {
 ########################################################################
   my ( $self, $alb_arn, $query ) = @_;
 
-  return $self->command(
-    'delete-load-balancer' => [ '--load-balancer-arn' => $alb_arn, $query ? ( '--query' => $query ) : (), ] );
+  my $result
+    = $self->command( 'delete-load-balancer' => [ '--load-balancer-arn' => $alb_arn, $query ? ( '--query' => $query ) : (), ] );
+
+  return $result;
 }
 
 ########################################################################

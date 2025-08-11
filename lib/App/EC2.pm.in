@@ -42,8 +42,7 @@ sub new {
     croak sprintf "ERROR: found more than one Fargate-compatible VPC:\n%s", join "\n  - ", q{}, @eligible_vpcs
       if @eligible_vpcs > 1;
 
-    $self->get_logger->warn( sprintf 'WARNING: no vpc_id set in config, using compatible VPC: [%s]',
-      $eligible_vpcs[0] );
+    $self->get_logger->warn( sprintf 'WARNING: no vpc_id set in config, using compatible VPC: [%s]', $eligible_vpcs[0] );
 
     $self->set_vpc_id( $eligible_vpcs[0] );
   }
@@ -66,7 +65,7 @@ sub new {
 
     my @all_subnets = map { @{ $usable_subnets->{$_} || [] } } qw(public private);
 
-    $self->get_logger->trace(
+    $self->get_logger->debug(
       sub {
         return Dumper(
           [ all_subnets    => \@all_subnets,
@@ -249,8 +248,8 @@ sub describe_subnets {
 
   $vpc_id //= $self->get_vpc_id;
 
-  return $self->command( 'describe-subnets' =>
-      [ '--filters', 'Name=vpc-id,Values=' . $vpc_id, $query ? ( '--query' => $query ) : () ] );
+  return $self->command(
+    'describe-subnets' => [ '--filters', 'Name=vpc-id,Values=' . $vpc_id, $query ? ( '--query' => $query ) : () ] );
 }
 
 ########################################################################
@@ -368,8 +367,8 @@ sub describe_security_groups {
 
   push @filters, 'Name=vpc-id,Values=' . $vpc_id;
 
-  return $self->command( 'describe-security-groups' =>
-      [ $query ? ( '--query' => $query ) : (), map { ( '--filters' => $_ ) } @filters, ] );
+  return $self->command(
+    'describe-security-groups' => [ $query ? ( '--query' => $query ) : (), map { ( '--filters' => $_ ) } @filters, ] );
 }
 
 ########################################################################
@@ -438,8 +437,7 @@ sub authorize_security_group_ingress {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ( $group_id, $port, $protocol, $source_group, $cidr )
-    = @args{qw(group_id port protocol source_group cidr)};
+  my ( $group_id, $port, $protocol, $source_group, $cidr ) = @args{qw(group_id port protocol source_group cidr)};
 
   $protocol //= 'tcp';
   $port     //= '80';

@@ -68,12 +68,14 @@ sub init_logger {
 ########################################################################
   my ($self) = @_;
 
-  #  my $log4perl_conf = $LOG4PERL_CONF;
-
   my $log4perl_conf = $self->get_log4perl_conf;
 
   if ( !$self->get_color ) {
-    $log4perl_conf =~ s/\ColoredLevels//xsm;
+    $log4perl_conf =~ s/ColoredLevels//xsm;
+
+    if ( $self->get_log_level =~ /debug|trace/xsm ) {
+      $log4perl_conf =~ s/ConversionPattern(.*?)$/ConversionPattern = [%d] (%M:%L) %m%n/xsm;
+    }
   }
 
   $self->set_log4perl_conf($log4perl_conf);
@@ -134,7 +136,7 @@ sub check_service_name {
     return
       if !$default_service && $return_on_missing;
 
-    croak sprintf "usage: %s status task-name\n", $ENV{SCRIPT_NAME}
+    die sprintf "usage: %s status task-name\n", $ENV{SCRIPT_NAME}
       if $error || !$default_service;
 
     $service_name = $default_service;
@@ -212,10 +214,15 @@ sub get_default_task_name {
 
   my ($task_name) = $self->get_args;
 
-  $type //= 'task';
-
   return $task_name
     if $task_name;
+
+  my @task_names = keys %{$tasks};
+
+  return $task_names[0]
+    if @task_names == 1;
+
+  $type //= 'task';
 
   my @tasks = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
 
@@ -237,7 +244,7 @@ sub cmd_run_task {
 
   my $task_name = $self->get_default_task_name('task');
 
-  croak sprintf "usage: %s run-task task-name\n", $ENV{SCRIPT_NAME}
+  die sprintf "usage: %s run-task task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name;
 
   my $task = $tasks->{$task_name};
@@ -262,8 +269,7 @@ sub cmd_run_task {
     $subnet_id = $subnets[0];
   }
   elsif ( any { $subnet_id eq $_ } @{ $self->get_subnets->{public} // [] } ) {
-    $self->log_error(
-      'run-task: subnet-id: [%s] is in a public subnet...consider running your jobs in a private subnet',
+    $self->log_error( 'run-task: subnet-id: [%s] is in a public subnet...consider running your jobs in a private subnet',
       $subnet_id );
     $is_public = $TRUE;
   }
@@ -388,13 +394,13 @@ sub check_latest_image {
   if ( $current_digest && $current_digest ne $latest_digest ) {
     $self->log_error('run-task: You are not running the latest image!');
     $self->log_error( 'run-task: [%s] != [%s]', $latest_digest, $current_digest );
-    $self->log_error('run-task: Run "app-Fargate register-task" to align the latest image with your task');
+    $self->log_error('run-task: run "app-FargateStack register-task" to align the latest image with your task');
 
-    log_die( $self, 'run-task: use --force to force run or align our task with new image' )
+    log_die( $self, 'run-task: use --force to force service creation or align your task with new image' )
       if !$self->get_force;
   }
 
-  return;
+  return $TRUE;
 }
 
 ########################################################################
@@ -407,9 +413,7 @@ sub get_task_status {
   my $query = jmespath_mapping 'tasks[0]' => \@elems;
 
   my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
-
-  croak sprintf "ERROR: unable to describe task: [%s]\n%s", $task_arn, $self->get_ecs->get_error
-    if !$result;
+  $self->check_result( message => 'ERROR: unable to describe task: [%s]', $task_arn );
 
   my ( $status, $stopped_reason, $containers ) = @{$result}{@elems};
 
@@ -419,22 +423,19 @@ sub get_task_status {
 ########################################################################
 sub get_default_service_name {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, $skip_arg ) = @_;
 
-  my ($service_name) = $self->get_args;
+  # skip retrieving the arg (used when we want to allow a count as the first arg)
+  if ( !$skip_arg ) {
+    my ($service_name) = $self->get_args;
 
-  return $service_name
-    if $service_name;
-
-  my @service_names;
-
-  foreach (qw(http https daemon)) {
-    my $service_name = $self->get_default_task_name($_);
-    next if !$service_name;
-    push @service_names, $service_name;
+    return $service_name
+      if $service_name;
   }
 
-  return @service_names;
+  my $tasks = $self->get_config->{tasks};
+
+  return grep { $tasks->{$_}->{type} =~ /^(https?|daemon)/xsm } keys %{$tasks};
 }
 
 ########################################################################
@@ -442,24 +443,24 @@ sub cmd_create_service {
 ########################################################################
   my ($self) = @_;
 
-  my ( $task_name, $err ) = $self->get_default_service_name();
+  my ($desired_count) = $self->get_args;
 
-  croak sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
+  my ( $task_name, $err ) = $self->get_default_service_name($TRUE);  # skip arg
+
+  die sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
     if !$task_name || $err;
 
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
-  log_die( $self, sprintf "usage: %s create-service task-name\n", $ENV{SCRIPT_NAME} )
-    if !$task_name;
-
-  log_die( $self, "no such task defined in config [%s]\n", $task_name )
-    if !$tasks->{$task_name};
+  if ( !$desired_count || !looks_like_number $desired_count ) {
+    $desired_count = $tasks->{$task_name}->{desired_count} // 1;
+  }
 
   $self->log_info('service: checking to see if task and latest image are aligned...');
 
   $self->check_latest_image($task_name);
 
-  return $self->build_service($task_name);
+  return $self->build_service( $task_name, $desired_count );
 }
 
 ########################################################################
@@ -477,8 +478,7 @@ sub check_task {
   log_die( $self, 'ERROR:  no such task [%s] defined in config', $task_name )
     if $level eq 'die';
 
-  $self->get_logger->warn( 'WARNING: no such task [%s] defined in config...trying anyway  ¯\_(ツ)_/¯',
-    $task_name );
+  $self->get_logger->warn( 'WARNING: no such task [%s] defined in config...trying anyway  ¯\_(ツ)_/¯', $task_name );
 
   return;
 }
@@ -490,7 +490,7 @@ sub cmd_remove_service {
 
   my ( $task_name, $err ) = $self->get_default_service_name();
 
-  croak "usage: %s remove-service task-name\n", $ENV{SCRIPT_NAME}
+  die "usage: %s remove-service task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name || $err;
 
   my ( $config, $cluster ) = $self->common_args(qw(config cluster));
@@ -516,17 +516,17 @@ sub verify_service {
 ########################################################################
   my ( $self, $cluster_name, $service_name ) = @_;
 
-  my $ecs = $self->get_ecs;
+  my $ecs = $self->fetch_ecs;
 
   my $services = $ecs->list_services( $cluster_name, 'serviceArns' );
 
-  croak sprintf "ERROR: could not list services for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
+  die sprintf "ERROR: could not list services for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
     if !$services;
 
-  croak sprintf "ERROR: no services running in cluster: [%s]\n", $cluster_name
+  die sprintf "ERROR: no services running in cluster: [%s]\n", $cluster_name
     if !@{$services};
 
-  croak sprintf "ERROR: service [%s] is not running in cluster: [%s]\n", $service_name, $cluster_name
+  die sprintf "ERROR: service [%s] is not running in cluster: [%s]\n", $service_name, $cluster_name
     if none { $_ =~ /$service_name/xsm } @{$services};
 
   return;
@@ -580,10 +580,10 @@ sub cmd_update_service {
 
   if ( !$task_name ) {
     if ( $count == 0 ) {
-      croak sprintf "usage: %s -c config-name stop-service task-name\n", $ENV{SCRIPT_NAME};
+      die sprintf "usage: %s -c config-name stop-service task-name\n", $ENV{SCRIPT_NAME};
     }
 
-    croak sprintf "usage: %s -c config-name start-service task-name [count]\n", $ENV{SCRIPT_NAME};
+    die sprintf "usage: %s -c config-name start-service task-name [count]\n", $ENV{SCRIPT_NAME};
   }
 
   my $result = $self->update_task_count( $task_name, $count );
@@ -607,8 +607,6 @@ sub cmd_register_task_definition {
   log_die( $self, 'usage: %s %s task-name', $action, $ENV{SCRIPT_NAME} )
     if !$task_name;
 
-  my $ecs = $self->get_ecs;
-
   my $task_definition_file = sprintf 'taskdef-%s.json', $task_name;
 
   $self->check_task($task_name);
@@ -618,24 +616,20 @@ sub cmd_register_task_definition {
 
   my $task_definition_arn;
 
+  my $ecs = $self->fetch_ecs;
+
   if ( !$self->get_skip_register ) {
-    $self->log_warn( 'register: registering [%s]...%s', $task_name, $dryrun );
+    $self->log_warn( 'register: registering task definition for: [%s]...%s', $task_name, $dryrun );
 
     if ( !$dryrun ) {
       my $task_definition = $ecs->register_task_definition($task_definition_file);
-
-      log_die( $self, 'register: could not register [%s]\n%s', $task_definition_file, $ecs->get_error )
-        if !$task_definition;
-
+      $ecs->check_result( message => 'ERROR: register: could not register [%s]\n%s', $task_definition_file );
       $self->log_trace( sub { return Dumper( [ task_definition => $task_definition ] ) } );
 
       $task_definition_arn = $task_definition->{taskDefinition}->{taskDefinitionArn};
 
-      log_die(
-        $self,
-        'register: no taskDefinitionArn found? %s',
-        Dumper( [ task_definition => $task_definition ] )
-      ) if !$task_definition_arn;
+      log_die( $self, 'register: no taskDefinitionArn found? %s', Dumper( [ task_definition => $task_definition ] ) )
+        if !$task_definition_arn;
 
       $self->log_warn( 'register: registered...[%s]', $task_definition_arn );
 
@@ -654,11 +648,12 @@ sub cmd_register_task_definition {
   if ( $tasks->{$task_name}->{type} eq 'task' ) {
     require App::Events;
 
-    my $event = App::Events->new( $self->get_global_options );
+    my $event = $self->fetch_events;
 
     my $rule_name = sprintf '%s-schedule', $task_name;
 
     my $target = $event->list_targets_by_rule( $rule_name, 'Targets' );
+    $self->check_result( message => 'ERROR: could not list targets for: [%s]', $rule_name );
 
     if ( $target && @{$target} ) {
 
@@ -684,9 +679,7 @@ sub get_latest_image {
 
   my $tasks = $self->common_args('tasks');
 
-  require App::ECR;
-
-  my $ecr = App::ECR->new( $self->get_global_options );
+  my $ecr = $self->fetch_ecr;
 
   my ($repo_name) = split /:/xsm, $tasks->{$task_name}->{image};
 
@@ -772,7 +765,7 @@ sub cmd_stop_task {
 
   my $ecs = $self->get_ecs;
 
-  croak sprintf "usage: %s stop-task task-name|task-id|task-arn\n", $ENV{SCRIPT_NAME}
+  die sprintf "usage: %s stop-task task-name|task-id|task-arn\n", $ENV{SCRIPT_NAME}
     if none { length $task_id == $_ } ( 32, 36 );
 
   my $result = $ecs->stop_task( $config->{cluster}->{name}, $task_id );
@@ -796,7 +789,7 @@ sub cmd_list_tasks {
 
   my $result = $ecs->list_tasks( $cluster_name, 'taskArns' );
 
-  croak sprintf "ERROR: could not list tasks for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
+  die sprintf "ERROR: could not list tasks for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
     if !$result;
 
   if ( !@{$result} ) {
@@ -902,10 +895,10 @@ sub cmd_delete_schedule {
 
   my $task_name = $self->get_default_task_name( 'task', 'schedule' );
 
-  croak sprintf "usage: %s delete-schedule task-name\n", $ENV{SCRIPT_NAME}
+  die sprintf "usage: %s delete-schedule task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name;
 
-  croak sprintf "ERROR: %s is not a schedule task\n", $task_name
+  die sprintf "ERROR: %s is not a schedule task\n", $task_name
     if $tasks->{$task_name}->{type} ne 'task' || !$tasks->{$task_name}->{schedule};
 
   # $task_name must be a schedule because we filtered above
@@ -938,13 +931,13 @@ sub cmd_delete_task {
 
   my $task_name = $self->get_default_task_name('task');
 
-  croak sprintf "usage: %s delete-task task-name\n", $ENV{SCRIPT_NAME}
+  die sprintf "usage: %s delete-task task-name\n", $ENV{SCRIPT_NAME}
     if !$task_name;
 
-  croak sprintf "ERROR: [%s] is a not a task\n", $task_name
+  die sprintf "ERROR: [%s] is a not a task\n", $task_name
     if $tasks->{$task_name}->{type} ne 'task';
 
-  croak sprintf "ERROR: [%s] is a scheduled task...use 'delete-schedule'\n", $task_name
+  die sprintf "ERROR: [%s] is a scheduled task...use 'delete-schedule'\n", $task_name
     if $tasks->{$task_name}->{schedule};
 
   if ( scalar keys %{$tasks} == 1 ) {
@@ -971,10 +964,10 @@ sub cmd_delete_daemon {
   my $tasks     = $self->get_config->{tasks};
   my $task_name = $self->get_default_task_name( 'task', 'daemon' );
 
-  croak "usage: $ENV{SCRIPT_NAME} delete-daemon task-name\n"
+  die "usage: $ENV{SCRIPT_NAME} delete-daemon task-name\n"
     if !$task_name;
 
-  croak sprintf "ERROR: [%s] is not a daemon\n", $task_name
+  die sprintf "ERROR: [%s] is not a daemon\n", $task_name
     if $tasks->{$task_name}->{type} ne 'daemon';
 
   if ( scalar keys %{$tasks} == 1 ) {
@@ -997,10 +990,10 @@ sub cmd_delete_http {
 
   my ( $task_name, $err ) = $self->get_default_service_name();
 
-  croak "usage: $ENV{SCRIPT_NAME} delete-http task-name\n"
+  die "usage: $ENV{SCRIPT_NAME} delete-http task-name\n"
     if !$task_name || $err;
 
-  croak "ERROR: [$task_name] is not an http task"
+  die "ERROR: [$task_name] is not an http task"
     if !$tasks->{$task_name}->{type} =~ /^https?/xsm;
 
   if ( scalar keys %{$tasks} == 1 ) {
@@ -1027,7 +1020,7 @@ sub cmd_redeploy {
 
   my ( $service_name, $err ) = $self->get_default_service_name;
 
-  croak sprintf "usage: %s redeploy service-name\n", $ENV{SCRIPT_NAME}
+  die sprintf "usage: %s redeploy service-name\n", $ENV{SCRIPT_NAME}
     if !$service_name || $err;
 
   my $ecs = $self->get_ecs;
@@ -1288,19 +1281,20 @@ sub main {
   );
 
   my %commands = (
-    'create-service'         => [ \&cmd_create_service, 'error' ],
+    'create-service'         => [ \&cmd_create_service, 'info' ],
     'disable-scheduled-task' => \&cmd_disable_scheduled_task,
     'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
     'delete-schedule'        => \&cmd_delete_schedule,
     'delete-daemon'          => \&cmd_delete_daemon,
     'delete-task'            => \&cmd_delete_task,
     'delete-http-service'    => \&cmd_delete_http,
-    'list-tasks'             => [ \&cmd_list_tasks,     'error' ],
-    'list-zones'             => [ \&cmd_list_zones,     'error' ],
+    'list-tasks'             => [ \&cmd_list_tasks, 'error' ],
+    'list-zones'             => [ \&cmd_list_zones, 'error' ],
+    'register-task'          => \&cmd_register_task_definition,
     'remove-service'         => [ \&cmd_remove_service, 'error' ],
     'reset-history'          => [ \&cmd_reset_history,  'info', { init => $FALSE } ],
     'run-task'               => \&cmd_run_task,
-    'start-service'          => [ \&cmd_update_service, 'error' ],
+    'start-service'          => [ \&cmd_update_service, 'info' ],
     'stop-service'           => [ \&cmd_update_service, 'error' ],
     'stop-task'              => [ \&cmd_stop_task,      'error' ],
     'update-policy'          => \&cmd_update_policy,
@@ -1312,7 +1306,6 @@ sub main {
     logs                     => [ \&cmd_logs, 'error' ],
     plan                     => \&cmd_plan,
     redeploy                 => \&cmd_redeploy,
-    register                 => \&cmd_register_task_definition,
     status                   => [ \&cmd_service_status, 'error' ],
     version                  => [ \&cmd_version, 'error', { init => $FALSE } ],
   );

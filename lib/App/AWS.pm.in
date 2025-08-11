@@ -67,13 +67,35 @@ sub command {
 ########################################################################
 sub check_result {
 ########################################################################
-  my ( $self, %args ) = @_;
+  my ( $self, @options ) = @_;
 
-  my $msg    = $args{message} // 'Operation failed';
-  my $params = $args{params} || [];
-  my $regexp = $args{regexp};
+  # unpack args
+  # check_result({ message => '', params => [] });
+  # check_result( message => '', params => []);
+  # check_result( message => '', single-param);
+  # check_result( { message => '' }, multiple-params);
 
-  my $croak = $args{croak} // $TRUE;
+  my $args;
+
+  if ( @options == 1 || ref $options[0] ) {
+    $args = shift @options;
+    $args->{params} //= [@options];
+  }
+  elsif ( @options % 2 ) {
+    my $param = pop @options;
+    $args = {@options};
+    $args->{params} = $param;
+  }
+  else {
+    $args = {@options};
+  }
+
+  my $msg    = $args->{message} // 'Operation failed';
+  my $params = $args->{params} || [];
+  my $regexp = $args->{regexp};
+  my $warn   = $args->{warn} // $FALSE;
+
+  my $croak = $args->{croak} // $TRUE;
 
   my $result = $self->get_last_result;
   my $err    = $self->get_error // q{};
@@ -86,11 +108,15 @@ sub check_result {
     $regexp = qr/$regexp/xsm;
   }
 
-  return $FALSE
-    if $regexp && $err && $err =~ $regexp;
-
-  my $base_msg = sprintf $msg, @$params;
+  my $base_msg = sprintf $msg, @{$params};
   my $full_msg = $base_msg . "\n$err";
+
+  if ( $regexp && $err && $err =~ $regexp ) {
+    if ($warn) {
+      $self->get_logger->warn($full_msg);
+    }
+    return $FALSE;
+  }
 
   croak $full_msg
     if $croak;

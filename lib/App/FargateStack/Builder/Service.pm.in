@@ -9,26 +9,25 @@ use English qw(-no_match_vars);
 use List::Util qw(any);
 
 use App::FargateStack::Constants;
-use CLI::Simple::Constants qw(%LOG_LEVELS);
 
 use Role::Tiny;
 
 ########################################################################
 sub build_service {
 ########################################################################
-  my ( $self, $service_name ) = @_;
+  my ( $self, $service_name, $desired_count ) = @_;
 
   my ( $config, $dryrun, $tasks, $cluster ) = $self->common_args(qw(config dryrun tasks cluster));
 
-  my $ecs = $self->get_ecs;
+  my $ecs = $self->fetch_ecs;
 
   my @vpc_subnets = $self->get_service_subnets;
 
   my @services = @{ $ecs->list_services( $cluster->{name}, 'serviceArns' ) || [] };
 
-  my @desired_services = $service_name ? ($service_name) : $tasks;
+  my @desired_services = $service_name ? ($service_name) : keys %{$tasks};
 
-  $self->log_warn( 'service: creating services: [%s]', join q{,}, @desired_services );
+  $self->log_warn( 'service: creating %d service(s) [%s]', scalar(@desired_services), join q{,}, @desired_services );
 
   foreach my $task_name (@desired_services) {
 
@@ -39,24 +38,26 @@ sub build_service {
       next;
     }
 
-    $self->get_logger->info( sprintf 'service: creating [%s] service in subnets %s...%s',
-      $task_name, ( join q{,}, @vpc_subnets ), $dryrun );
+    $self->get_logger->info( sprintf 'service: creating service: [%s] with [%s] task(s) in subnets: [%s]...%s',
+      $task_name, $desired_count, ( join q{,}, @vpc_subnets ), $dryrun );
 
     if ( !$dryrun ) {
-      $ecs->create_service(
+      my $result = $ecs->create_service(
         service_name    => $task_name,
         container_name  => $task_name,
-        container_port  => $DEFAULT_PORT,
         cluster_name    => $config->{cluster}->{name},
         task_definition => $task_name,
-        desired_count   => $task->{desired_count} // 1,
+        desired_count   => $desired_count,
         subnets         => \@vpc_subnets,
         security_groups => [ $config->{security_groups}->{fargate}->{group_id} ],
-        $self->get_http ? ( target_group_arn => $task->{target_group_arn} ) : (),
+        $self->get_http         ? ( target_group_arn => $task->{target_group_arn} )   : (),
+        $task->{container_port} ? ( container_port   => 0 + $task->{container_port} ) : (),
       );
 
-      croak sprintf "could not create service [%s]\n%s", $task_name, $ecs->get_error
-        if $ecs->get_error;
+      $self->log_debug( sub { return Dumper( [ result => $result ] ); } );
+
+      $ecs->check_result( { message => 'ERROR: could not create service: [%s], desired count: [%s]' },
+        $task_name, $desired_count );
     }
   }
 
@@ -70,9 +71,9 @@ sub get_service_subnets {
 ########################################################################
   my ( $self, ) = @_;
 
-  my $config = $self->get_config;
+  my ( $config, $alb ) = $self->common_args(qw(config alb));
 
-  my $alb_arn = defined $config->{alb} && $config->{alb}->{arn};
+  my $alb_arn = defined $alb && $alb->{arn};
 
   if ($alb_arn) {
     $self->get_logger->warn('service: service will be placed in the same AZs as load balancer.');
@@ -98,13 +99,13 @@ sub get_alb_subnets {
 ########################################################################
   my ( $self, $alb_arn ) = @_;
 
-  require App::ElbV2;
-
-  my $elb = App::ElbV2->new( $self->get_global_options );
+  my $elb = $self->fetch_elbv2;
 
   my $query = 'LoadBalancers[].AvailabilityZones[].SubnetId';
 
   my $subnet_ids = $elb->describe_load_balancers( query => $query, arn => $alb_arn );
+
+  $elb->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
 
   return @{$subnet_ids};
 }

@@ -45,8 +45,6 @@ sub create_alias {
 
   my ( $alb_dns_name, $alb_zone_id ) = @args{qw(alb_dns_name alb_zone_id)};
 
-  $elb //= $self->fetch_elbv2;
-
   $zone_id //= $self->get_hosted_zone_id;
 
   die "zone_id is a required argument\n"

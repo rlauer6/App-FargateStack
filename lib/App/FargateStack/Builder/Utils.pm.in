@@ -3,6 +3,11 @@ package App::FargateStack::Builder::Utils;
 use strict;
 use warnings;
 
+BEGIN {
+  use Log::Log4perl;
+  Log::Log4perl->wrapper_register(__PACKAGE__);
+}
+
 use Carp;
 use Data::Dumper;
 use English qw(no_match_vars);
@@ -36,9 +41,13 @@ our @EXPORT = qw(
   fetch_ecr
   fetch_ec2
   fetch_ecs
+  fetch_ecr
+  fetch_elbv2
+  fetch_events
   fetch_efs
   fetch_iam
   fetch_logs
+  fetch_secrets
   fetch_sts
   fetch_route53
   fetch_cli_api
@@ -389,12 +398,12 @@ sub _log {
   }
 }
 
-sub log_info  { return _log( shift->get_logger, 'info',   @_ ) }
-sub log_debug { return _log( shift->get_logger, 'debug',  @_ ) }
-sub log_warn  { return _log( shift->get_logger, 'warn',   @_ ) }
-sub log_error { return _log( shift->get_logger, 'error',  @_ ) }
-sub log_die   { return _log( shift->get_logger, 'logdie', @_ ) }
-sub log_trace { return _log( shift->get_logger, 'trace',  @_ ) }
-sub log_fatal { return _log( shift->get_logger, 'fatal',  @_ ) }
+sub log_info  { return _log( shift->get_logger, 'info',  @_ ) }
+sub log_debug { return _log( shift->get_logger, 'debug', @_ ) }
+sub log_warn  { return _log( shift->get_logger, 'warn',  @_ ) }
+sub log_error { return _log( shift->get_logger, 'error', @_ ) }
+sub log_die   { exit _log( shift->get_logger, 'error', @_ ) || 1; }
+sub log_trace { return _log( shift->get_logger, 'trace', @_ ) }
+sub log_fatal { return _log( shift->get_logger, 'fatal', @_ ) }
 
 1;

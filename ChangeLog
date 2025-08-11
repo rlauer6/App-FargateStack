@@ -1,3 +1,108 @@
+Sun Aug 10 19:22:39 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.24]:
+
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(check_result)
+	- add multiple signatures
+	* lib/App/EC2.pm.in
+	- debug, not trace levels
+	* lib/App/ElbV2.pm.in
+	- + _alb_cache
+	(describe_load_balancers): cache alb info
+	* lib/App/FargateStack.pm.in
+	(init_logger): add module/method/line numbers in debug/trace modes
+	(check_service_name): die don't croak
+	(get_default_task_name): return task if just one
+	(cmd_run_task): die don't croak
+	(check_latest_image)
+	- return boolean
+	- whitespace
+	(get_task_status)
+	- refactoring
+	(get_default_service_name)
+	- refactoring
+	(cmd_create_service)
+	- refactoring
+	- allow count
+	(cmd_remove_service): die don't croak
+	(verify_service): likewise
+	(cmd_update_service): likewise
+	(cmd_register_task_definition)
+	- likewise
+	- check_result
+	(get_latest_image): fetch_ecr
+	(cmd_stop_task): croak don't die
+	(cmd_list_tasks): likewise
+	(cmd_delete_schedule): likewise
+	(cmd_delete_task): likewise
+	(cmd_delete_daemon): likewise
+	(cmd_delete_http): likewise
+	(cmd_redploy): likewise
+	(main)
+	- set log-level to info for create-service
+	- likewise for start-service
+	- register-task, not register
+	* lib/App/FargateStack/Builder.pm.in
+	(delete_task_resources)
+	- all --force to skip confirm
+	(delete_cluster)
+	- refactoring
+	- check_result
+	(delete_alias_record)
+	- refactoring
+	(_delete_service)
+	- more consistent log messages
+	(_delete_task_definitions): likewise
+	(_delete_roles): likewise
+	(_delete_log_group): likewise
+	(_delete_security_group): likewise
+	(_delete_target_group): likewise
+	(_delete_http): likewise, check_result
+	(is_our_alb): check_result
+	(remove_alias_record): likewise
+	(get_efs_sgs): likewise
+	(authorize_efs_ingress): fetch_ec2, check_result
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(build_http_service)
+	- refactoring
+	(create_target_group)
+	- fetch_elbv2
+	- check_result
+	(create_alb)
+	- refactoring
+	- make sure alb section is created
+	- check_result
+	(create_alb_security_group)
+	- refactoring
+	- fetch_ec2
+	(create_alias)
+	- fetch_route53
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service)
+	- allow count
+	- @desired_services  keys %{$tasks} if not specified (start all)
+	- use container_port from config if defined
+	(get_service_subnets)
+	- fetch_elbv2
+	- refactoring
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(register_task_definition)
+	- refactoring
+	(define_task_size)
+	- set size if not defined in config
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(@EXPORT)
+	- + fetch_ecr, fetch_elbv3, fetch_events, fetch_secrets
+	(log_die): exit
+	* lib/App/FargateStack/Init.pm.in
+	(_init_ec2)
+	- debug level instead of trace
+	(_init_route53): whitespace
+	* lib/App/Route53.pm.in
+	(create_alias): elb is required
+
 Sun Aug 10 08:24:22 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.23]:

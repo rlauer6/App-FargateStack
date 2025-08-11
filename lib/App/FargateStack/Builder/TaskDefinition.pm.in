@@ -43,8 +43,7 @@ sub register_task_definition {
 
     my $task_definition = sprintf 'taskdef-%s.json', $task_name;
 
-    $self->log_warn( 'task: task definition for [%s] changed or does not exists...will be created...%s',
-      $task_name, $dryrun );
+    $self->log_warn( 'task: task definition for [%s] changed or does not exists...will be created...%s', $task_name, $dryrun );
 
     if ( !$dryrun ) {
       $self->log_warn( 'task: creating task definition [%s]...', $task_name );
@@ -146,7 +145,18 @@ sub define_task_size {
   my ( $cpu, $memory, $size ) = @{$task}{qw(cpu memory size)};
 
   return ( $cpu, $memory, $size )
-    if defined $size || defined $cpu || defined $memory;
+    if defined $size && defined $cpu && defined $memory;
+
+  if ( defined $cpu && defined $memory ) {
+    ($size) = grep { $ECS_TASK_PROFILES{$_}->{cpu} eq $cpu && $ECS_TASK_PROFILES{$_}->{memory} eq $memory }
+      keys %ECS_TASK_PROFILES;
+
+    if ($size) {
+      $task->{size} = $size;
+    }
+
+    return ( $cpu, $memory, $size );
+  }
 
   my $logical_type = choose {
     return 'web'    if $type =~ /http/xsm;
@@ -160,8 +170,7 @@ sub define_task_size {
   if ($size) {
     my $profile = $ECS_TASK_PROFILES{$size};
 
-    croak sprintf "ERROR: unknown profile: [%s], valid profiles: [%s]\n", $size, join q{,},
-      keys %ECS_TASK_PROFILES
+    croak sprintf "ERROR: unknown profile: [%s], valid profiles: [%s]\n", $size, join q{,}, keys %ECS_TASK_PROFILES
       if !$profile;
 
     $cpu    //= $profile->{cpu};
@@ -204,11 +213,7 @@ sub create_taskdef_files {
     my ( $image_name, $image_tag ) = $task->{image} =~ /^([^:]+)(?::(.+))?$/xsm;
     $image_tag //= 'latest';
 
-    my $image = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s:%s',
-      $self->get_account,
-      $config->{region},
-      $image_name,
-      $image_tag;
+    my $image = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s:%s', $self->get_account, $config->{region}, $image_name, $image_tag;
 
     # -- environment --
     my @environment
@@ -318,8 +323,7 @@ sub compare_task_definition {
   my $status = -s $taskdef_file ? $TRUE : $FALSE;
 
   if ( !$status ) {
-    $self->log_warn( 'task: [%s] no task definition file [%s]...forces new task definition',
-      $task_name, $taskdef_file );
+    $self->log_warn( 'task: [%s] no task definition file [%s]...forces new task definition', $task_name, $taskdef_file );
   }
 
   foreach my $k ( keys %{$taskdef} ) {

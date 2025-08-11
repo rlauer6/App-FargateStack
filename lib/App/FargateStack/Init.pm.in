@@ -96,15 +96,19 @@ sub _init_ec2 {
 
   my $subnets = $config->{subnets};
 
-  my $ec2 = $self->fetch_ec2(
+  my %options = (
     vpc_id => $config->{vpc_id},
     ( $self->get_cache && $subnets ) ? ( subnets => $subnets ) : (),
     %{ $self->get_global_options },
   );
 
+  $self->log_debug( sub { return Dumper( [ options => \%options ] ); } );
+
+  my $ec2 = $self->fetch_ec2(%options);
+
   $subnets = $ec2->get_subnets;
 
-  $self->get_logger->trace( sub { return Dumper( [ subnets => $subnets ] ) } );
+  $self->log_debug( sub { return Dumper( [ subnets => $subnets ] ) } );
 
   $self->set_subnets($subnets);
 
@@ -115,7 +119,7 @@ sub _init_ec2 {
   # if we find subnets in the config...always validate in case they
   # got changed...
   if ( $subnets && !$self->get_cache ) {
-    $ec2->validate_subnets($subnets);  # this will croak if anyway are invalid
+    $ec2->validate_subnets($subnets);  # this will croak if any are not invalid
   }
   else {
     my $subnets = $ec2->get_subnets;
@@ -123,7 +127,7 @@ sub _init_ec2 {
     $config->{subnets} = $subnets;
   }
 
-  $self->get_logger->trace( sub { return Dumper( [ subnets => $subnets ] ) } );
+  $self->log_debug( sub { return Dumper( [ subnets => $subnets ] ) } );
 
   return $ec2;
 }
@@ -341,16 +345,14 @@ sub _init_route53 {
   if ( !$zone_id ) {
     my $zone_type = $self->is_https ? 'public' : 'private';
 
-    $self->log_warn( 'init: zone_id is required when creating a task of type: [%s]',
-      $self->is_https ? 'https' : 'http' );
+    $self->log_warn( 'init: zone_id is required when creating a task of type: [%s]', $self->is_https ? 'https' : 'http' );
 
     $self->log_warn( 'init: ...attempting to find a [%s] hosted zone', $zone_type );
 
     my $hosted_zone = $route53->find_hosted_zone( $domain, $zone_type );
     $self->benchmark('route53');
 
-    log_die( $self, 'init: ERROR: no hosted zone of type [%s] found in this account for domain: [%s]',
-      $zone_type, $domain )
+    log_die( $self, 'init: ERROR: no hosted zone of type [%s] found in this account for domain: [%s]', $zone_type, $domain )
       if !$hosted_zone || !@{$hosted_zone};
 
     $zone_id = basename( $hosted_zone->[0]->{Id} );
@@ -364,13 +366,7 @@ sub _init_route53 {
 
   $self->log_warn( 'init: validating hosted zone id: [%s]', $zone_id );
 
-  my $zone = eval {
-    return $route53->validate_hosted_zone(
-      zone_id  => $zone_id,
-      domain   => $domain,
-      alb_type => $alb_type,
-    );
-  };
+  my $zone = eval { return $route53->validate_hosted_zone( zone_id => $zone_id, domain => $domain, alb_type => $alb_type, ); };
 
   my $err = $EVAL_ERROR;
 
