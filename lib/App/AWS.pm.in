@@ -101,7 +101,7 @@ sub check_result {
   my $err    = $self->get_error // q{};
 
   return $TRUE
-    if $result;
+    if $result || !$err;
 
   # Accept either a qr// or a plain string for regexp
   if ( defined $regexp && ref $regexp ne 'Regexp' ) {

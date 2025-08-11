@@ -1,3 +1,12 @@
+Sun Aug 10 20:34:38 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.25]:
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(check_result)
+	- return if no error
+	* lib/App/FargateStack/Builder.pm.in
+	(remove_alias_record): elb, not self
 Sun Aug 10 19:22:39 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.24]:

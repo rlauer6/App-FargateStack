@@ -955,7 +955,7 @@ sub remove_alias_record {
   my $query = 'LoadBalancers[0].{zone_id: CanonicalHostedZoneId, dns_name: DNSName}';
 
   my $alb_info = $elb->describe_load_balancers( query => $query, arn => $alb_arn );
-  $self->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
+  $elb->check_result( message => 'ERROR: could not describe load balancer: [%s]', $alb_arn );
 
   my $change_batch = {
     Comment => 'Delete alias record',
