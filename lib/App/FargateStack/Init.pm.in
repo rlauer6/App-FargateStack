@@ -70,7 +70,7 @@ sub init {
 
   # only install die handler for apply - this makes sure we record any
   # provisioned resources
-  if ( $self->command eq 'apply' ) {
+  if ( $self->command =~ /^(?:apply|destroy|delete-)$/xsmi ) {
     $SIG{__DIE__} = sub {
       my $msg = shift;
 

@@ -201,7 +201,7 @@ object-oriented use. As such, this section is intentionally omitted.
 
 =over 4
 
-=item (1) Use the --profile option to override the profile defined in
+=item (1) Use the C<--profile> option to override the profile defined in
 the configuration file.
 
 I<Note: The Route 53 service uses the same profile unless you specify
@@ -212,15 +212,20 @@ of the configuration file.>
 command with a subject or one of the commands.
 
  app-FargateStack help overview
- app-FargateStack help repdeploy
+ app-FargateStack help redeploy
 
 If you do not provide a subject then you will get the same information
 as C<--help>. Use C<help help> to get a list of available subjects.
 
-=item (3) You must log at least at the 'info' level to report progress.
+=item (3) You must log at least at the 'info' level to report
+progress. This is set for you when your C<plan> or C<apply>.
 
 =item (4) By default an ECS service is NOT created for you by default
-for daemon and http tasks.
+for daemon and http tasks. Instead, after creating all of the
+necessary resources using C<apply>, run C<app-FargateStack
+create-service task-name>. This will launch your service with a count
+of 1 task. You can optionally specify a different count after the task
+name.
 
 =item (5) You can tail or display a set of log events from a task's
 log stream:

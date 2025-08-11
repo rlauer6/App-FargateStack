@@ -1,3 +1,27 @@
+Mon Aug 11 17:40:17 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.29]:
+	* ChangeLog
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack/Builder.pm.in
+	(delete_task_resources)
+	- delete id, last_updated
+	- log a message about skeleton config
+	(_delete_security_group)
+	- wait for ENI to release ALB security group
+	* lib/App/FargateStack/Builder/Cluster.pm.in
+	(build_fargate_cluster)
+	- make sure we set cluster info in config
+	- check_result after api call
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(create_alb): add tags
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- add die handler for apply, destroy, delete- commands
+	* lib/App/FargateStack/Pod.pm.in
+	- typos, minor wordsmithing
+
 Mon Aug 11 15:59:40 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.28]:

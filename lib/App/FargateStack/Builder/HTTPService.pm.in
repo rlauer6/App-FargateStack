@@ -529,13 +529,13 @@ sub create_alb {
   );
 
   if ( !$dryrun ) {
-    $elb->set_tags( { CreatedBy => 'FargateStack' } );
 
     my $alb_info = $elb->create_load_balancer(
       name            => $alb_name,
       subnets         => $subnets,
       scheme          => $alb_type eq 'public' ? 'internet-facing' : 'internal',
-      security_groups => [$alb_sg]
+      security_groups => [$alb_sg],
+      tags            => { CreatedBy => 'FargateStack' },
     );
 
     $elb->check_result( message => 'ERROR: could not create load balancer: [%s]', $alb_name );

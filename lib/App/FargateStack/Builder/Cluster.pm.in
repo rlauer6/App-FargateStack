@@ -18,13 +18,15 @@ sub build_fargate_cluster {
 
   my ( $config, $cluster, $dryrun ) = $self->common_args(qw(config cluster dryrun));
 
-  my $ecs = $self->get_ecs;
+  $cluster //= {};
 
-  my ( $cluster_name, $cluster_arn ) = @{ $cluster // {} }{qw(name arn)};
+  my $ecs = $self->fetch_ecs;
 
-  if ( !$cluster_name ) {
-    $config->{cluster} //= {};
-    $cluster_name = $config->{app}->{name} . '-cluster';
+  my ( $cluster_name, $cluster_arn ) = @{$cluster}{qw(name arn)};
+
+  if ( !$cluster_name || !$cluster_arn ) {
+    $config->{cluster} //= $cluster;
+    $cluster_name = $self->create_default('cluster-name');
     $cluster->{name} = $cluster_name;
   }
 
@@ -57,9 +59,7 @@ sub build_fargate_cluster {
     if $dryrun;
 
   my $result = $ecs->create_cluster($cluster_name);
-
-  log_die( $self, "ERROR: could not create cluster [%s]\n%s", $cluster_name, $ecs->get_error )
-    if !$result || $ecs->get_error;
+  $ecs->check_result( 'ERROR: could not create cluster [%s]', $cluster_name );
 
   $self->log_warn( sprintf 'cluster: [%s] created...', $cluster_name );
 

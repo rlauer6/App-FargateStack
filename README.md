@@ -166,7 +166,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.28.
+This documentation corresponds to version 1.0.29.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -267,7 +267,7 @@ object-oriented use. As such, this section is intentionally omitted.
 
 ## Notes
 
-- (1) Use the --profile option to override the profile defined in
+- (1) Use the `--profile` option to override the profile defined in
 the configuration file.
 
     _Note: The Route 53 service uses the same profile unless you specify
@@ -278,14 +278,19 @@ the configuration file.
 command with a subject or one of the commands.
 
         app-FargateStack help overview
-        app-FargateStack help repdeploy
+        app-FargateStack help redeploy
 
     If you do not provide a subject then you will get the same information
     as `--help`. Use `help help` to get a list of available subjects.
 
-- (3) You must log at least at the 'info' level to report progress.
+- (3) You must log at least at the 'info' level to report
+progress. This is set for you when your `plan` or `apply`.
 - (4) By default an ECS service is NOT created for you by default
-for daemon and http tasks.
+for daemon and http tasks. Instead, after creating all of the
+necessary resources using `apply`, run `app-FargateStack
+create-service task-name`. This will launch your service with a count
+of 1 task. You can optionally specify a different count after the task
+name.
 - (5) You can tail or display a set of log events from a task's
 log stream:
 
@@ -2090,6 +2095,6 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 1253:
+- Around line 1258:
 
     Non-ASCII character seen before =encoding in 'task’s'. Assuming UTF-8
