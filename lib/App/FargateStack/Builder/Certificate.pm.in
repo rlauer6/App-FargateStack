@@ -7,7 +7,6 @@ use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
 
-use App::ACM;
 use App::FargateStack::Constants;
 
 use Role::Tiny;
@@ -17,13 +16,11 @@ sub build_certificate {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $domain = $config->{domain};
 
-  my $acm = App::ACM->new( domain => $domain, %{ $self->get_global_options } );
+  my $acm = $self->fetch_acm( domain => $domain );
 
   my @all_certs = @{ $acm->list_certificates };
 
@@ -52,33 +49,42 @@ sub build_certificate {
     if ( !$dryrun ) {
 
       $arn = $acm->request_certificate();
+      $acm->check_result( message => 'ERROR: could not create certifcate for: [%s]', $domain );
 
       sleep $ACM_REQUEST_SLEEP_TIME;
 
-      my $dns_record
-        = $acm->describe_certificate( $arn, 'Certificate.DomainValidationOptions[0].ResourceRecord' );
+      my $dns_record = $acm->describe_certificate( $arn, 'Certificate.DomainValidationOptions[0].ResourceRecord' );
 
       log_die( $self, 'ERROR: no DNS record found yet for %s', $arn )
         if !$dns_record;
 
       my ( $name, $type, $value ) = @{$dns_record}{qw(Name Type Value)};
 
-      my $change_batch = [
-        { Action            => 'UPSERT',
-          ResourceRecordSet => {
-            Name            => $name,
-            Type            => $type,
-            TTL             => 300,
-            ResourceRecords => [ { Value => $value } ]
-          }
+      my $change_batch = {
+        ChangeBatch => {
+          Changes => [
+            { Action            => 'UPSERT',
+              ResourceRecordSet => {
+                Name            => $name,
+                Type            => $type,
+                TTL             => 300,
+                ResourceRecords => [ { Value => $value } ]
+              }
+            }
+          ]
         }
-      ];
+      };
 
-      my $route53 = $self->get_route53();
+      my $route53 = $self->fetch_route53();
 
       $route53->set_change_batch($change_batch);
 
-      $self->log_info( Dumper( [ result => $route53->change_resource_record_sets ] ) );
+      $route53->change_resource_record_sets;
+
+      print {*STDERR} Dumper( [$route53] );
+
+      $route53->check_result( message => 'ERROR: could not insert DNS record' );
+
     }
   }
 

@@ -78,6 +78,7 @@ sub attach_certificate {
   }
 
   my $listener = $elb->describe_listeners( $alb_arn, 'Listeners[?Port == `443`]' );
+
   log_die( $self, 'ERROR: could not find a 443 listener for ALB: [%s]', $alb_arn )
     if !$listener || !@{$listener};
 
@@ -92,18 +93,20 @@ sub attach_certificate {
 
   my $certificate_arn = $config->{certificate_arn};
 
-  log_die( $self, 'ERROR: no certificate ARN' )
-    if !$certificate_arn;
-
-  if ( any { $_ eq $certificate_arn } @{$certificates} ) {
-    $self->log_info( 'http-service: certificate for [%s] already attached to listener...skipping', $domain );
-    return;
+  if ($certificate_arn) {
+    if ( any { $_ eq $certificate_arn } @{$certificates} ) {
+      $self->log_info( 'http-service: certificate for [%s] already attached to listener...skipping', $domain );
+      return;
+    }
   }
 
   $self->log_warn( 'http-service: certificate for [%s] will be added to listener...%s', $domain, $dryrun );
 
   return
     if $dryrun;
+
+  log_die( $self, 'http-service: no certificate arn' )
+    if !$certificate_arn;
 
   my $result = $elb->add_listener_certificate( $listener_arn, $certificate_arn );
 
@@ -304,7 +307,7 @@ sub create_target_group {
 
     if ( !defined $task->{health_check} || $health_check->{enabled} ) {
       $health_check->{enabled} //= $JSON::true;
-      $health_check->{port}    //= $task->{port};
+      $health_check->{port}    //= $task->{container_port};
       $health_check->{path}    //= q{/};
 
       $health_check->{interval_seconds} //= $DEFAULT_HEALTH_CHECK_INTERVAL;

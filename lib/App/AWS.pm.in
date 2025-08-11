@@ -84,7 +84,7 @@ sub check_result {
   elsif ( @options % 2 ) {
     my $param = pop @options;
     $args = {@options};
-    $args->{params} = $param;
+    $args->{params} = [$param];
   }
   else {
     $args = {@options};

@@ -38,6 +38,7 @@ our @EXPORT = qw(
   toCamelCase
   slurp_file
   write_json_file
+  fetch_acm
   fetch_ecr
   fetch_ec2
   fetch_ecs
@@ -54,6 +55,7 @@ our @EXPORT = qw(
 );
 
 ########################################################################
+sub fetch_acm     { return shift->fetch_cli_api( 'ACM',     @_ ); }
 sub fetch_iam     { return shift->fetch_cli_api( 'IAM',     @_ ); }
 sub fetch_logs    { return shift->fetch_cli_api( 'Logs',    @_ ); }
 sub fetch_efs     { return shift->fetch_cli_api( 'EFS',     @_ ); }

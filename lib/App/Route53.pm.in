@@ -54,19 +54,21 @@ sub create_alias {
     if !$domain;
 
   my $change_batch = {
-    Changes => [
-      { Action            => 'UPSERT',
-        ResourceRecordSet => {
-          Name        => $domain,
-          Type        => 'A',
-          AliasTarget => {
-            HostedZoneId         => $alb_zone_id,
-            DNSName              => $alb_dns_name,
-            EvaluateTargetHealth => JSON::false,
+    ChangeBatch => {
+      Changes => [
+        { Action            => 'UPSERT',
+          ResourceRecordSet => {
+            Name        => $domain,
+            Type        => 'A',
+            AliasTarget => {
+              HostedZoneId         => $alb_zone_id,
+              DNSName              => $alb_dns_name,
+              EvaluateTargetHealth => JSON::false,
+            }
           }
         }
-      }
-    ]
+      ]
+    }
   };
 
   return $self->change_resource_record_sets( $zone_id, $change_batch );
@@ -97,7 +99,7 @@ sub change_resource_record_sets {
   return $self->command(
     'change-resource-record-sets' => [
       '--hosted-zone-id' => $zone_id,
-      '--change-batch'   => "file://$filename",
+      '--cli-input-json' => "file://$filename",
     ]
   );
 }

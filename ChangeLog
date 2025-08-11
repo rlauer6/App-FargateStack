@@ -1,3 +1,31 @@
+Mon Aug 11 05:25:47 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.26]:
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(check_result): [$param]
+	* lib/App/ECS.pm.in
+	(register_task_definition): whitespace
+	(list_task_definitions): likewise
+	(deregister_task_definition): likewise
+	(create_service)
+	- assign public IP when in public subnet
+	* lib/App/FargateStack/Builder/Certificate.pm.in
+	(build_certificate)
+	- refactoring
+	- fix ChangeBatch
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(attach_certificate)
+	- check for certificate arn (may be dryrun mode)
+	(create_target_group)
+	- container_port
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service): enable public_ip if alb is public
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_acm): new
+	* lib/App/Route53.pm.in
+	(create_alias): fix ChangeBatch
+
 Sun Aug 10 20:34:38 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.25]:
@@ -7,6 +35,7 @@ Sun Aug 10 20:34:38 2025  Rob Lauer  <rlauer6@comcast.net>
 	- return if no error
 	* lib/App/FargateStack/Builder.pm.in
 	(remove_alias_record): elb, not self
+
 Sun Aug 10 19:22:39 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.24]:

@@ -29,6 +29,8 @@ sub build_service {
 
   $self->log_warn( 'service: creating %d service(s) [%s]', scalar(@desired_services), join q{,}, @desired_services );
 
+  my $public_ip = $config->{alb} && $config->{alb}->{type} eq 'public';
+
   foreach my $task_name (@desired_services) {
 
     my $task = $tasks->{$task_name};
@@ -49,6 +51,7 @@ sub build_service {
         task_definition => $task_name,
         desired_count   => $desired_count,
         subnets         => \@vpc_subnets,
+        public_ip       => $public_ip,
         security_groups => [ $config->{security_groups}->{fargate}->{group_id} ],
         $self->get_http         ? ( target_group_arn => $task->{target_group_arn} )   : (),
         $task->{container_port} ? ( container_port   => 0 + $task->{container_port} ) : (),

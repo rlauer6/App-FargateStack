@@ -184,8 +184,8 @@ sub register_task_definition {
   croak "usage: register_task_definition(task-definition-file)\n"
     if !$task_definition || !-s $task_definition;
 
-  my $result = $self->command(
-    'register-task-definition' => [ '--no-cli-pager', '--cli-input-json' => "file://$task_definition", ] );
+  my $result
+    = $self->command( 'register-task-definition' => [ '--no-cli-pager', '--cli-input-json' => "file://$task_definition", ] );
 
   return $result;
 }
@@ -253,8 +253,7 @@ sub list_task_definitions {
   my ( $self, $family_prefix, $query ) = @_;
 
   return $self->command( 'list-task-definitions' =>
-      [ $family_prefix ? ( '--family-prefix' => $family_prefix ) : (), $query ? ( '--query' => $query ) : () ]
-  );
+      [ $family_prefix ? ( '--family-prefix' => $family_prefix ) : (), $query ? ( '--query' => $query ) : () ] );
 
 }
 
@@ -266,8 +265,8 @@ sub deregister_task_definition {
   croak "usage: deregister_task_definition(task-definition, [query])\n"
     if !$task_definition;
 
-  return $self->command( 'deregister-task-definition' =>
-      [ '--task-definition' => $task_definition, $query ? ( '--query' => $query ) : () ] );
+  return $self->command(
+    'deregister-task-definition' => [ '--task-definition' => $task_definition, $query ? ( '--query' => $query ) : () ] );
 }
 
 ########################################################################
@@ -309,8 +308,8 @@ sub create_service {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ( $service_name, $cluster_name, $task_definition, $desired_count )
-    = @args{qw(service_name cluster_name task_definition desired_count)};
+  my ( $service_name, $cluster_name, $task_definition, $desired_count, $public_ip )
+    = @args{qw(service_name cluster_name task_definition desired_count public_ip)};
 
   $cluster_name  //= $self->get_cluster_name;
   $desired_count //= 1;
@@ -333,12 +332,11 @@ sub create_service {
     awsvpcConfiguration => {
       subnets        => $subnets,
       securityGroups => $security_groups,
-      assignPublicIp => 'DISABLED',
+      assignPublicIp => $public_ip ? 'ENABLED' : 'DISABLED',
     }
   };
 
-  my ( $target_group_arn, $container_name, $container_port )
-    = @args{qw(target_group_arn container_name container_port)};
+  my ( $target_group_arn, $container_name, $container_port ) = @args{qw(target_group_arn container_name container_port)};
 
   $container_port //= $DEFAULT_PORT;
 
