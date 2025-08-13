@@ -1,3 +1,83 @@
+Wed Aug 13 11:59:54 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.30]:
+	* lib/App/FargateStack/CloudTrail.pm.in: new
+	* lib/App/CloudTrail.pm.in: new
+	* Makefile: add above to build
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/ECS.pm.in
+	(describe_tasks): accept array ref
+	* lib/App/Events.pm.in
+	(rule_exists)
+	- refactoring
+	(put_rule)
+	- accept event_pattern
+	- make schedule, state conditional
+	(target_exists): refactoring
+	* lib/App/FargateStack.pm.in
+	(cmd_show): new
+	(cmd_create_service)
+	- allow count parameter
+	(cmd_delete_schedule): delete_task_resources
+	(main)
+	- + cloudtrail, output
+	- + show
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- create log group before task definitions
+	(delete_task_resources)
+	- selective deletion when multiple tasks defined
+	- make sure we have a cluster name
+	- more log messages
+	* lib/App/FargateStack/Builder/EFS.pm.in
+	(add_volumes): fetch_efs
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events)
+	- refactoring
+	- more log messages
+	(create_event_target)
+	- refactoring
+	- add tags to events
+	- detect policy diff and output diff listing
+	(build_events_iam_role)
+	- refactoring
+	- add tag policy
+	(build_run_tags): new
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	(build_log_group)
+	- refactoring
+	(fetch_logs): removed
+	(update_log_groups): likewise
+	(add_log_group_policy): only 1 log group for this stack
+	* lib/App/FargateStack/Builder/Secrets.pm.in: whitespace
+	* lib/App/FargateStack/Builder/Service.pm.in
+	(build_service)
+	- place service in same AZ as ALB if http service
+	(get_service_subnets): likewise
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(define_port_mapping): only for http
+	(create_taskdef_files)
+	- default to type 'task'
+	- only 1 log group now
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	- pod
+	(@EXPORT): +nomalize_name, normalize_time_range, normalize_timestamp, fetch_cloudrtrail
+	(normalize_timestamp): new
+	(display_diffs): tweak output
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_MAX_EVENTS
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- setup config earlier
+	(_init_config): move copyright message to init()
+	* lib/App/FargateStack/Logs.pm.in
+	(cmd_logs)
+	- only 1 log group now
+	(normalize_time_range): moved to Utils
+	* lib/App/FargateStack/Pod.pm.in
+	- add new options, commands
+
 Mon Aug 11 17:40:17 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.29]:

@@ -3,12 +3,12 @@ package App::FargateStack::Builder::Events;
 use strict;
 use warnings;
 
+use App::FargateStack::Builder::Utils qw(log_die);
+use App::FargateStack::Constants;
 use Carp;
+use Data::Compare;
 use Data::Dumper;
 use English qw(-no_match_vars);
-
-use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die);
 use JSON;
 
 use Role::Tiny;
@@ -18,20 +18,24 @@ sub build_events {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
-
-  my $tasks = $config->{tasks};
+  my ( $config, $dryrun, $cluster, $tasks ) = $self->common_args(qw(config dryrun cluster tasks));
 
   my @events = grep { $tasks->{$_}->{type} eq 'task' } keys %{$tasks};
 
-  return
-    if !@events;
+  if ( !@events ) {
+    $self->log_info('events: no events to build');
+    return;
+  }
+
+  $self->log_info( 'events: [%d] event(s) to build', scalar @events );
+
+  $self->log_info('events: construction IAM role for events');
 
   $self->build_events_iam_role(@events);  # task names
 
   foreach my $task_name (@events) {
+    $self->log_info( 'events: building event for: [%s]', $task_name );
+
     my $task = $tasks->{$task_name};
 
     # ok to be undef, as App::Events will provide default
@@ -54,15 +58,18 @@ sub build_events {
     my $rule_name = sprintf '%s-schedule', $task_name;
 
     if ( $valid_schedule ne $schedule ) {
-      $self->log_warn( sprintf 'events: [%s] schedule modified [%s]', $schedule, $valid_schedule );
+      $self->log_warn( sprintf 'events: [%s] schedule modified [%s] automatically for you...', $schedule, $valid_schedule );
 
       $task->{schedule} = $valid_schedule;
       $schedule = $valid_schedule;
     }
 
     my $exists = $event->rule_exists( $rule_name, $schedule );
+
     $self->log_info( 'events: checking if rule [%s] exists or schedule [%s] changed', $rule_name, $schedule );
-    my $rule_exists      = $exists       ? q{}  : 'does not ';
+
+    my $rule_exists = $exists ? q{} : 'does not ';
+
     my $schedule_changed = $exists == -1 ? q {} : 'not ';
 
     my $level = $rule_exists ? 'warn' : 'info';
@@ -72,39 +79,34 @@ sub build_events {
     $self->$level( 'events: rule [%s] %sexists and schedule [%s] has %schanged',
       $rule_name, $rule_exists, $schedule, $schedule_changed );
 
-    if ( ( !$dryrun && $exists == -1 ) || $self->taskdef_has_changed($task_name) ) {
-      # in the off chance the rule does not exist, but the taskdef has
-      # changed we still should not have an issue here since our
-      # $event object will not croak on an error...
-      $self->log_error( 'events: attempting to delete rule in case target does not exist [%s]...%s',
-        $rule_name, $dryrun );
-
+    if ( $exists == -1 || $self->taskdef_has_changed($task_name) ) {
       if ( !$dryrun ) {
-        my $result = $event->delete_rule($rule_name);
-        my $err    = $event->get_error;
+        $self->log_error( 'events: attempting to delete rule in case target does not exist [%s]...%s', $rule_name, $dryrun );
 
-        if ($err) {
-          $self->log_error( "events: did not delete rule: [%s]...this is probably ok\n%s", $rule_name, $err );
-        }
+        my $result = $event->delete_rule($rule_name);
+        $event->check_result(
+          message => 'could not delete rule: [%s]',
+          params  => [$rule_name],
+          regexp  => qr/has\stargets/xmsi
+        );
       }
     }
 
+    my $action = !$exists ? 'created' : 'replaced';
+
     if ( !$exists || ( $exists == -1 || $self->taskdef_has_changed($task_name) ) ) {
-      my $action = !$exists ? 'created' : 'replaced';
 
       $self->inc_required_resources( 'events:rule' => [$rule_name] );
       $self->get_logger->warn( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
 
+      $self->log_warn( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
+
       if ( !$dryrun ) {
-
-        $self->get_logger->warn( sprintf 'events: [%s] rule will be %s...%s', $rule_name, $action, $dryrun );
-        my $result = $event->put_rule( $rule_name, $schedule );
-
-        log_die( $self, sprintf "ERROR: could not create rule [%s]\n%s", $rule_name, $event->get_error )
-          if !$result;
-
-        $self->get_logger->warn( sprintf 'events: [%s] rule %s successfully', $rule_name, $action );
+        $event->put_rule( rule_name => $rule_name, schedule => $schedule, state => $TRUE );
+        $event->check_result( message => 'ERROR: could not create rule [%s]', $rule_name );
       }
+
+      $self->get_logger->warn( sprintf 'events: [%s] rule %s successfully', $rule_name, $action );
     }
     else {
       $self->get_logger->info( sprintf 'events: rule [%s] exists...skipping', $rule_name );
@@ -134,20 +136,28 @@ sub create_event_target {
 
   my $task_definition_arn = $task->{arn} // $EMPTY;
 
-  my $subnets = $self->get_subnets->{private} // $self->get_subnets->{public};
+  my @subnets = sort @{ $self->get_subnets->{private} // $self->get_subnets->{public} };
 
   my $security_group = $config->{security_groups}->{fargate}->{group_id};
+
+  my $tags = $self->build_run_tags( $task_name => $task );
 
   my $target = [
     { Id            => $self->create_default( 'rule-id', $task_name ),
       Arn           => $config->{cluster}->{arn},
       RoleArn       => $events_role->{arn},
       EcsParameters => {
+        Tags                 => $tags,
         TaskDefinitionArn    => $task_definition_arn,
+        TaskCount            => 1,
         LaunchType           => 'FARGATE',
+        Group                => 'schedule:' . $task_name,
+        EnableECSManagedTags => JSON::true,
+        EnableExecuteCommand => JSON::false,
+        PropagateTags        => 'TASK_DEFINITION',
         NetworkConfiguration => {
           awsvpcConfiguration => {
-            Subnets        => [ $subnets->[0] ],
+            Subnets        => [ $subnets[0] ],
             SecurityGroups => [$security_group],
             AssignPublicIp => 'DISABLED'
           }
@@ -162,12 +172,22 @@ sub create_event_target {
 
   my $current_target = $event->target_exists($rule_name);
 
+  my $replace_target = $FALSE;
+
+  # compare $target vs $current_target
+  if ( !Compare( $target->[0], $current_target ) ) {
+
+    $self->display_diffs( $current_target, $target->[0], { style => 'Table', title => 'rule target differs' } );
+    $replace_target = $TRUE;
+  }
+
   $self->log_trace(
     sub {
       return Dumper(
         [ current_target      => $current_target,
           target              => $target,
-          task_definition_arn => $task_definition_arn
+          task_definition_arn => $task_definition_arn,
+          replace_target      => $replace_target,
         ]
       );
     }
@@ -177,15 +197,18 @@ sub create_event_target {
 
   my $current_task_definition_arn = $ecs_parameters->{TaskDefinitionArn} // $EMPTY;
 
-  if ( $current_task_definition_arn && $current_task_definition_arn eq $task_definition_arn ) {
+  if ( !$replace_target && $current_task_definition_arn && $current_task_definition_arn eq $task_definition_arn ) {
     $self->log_info( sprintf 'events: [%s] target exists...skipping', $task_name );
     $self->inc_existing_resources( 'events:target' => [$task_name] );
 
     return;
   }
+  elsif ( $current_task_definition_arn && $current_task_definition_arn eq $task_definition_arn ) {
+    $replace_target = -1;
 
-  $self->log_warn( sprintf 'events: [%s] ARNs differ [%s] <=> [%s]',
-    $task_name, $current_task_definition_arn, $task_definition_arn );
+    $self->log_warn( sprintf 'events: [%s] task ARNs differ [%s] <=> [%s]',
+      $task_name, $current_task_definition_arn, $task_definition_arn );
+  }
 
   my $action = $current_target ? 'replaced' : 'created';
 
@@ -204,13 +227,10 @@ sub create_event_target {
   $self->log_warn( 'events: creating target for rule [%s]...', $rule_name );
 
   my $result = $event->put_targets( $rule_name, $target );
-
-  log_die(
-    $self,
-    "ERROR: could not create target [%s] for rule [%s]\n%s",
-    to_json( $target, { pretty => $TRUE } ),
-    $rule_name, $event->get_error
-  ) if !$result;
+  $event->check_result(
+    message => 'ERROR: could not create target [%s] for rule [%s]',
+    params  => [ to_json( $target, { pretty => $TRUE } ), $rule_name ]
+  );
 
   return;
 }
@@ -220,49 +240,43 @@ sub build_events_iam_role {
 ########################################################################
   my ($self) = @_;
 
-  my $config = $self->get_config;
-
-  my $dryrun = $self->get_dryrun;
+  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
 
   my $iam = $self->fetch_iam;
 
-  my $default_name = $self->normalize_name( $config->{app}->{name} );
-
   my $role_name = $self->create_events_role();
 
-  my $policy_name = $config->{events_role}->{policy_name};
+  my $policy_name = $config->{events_role}->{policy_name} // $self->create_default( 'policy-name', 'events' );
 
-  my $policy;
+  my $policy = $iam->get_role_policy( $role_name, $policy_name );
 
-  if ( !$policy_name || !$self->get_cache ) {
-    $policy_name = $self->create_default( 'policy-name', 'events' );
-    $policy      = $iam->get_role_policy( $role_name, $policy_name );
-  }
-  elsif ( $self->get_cache ) {
-    $policy = $EMPTY;
-  }
+  $config->{events_role}->{policy_name} = $policy_name;
 
-  if ( $policy || $self->get_cache ) {
-    $config->{events_role}->{policy_name} = $policy_name;
-
-    $self->log_info( 'iam:role-policy: policy [%s] for [%s] exists...%s',
-      $policy_name, $role_name, $self->get_cache || 'skipping' );
-
-    $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
-    return;
-  }
-
-  my @statement;
+  my @statement = $self->add_events_policy();
 
   my $role_policy = {
     Version   => $IAM_POLICY_VERSION,
     Statement => \@statement,
   };
 
-  push @statement, $self->add_events_policy();
+  if ( $policy && Compare( $policy, $role_policy ) ) {
+    $self->log_info( 'iam:role-policy: policy [%s] for [%s] exists...%s',
+      $policy_name, $role_name, $self->get_cache || 'skipping' );
 
-  $self->log_warn( 'iam:role-policy: policy [%s] will be created for [%s]...%s',
-    $policy_name, $role_name, $dryrun );
+    $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
+
+    return;
+  }
+
+  if ($policy) {
+    $self->display_diffs( $policy, $role_policy, { title => 'event policy has changed' } );
+  }
+
+  $self->log_warn(
+    'iam:role-policy: policy [%s] will be %s for [%s]...%s',
+    $policy_name, ( $policy ? 'updated' : 'created' ),
+    $role_name, $dryrun
+  );
 
   $self->inc_required_resources( 'iam:policy' => [$policy_name] );
 
@@ -270,13 +284,13 @@ sub build_events_iam_role {
     if $dryrun;
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
-  log_die( $self, "ERROR: could not create policy [%s] for [%s]\n%s",
-    $role_name, $policy_name, $iam->get_error )
-    if $iam->get_error;
+  $iam->check_result(
+    message => 'ERROR: could not %s policy [%s] for [%s]',
+    params  => [ ( $policy ? 'update' : 'create' ), $policy_name, $role_name ]
+  );
 
-  $self->log_warn( 'iam:role-policy: policy [%s] created successfully for [%s]...', $policy_name, $role_name );
-
-  $config->{events_role}->{policy_name} = $policy_name;
+  $self->log_warn( 'iam:role-policy: policy [%s] %s successfully for [%s]...',
+    $policy_name, ( $policy ? 'updated' : 'created' ), $role_name );
 
   return;
 }
@@ -354,6 +368,12 @@ sub add_events_policy {
     { Effect   => 'Allow',
       Action   => 'iam:PassRole',
       Resource => [$role_arn],
+    },
+    { 'Sid'      => 'TagLaunchedTasks',
+      'Effect'   => 'Allow',
+      'Action'   => 'ecs:TagResource',
+      'Resource' => sprintf 'arn:aws:ecs:%s:%s:task/%s/*',
+      $region, $account, $cluster_name,
     }
   );
 
@@ -389,6 +409,21 @@ sub fetch_events {
   $self->set_events($events);
 
   return $events;
+}
+
+########################################################################
+sub build_run_tags {
+########################################################################
+  my ( $self, $task_name, $task ) = @_;
+
+  my %tags = (
+    %{ $task->{tags} // {} },  # user-specified tags
+    'App::FargateStack:Schedule' => $task_name,
+    'App::FargateStack:Type'     => 'cron',
+  );
+
+  my @tags = map { ( { Key => $_, Value => $tags{$_} } ) } sort keys %tags;
+  return \@tags;
 }
 
 1;

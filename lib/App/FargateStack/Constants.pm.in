@@ -30,6 +30,7 @@ Readonly::Scalar our $DEFAULT_LOG_POLL_TIME       => 5;
 Readonly::Scalar our $DEFAULT_ECS_POLL_LIMIT      => 5 * 60 * 60;  # 5m
 Readonly::Scalar our $DEFAULT_ALB_MAX_TRIES       => 120;
 Readonly::Scalar our $DEFAULT_ALB_POLL_SLEEP_TIME => 5;
+Readonly::Scalar our $DEFAULT_MAX_EVENTS          => 5;
 Readonly::Scalar our $ACM_REQUEST_SLEEP_TIME      => 5;
 Readonly::Scalar our $IAM_POLICY_VERSION          => '2012-10-17';
 
@@ -306,6 +307,7 @@ our @EXPORT = (
     $DEFAULT_ECS_POLL_LIMIT
     $DEFAULT_EFS_PORT
     $DEFAULT_MEMORY_SIZE
+    $DEFAULT_MAX_EVENTS
     $DEFAULT_PORT
     $DEFAULT_RULE_ID
     $DEFAULT_ALB_MAX_TRIES

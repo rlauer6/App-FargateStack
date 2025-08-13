@@ -12,87 +12,62 @@ use App::FargateStack::Constants;
 use Role::Tiny;
 
 ########################################################################
-sub build_log_groups {
+sub build_log_group {
 ########################################################################
   my ($self) = @_;
 
   my ( $config, $tasks, $dryrun ) = $self->common_args(qw(config tasks dryrun));
 
-  my $log_groups = $self->get_log_groups;
+  $config->{log_group} //= {};
+  $config->{log_group}->{name} //= $self->create_default('log-group');
 
   my $logs = $self->fetch_logs;
 
-  foreach my $group ( keys %{ $log_groups // {} } ) {
-    my $task_name = $log_groups->{$group};
+  my $log_group = $logs->log_group_exists( $config->{log_group}->{name} );
 
-    my $task = $tasks->{$task_name};
+  if ($log_group) {
 
-    my $log_group = $self->get_cache && $task->{log_group}->{arn} ? {} : $logs->log_group_exists($group);
+    $config->{log_group}->{arn}  = $log_group->{logGroupArn};
+    $config->{log_group}->{name} = ( split /:/xsm, $log_group->{logGroupArn} )[-1];
 
-    my $arn
-      = $self->get_cache && $task->{log_group}->{arn} ? $task->{log_group}->{arn} : $log_group->{logGroupArn};
+    $self->log_info( 'logs: [%s] exists...%s', $config->{log_group}->{name}, 'skipping' );
 
-    if ($arn) {
-      $self->log_info( 'logs: [%s] exists...%s', $group, $self->get_cache || 'skipping' );
-      my $log_group_name = ( split /:/xsm, $arn )[-1];
+    $self->inc_existing_resources( log_group => $config->{log_group}->{arn} );
 
-      # update config - make sure name is set!
-      $task->{log_group}->{name} //= $log_group->{logGroupName} // $log_group_name;
-      $task->{log_group}->{arn}  //= $log_group->{logGroupArn};
-
-      $self->inc_existing_resources( log_group => $task->{log_group}->{arn} );
-      next;
-    }
-
-    $self->log_warn( 'logs: [%s] will be created...%s', $group, $dryrun );
-
-    $self->inc_required_resources(
-      log_group => sub {
-        my ($dryrun) = @_;
-        return $dryrun ? "arn:???$group" : $task->{log_group}->{arn};
-      }
-    );
-
-    next
-      if $dryrun;
-
-    $self->log_warn( 'logs: creating [%s]...', $group );
-
-    my $result = $logs->create_log_group($group);
-
-    log_die( $self, "ERROR: could not create group: [%s]\n%s", $group, $logs->get_error )
-      if !$result;
-
-    $task->{log_group}->{arn}  = $result->{logGroupArn};
-    $task->{log_group}->{name} = ( split /:/xsm, $result->{logGroupArn} )[-1];
-
-    my $retention_days = $task->{log_group}->{retention_days} //= $DEFAULT_LOG_RETENTION_DAYS;
-    $task->{log_group}->{retention_days} = $retention_days;
-
-    $self->log_warn( 'logs: setting log retention days to [%s] for [%s]', $retention_days, $group );
-    $logs->put_retention_policy( $group, $retention_days );
+    return;
   }
 
+  my $log_group_name = $config->{log_group}->{name};
+
+  $self->log_warn( 'logs: [%s] will be created...%s', $log_group_name, $dryrun );
+
+  $self->inc_required_resources(
+    log_group => sub {
+      my ($dryrun) = @_;
+      return $dryrun ? 'arn:???:' . $log_group_name : $config->{log_group}->{arn};
+    }
+  );
+
+  return
+    if $dryrun;
+
+  $self->log_warn( 'logs: creating [%s]...', $log_group_name );
+
+  my $result = $logs->create_log_group($log_group_name);
+  $logs->check_result( message => 'ERROR: could not create group: [%s]', $log_group_name );
+
+  $config->{log_group}->{arn}  = $result->{logGroupArn};
+  $config->{log_group}->{name} = ( split /:/xsm, $result->{logGroupArn} )[-1];
+
+  my $retention_days = $config->{log_group}->{retention_days} //= $DEFAULT_LOG_RETENTION_DAYS;
+  $config->{log_group}->{retention_days} = $retention_days;
+
+  $self->log_warn( 'logs: setting log retention days to [%s] for [%s]', $retention_days, $log_group_name );
+  $logs->put_retention_policy( $log_group_name, $retention_days );
+
+  $logs->check_result( message => 'ERROR: could not set retention policy for: [%s]', $log_group_name );
+
   return $TRUE;
-}
-
-########################################################################
-sub fetch_logs {
-########################################################################
-  my ($self) = @_;
-
-  require App::Logs;
-
-  my $logs = $self->get_logs;
-
-  return $logs
-    if $logs;
-
-  $logs = App::Logs->new( $self->get_global_options );
-
-  $self->set_logs($logs);
-
-  return $logs;
 }
 
 ########################################################################
@@ -100,36 +75,13 @@ sub add_log_group_policy {
 ########################################################################
   my ($self) = @_;
 
-  my @log_group_arns;
-
-  my $logs = $self->fetch_logs;
-
-  foreach my $group_name ( keys %{ $self->get_log_groups } ) {
-    my $log_group = $logs->log_group_exists($group_name);
-    next if !$log_group;  # TBD: croak unless $dryrun mode?
-
-    push @log_group_arns, $log_group->{logGroupArn}, $log_group->{logGroupArn} . ':log-stream:*';
-  }
+  my $log_group = $self->get_config->{log_group};
 
   return {
     Effect   => 'Allow',
     Action   => [qw(logs:CreateLogStream logs:PutLogEvents logs:CreateLogGroup)],
-    Resource => \@log_group_arns,
+    Resource => [ $log_group->{arn}, $log_group->{arn} . ':log-stream:*' ],
   };
-}
-
-########################################################################
-sub update_log_groups {
-########################################################################
-  my ( $self, $log_group, $task_name ) = @_;
-
-  my $log_groups = $self->get_log_groups // {};
-
-  $log_groups->{$log_group} = $task_name;
-
-  $self->set_log_groups($log_groups);
-
-  return;
 }
 
 1;

@@ -44,14 +44,13 @@ sub build {
   $self->log_info( 'beginning %s phase...', $dryrun ? 'plan' : 'apply' );
   $self->section_break;
 
-  # -- task definitions --
-  $self->create_taskdef_files;
+  # -- log groups --
+  $self->build_log_group;
+  $self->benchmark('log-groups');
   $self->section_break;
 
-  # -- log groups --
-  # this needs to follow _create_taskdef_files
-  $self->build_log_groups;
-  $self->benchmark('log-groups');
+  # -- task definitions --
+  $self->create_taskdef_files;
   $self->section_break;
 
   # -- certificate --
@@ -324,6 +323,34 @@ sub remove_listener_rules {
   return;
 }
 
+=pod
+
+For multi-task configuration files we cannot delete these resources:
+
+ - role, policy
+ - log group
+ - Fargate security group
+ - cluster
+
+For http services we can delete
+
+ - ALB if it is was provisioned by App::FargateStack
+ - ALB security group
+ - Alias record
+ - target group
+
+For scheduled task we can delete
+
+ - rule 
+ - rule target
+
+If only 1 task in the configuration file, we can delete the entire stack.
+
+The task ARN will be deleted to indicate that the task resources were
+removed.
+
+=cut
+
 ########################################################################
 # type = task|scheduled|daemon|https?
 ########################################################################
@@ -334,9 +361,12 @@ sub delete_task_resources {
   my ( $config, $tasks, $dryrun, $security_groups, $cluster )
     = $self->common_args(qw(config tasks dryrun security_groups cluster));
 
-  $cluster ||= {};
-  $cluster->{name} ||= $self->create_default('cluster-name');
-  $config->{cluster} = $cluster;
+  my @active_tasks = grep { $tasks->{$_}->{arn} } keys %{$tasks};
+
+  my $num_tasks = scalar @active_tasks;
+
+  $config->{cluster} //= {};
+  $cluster->{name}   //= $self->create_default('cluster-name');
 
   if ( !$self->get_force ) {
     return $SUCCESS
@@ -362,12 +392,16 @@ sub delete_task_resources {
   ######################################################################
   # -- delete log group
   ######################################################################
-  $self->_delete_log_group( $confirm_all, $task_name );
+  if ( $num_tasks == 1 ) {
+    $self->_delete_log_group( $confirm_all, $task_name );
+  }
 
   ######################################################################
   # -- delete roles & policies
   ######################################################################
-  $self->_delete_roles( $confirm_all, $task_name, $type );
+  if ( $num_tasks == 1 ) {
+    $self->_delete_roles( $confirm_all, $task_name, $type );
+  }
 
   ######################################################################
   # -- delete scheduled task
@@ -409,12 +443,24 @@ sub delete_task_resources {
   ######################################################################
   # -- delete security group
   ######################################################################
-  $self->_delete_security_group( $confirm_all, $task_name );
+  if ( $num_tasks == 1 ) {
+    $self->_delete_security_group( $confirm_all, $task_name );
+  }
 
   ######################################################################
   # -- delete cluster
   ######################################################################
-  $self->_delete_cluster( $confirm_all, $task_name );
+  if ( $num_tasks == 1 ) {
+    $self->_delete_cluster( $confirm_all, $task_name );
+  }
+
+  ######################################################################
+  # -- iam role (resource changes may require new policy)
+  ######################################################################
+  if ( $num_tasks != 1 ) {
+    $self->log_warn('iam: looking to see if we need to update role...');
+    $self->build_iam_role();
+  }
 
   ######################################################################
   # NOTE: Skeletons of deleted tasks are left in the confguration file
@@ -594,7 +640,8 @@ sub _delete_scheduled_task {
     # -- remove target
     ####################################################################
     if ( !$dryrun ) {
-      $events->remove_target( $rule_name, $rule_id );
+      $self->log_warn( 'scheduled task: deleting target for rule: [%s:%s]', $rule_name, $rule_id );
+      $events->remove_targets( $rule_name, $rule_id );
       $events->check_result(
         message => 'ERROR: could not remove target for rule: [%s], id: [%s]',
         params  => [ $rule_name, $rule_id ],
@@ -604,8 +651,11 @@ sub _delete_scheduled_task {
       ####################################################################
       # -- delete rule
       ####################################################################
+      $self->log_warn( 'scheduled task: deleting rule: [%s]', $rule_name );
       $events->delete_rule($rule_name);
       $events->check_result( message => 'ERROR: could not remove rule: [%s]', params => [$rule_name] );
+
+      $self->log_warn( 'schedule task: scheduled task: [%s] successfully deleted...', $task_name );
     }
   }
   else {

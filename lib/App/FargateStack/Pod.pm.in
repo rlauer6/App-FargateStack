@@ -147,31 +147,34 @@ object-oriented use. As such, this section is intentionally omitted.
 
 =head2 Commands
 
- Command                  Arguments            Description
- -------                  ---------            -----------
- apply                                         reads config and creates resources
- create-service           task-name            create a new service (see Note 4)
- delete-service           task-name            alias for remove-service
- delete-task              task-name            deletes all resources associated with a task (See Note 11)
- delete-scheduled-task    task-name            deletes all resources associated with a scheduled task (See Note 11)
- delete-daemon            task-name            deletes all resources associated with a daemon  (See Note 11)
- delete-http-service      task-name            deletes all resources associated with a http service  (See Note 11)
- disable-scheduled-task   task-name            disable a scheduled task
- enable-scheduled-task t  ask-name             enable a scheduled task
- help                     [subject]            displays general help or help on a particular subject (see Note 2)
- list-tasks                                    list running tasks
- list-zones               domain               list the hosted zones for a domain
- logs                     task-name start end  display CloudWatch logs (see Note 5)
- plan                                          reads config and reports on resource creation
- register-task-definition task-name            creates a new task definition revision
- remove-service           task-name            removes an existing service but does not delete the task
- run-task                 task-name            launches an adhoc task
- start-service            task-name [count]    starts a service
- status                   task-name            provides the current status for a task
- stop-service             task-name            stops a running service
- update-policy                                 updates the ECS policy in the event of resource changes
- update-target            task-name            force update of target definition
- version                                       display the current version number
+ Command                  Arguments                    Description
+ -------                  ---------                    -----------
+ apply                                                 reads config and creates resources
+ create-service           task-name                    create a new service (see Note 4)
+ delete-service           task-name                    alias for remove-service
+ delete-task              task-name                    deletes all resources associated with a task (See Note 11)
+ delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
+ delete-daemon            task-name                    deletes all resources associated with a daemon  (See Note 11)
+ delete-http-service      task-name                    deletes all resources associated with a http service  (See Note 11)
+ disable-scheduled-task   task-name                    disable a scheduled task
+ enable-scheduled-task t  ask-name                     enable a scheduled task
+ help                     [subject]                    displays general help or help on a particular subject (see Note 2)
+ list-tasks                                            list running tasks
+ list-zones               domain                       list the hosted zones for a domain
+ logs                     task-name start end          display CloudWatch logs (see Note 5)
+ plan                                                  reads config and reports on resource creation
+ register-task-definition task-name                    creates a new task definition revision
+ remove-service           task-name                    removes an existing service but does not delete the task
+ run-task                 task-name                    launches an adhoc task
+ show                     command args                 output additional info about the stack or run states
+  cloudtrail-events   task-name start-time [end-time]  show cloudtrail events for a scheduled task (useful for debugging)
+  stack                                                shows a summary of the stack configuration
+ start-service            task-name [count]            starts a service
+ status                   task-name                    provides the current status for a task
+ stop-service             task-name                    stops a running service
+ update-policy                                         updates the ECS policy in the event of resource changes
+ update-target            task-name                    force update of target definition
+ version                                               display the current version number
 
 =head2 Options
 
@@ -188,6 +191,8 @@ object-oriented use. As such, this section is intentionally omitted.
  --log-time, --no-log-time  for logs command, output CloudWatch timestamp (default: --no-log-time)
  --log-wait, --no-log-wait  for logs command, continue to monitor logs (default: --log-wait)
  --log-poll-time            amount of time in seconds to sleep between requesting new log events
+ --max-events, -m           maximum number of events to show for status command (default: 5)
+ --output                   output type for some commands, valid values: text|json
  -p, --profile              AWS profile (see Note 1)
  --purge-config             remove deleted tasks from multi-task configs
  --route53-profile          set this if your Route 53 zones are in a different account (See Note 10)

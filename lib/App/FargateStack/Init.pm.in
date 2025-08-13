@@ -33,6 +33,10 @@ sub init {
 
   my $cmd_options = reftype($cmd_spec) eq 'ARRAY' ? $cmd_spec->[2] : $EMPTY;
 
+  my $config = $self->_init_config;
+
+  $self->_init_defaults($config);
+
   return
     if $cmd_options && defined $cmd_options->{init} && !$cmd_options->{init};
 
@@ -42,9 +46,10 @@ sub init {
   log_die( $self, 'ERROR: when applying changes --no-update is not allowed' )
     if !$dryrun && !$self->get_update && $command eq 'apply';
 
-  my $config = $self->_init_config;
+  $self->section_break;
 
-  $self->_init_defaults($config);
+  $self->log_info( '%s %s (c) Copyright 2025 TBC Development Group, LLC', ref $self, $VERSION );
+  $self->section_break;
 
   $self->_init_account;
 
@@ -160,11 +165,6 @@ sub _init_config {
     if !-s $config_file || !-r $config_file;
 
   $self->set_config_name($config_file);
-
-  $self->section_break;
-
-  $self->log_info( '%s %s (c) Copyright 2025 TBC Development Group, LLC', ref $self, $VERSION );
-  $self->section_break;
 
   my $config = LoadFile($config_file);
 

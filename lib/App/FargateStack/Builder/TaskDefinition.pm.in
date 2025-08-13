@@ -123,7 +123,7 @@ sub define_port_mapping {
   my ( $task, $type ) = @_;
 
   return
-    if $type !~ /^http/xsm;
+    if !$type || $type !~ /^http/xsm;
 
   # use port or specify container_port, host_port - pick your poison
   my $port           = $task->{port}           // $DEFAULT_PORT;
@@ -190,10 +190,13 @@ sub create_taskdef_files {
   foreach my $task_name ( keys %{$services} ) {
     my $task = $services->{$task_name};
 
+    $task->{type} //= 'task';
+
     my $type = $task->{type};
 
     # -- port mappings --
     my $portMapping = define_port_mapping( $task, $type );
+
     if ($portMapping) {
       @{$task}{qw(container_port host_port)} = @{ $portMapping->[0] }{qw(containerPort hostPort)};
     }
@@ -202,12 +205,9 @@ sub create_taskdef_files {
     #
     # Note: the default log group name was set earlier...and task will
     # be updated when (and if) we create the log group...
-    my $log_group = $task->{log_group}->{name} // $config->{default_log_group};
+    my $log_group = $config->{log_group}->{name};
 
-    # from App::Fargate::Builder::Logs (we set this because we use it later on to create log group)
-    $self->update_log_groups( $log_group => $task_name );
-
-    my $stream_prefix = $task->{log_group}->{prefix} // $config->{app}->{name};
+    my $stream_prefix = $config->{app}->{name};
 
     # -- image name --
     my ( $image_name, $image_tag ) = $task->{image} =~ /^([^:]+)(?::(.+))?$/xsm;

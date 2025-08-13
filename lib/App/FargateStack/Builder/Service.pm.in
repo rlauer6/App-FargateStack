@@ -21,7 +21,9 @@ sub build_service {
 
   my $ecs = $self->fetch_ecs;
 
-  my @vpc_subnets = $self->get_service_subnets;
+  my $task = $tasks->{$service_name};
+
+  my @vpc_subnets = $self->get_service_subnets( $task->{type} );
 
   my @services = @{ $ecs->list_services( $cluster->{name}, 'serviceArns' ) || [] };
 
@@ -68,17 +70,18 @@ sub build_service {
 }
 
 ########################################################################
-# if we have an ALB we must put the service in those AZs
+# Best Practice: if we have are an HTTP service we should put the task in the same
+# AZs as the ALB
 ########################################################################
 sub get_service_subnets {
 ########################################################################
-  my ( $self, ) = @_;
+  my ( $self, $type ) = @_;
 
   my ( $config, $alb ) = $self->common_args(qw(config alb));
 
   my $alb_arn = defined $alb && $alb->{arn};
 
-  if ($alb_arn) {
+  if ( $alb_arn && $type =~ /^https?/xsm ) {
     $self->get_logger->warn('service: service will be placed in the same AZs as load balancer.');
     return $self->get_task_subnets($alb_arn);
   }

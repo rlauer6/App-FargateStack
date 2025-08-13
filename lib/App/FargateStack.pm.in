@@ -35,6 +35,7 @@ use Role::Tiny::With;
 with 'App::FargateStack::Init';
 with 'App::FargateStack::Logs';
 with 'App::FargateStack::Route53';
+with 'App::FargateStack::CloudTrail';
 
 with 'App::Benchmark';
 
@@ -147,6 +148,21 @@ sub check_service_name {
   }
 
   return $service_name;
+}
+
+########################################################################
+sub cmd_show {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my ($command) = $self->get_args;
+
+  my %sub_commands = ( 'cloudtrail-events' => \&cmd_cloudtrail_events, );
+
+  die sprintf "ERROR: not a valid command. Must be one of: \n\t%s\n", join "\n\t", keys %sub_commands
+    if !$sub_commands{$command};
+
+  return $sub_commands{$command}->($self);
 }
 
 ########################################################################
@@ -447,12 +463,20 @@ sub cmd_create_service {
 ########################################################################
   my ($self) = @_;
 
-  my ($desired_count) = $self->get_args;
+  my ( $task_name, $desired_count ) = $self->get_args;
 
-  my ( $task_name, $err ) = $self->get_default_service_name($TRUE);  # skip arg
+  if ( looks_like_number $task_name ) {
+    $desired_count = $task_name;
+    $task_name     = $EMPTY;
+  }
 
-  die sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
-    if !$task_name || $err;
+  if ( !$task_name ) {
+    my $err;
+    ( $task_name, $err ) = $self->get_default_service_name($TRUE);  # skip arg
+
+    die sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
+      if !$task_name || $err;
+  }
 
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
@@ -910,6 +934,7 @@ sub cmd_delete_schedule {
 
   # $task_name must be a schedule because we filtered above
   if ( scalar keys %{$tasks} == 1 ) {
+
     print {*STDERR} <<"END_OF_ERROR";
 This is the only task in your configuration.
 
@@ -926,7 +951,7 @@ END_OF_ERROR
     exit 1;
   }
 
-  return $self->_delete_task( $task_name, 'scheduled' );
+  return $self->delete_task_resources( $task_name, 'scheduled' );
 }
 
 ########################################################################
@@ -1118,7 +1143,9 @@ sub build_section_paths {
   return %paths;
 }
 
+########################################################################
 sub parse_pod_sections {
+########################################################################
   my $pod = slurp_file( $INC{'App/FargateStack/Pod.pm'} );
   my @sections;
 
@@ -1223,6 +1250,7 @@ sub main {
     account
     alb
     config_name
+    cloudtrail
     ec2
     ecs
     ecr
@@ -1253,12 +1281,13 @@ sub main {
     create-alb|C
     dryrun|d
     force|f
+    history|H!
     log-level=s
     log-time!
     log-wait!
     log-poll-time=s
-    history|H!
     max-events|m=i
+    output=s
     profile|p=s
     purge_config
     region|r=s
@@ -1284,7 +1313,8 @@ sub main {
     'task-timeout'  => $DEFAULT_ECS_POLL_LIMIT,
     history         => $TRUE,
     update          => $TRUE,
-    'max-events'    => 5,
+    'max-events'    => $DEFAULT_MAX_EVENTS,
+    output          => 'text',
   );
 
   my %commands = (
@@ -1314,8 +1344,9 @@ sub main {
     logs                     => [ \&cmd_logs, 'error' ],
     plan                     => \&cmd_plan,
     redeploy                 => \&cmd_redeploy,
+    show                     => [ \&cmd_show,           'error', { init => $FALSE } ],
     status                   => [ \&cmd_service_status, 'error' ],
-    version                  => [ \&cmd_version, 'error', { init => $FALSE } ],
+    version                  => [ \&cmd_version,        'error', { init => $FALSE } ],
   );
 
   my $fargate_stack = App::FargateStack->new(

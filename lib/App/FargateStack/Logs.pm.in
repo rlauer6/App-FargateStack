@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die);
+use App::FargateStack::Builder::Utils qw(log_die normalize_time_range);
 use App::Logs;
 
 use CLI::Simple::Constants qw(:booleans);
@@ -34,7 +34,7 @@ sub cmd_logs {
 
   my $logs = App::Logs->new( $self->get_global_options );
 
-  my $log_group_name    = $task->{log_group}->{name};
+  my $log_group_name    = $config->{log_group}->{name};
   my $log_stream_prefix = sprintf '%s/%s', $config->{app}->{name}, $task_name;
 
   my %base_args = (
@@ -138,54 +138,6 @@ sub find_task_log_stream {
     if !$stream_name;
 
   return $stream_name;
-}
-
-########################################################################
-sub normalize_time_range {
-########################################################################
-  my ( $start, $end ) = @_;
-
-  return
-    if !$start;
-
-  my $now = time;
-
-  my $start_epoch = _to_epoch( $start, $now );
-  my $end_epoch   = defined $end ? _to_epoch( $end, $now ) : undef;
-
-  croak 'start is in the future' if $start_epoch > $now;
-  croak 'end is in the future'   if defined $end_epoch && $end_epoch > $now;
-  croak 'start > end'            if defined $end_epoch && $start_epoch > $end_epoch;
-
-  return ( $start_epoch * 1000, defined $end_epoch ? $end_epoch * 1000 : undef );
-}
-
-########################################################################
-sub _to_epoch {
-########################################################################
-  my ( $value, $now ) = @_;
-
-  # Duration syntax (e.g. 5d, 30m, 2h)
-  if ( $value =~ /^(\d+)([dmh])$/xsmi ) {
-    my ( $n, $unit ) = ( $1, lc $2 );
-    croak 'duration cannot be zero' if $n == 0;
-
-    my %span = (
-      d => $SEC_PER_DAY,
-      h => $SEC_PER_HOUR,
-      m => $SEC_PER_MIN,
-    );
-
-    return $now - $n * $span{$unit};
-  }
-
-  # Date string ‑ let Date::Parse do the heavy lifting
-  my $epoch = str2time($value);
-
-  croak "unrecognized date format: [$value]"
-    if !defined $epoch;
-
-  return $epoch;
 }
 
 1;

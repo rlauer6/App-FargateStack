@@ -22,7 +22,7 @@ sub add_volumes {
 
   require App::EFS;
 
-  my $efs = App::EFS->new( $self->get_global_options );
+  my $efs = $self->fetch_efs();
 
   my $efs_config = $task->{efs};
 

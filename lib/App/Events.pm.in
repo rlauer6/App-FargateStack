@@ -82,6 +82,10 @@ sub list_targets_by_rule {
 }
 
 ########################################################################
+#  0 => does not exist
+#  1 => exists and schedule has not changed
+# -1 => exists and schedule has changed
+########################################################################
 sub rule_exists {
 ########################################################################
   my ( $self, $rule_name, $schedule ) = @_;
@@ -95,10 +99,11 @@ sub rule_exists {
     ]
   );
 
-  my $error = $self->get_error;
-
-  croak sprintf "ERROR: could not execute list-rules:\n%s\n", $error
-    if !$result && $error !~ /does\s+not\s+exist/xsm;
+  $self->check_result(
+    message => 'ERROR: could not execute list-rules for: %s',
+    params  => [$rule_name],
+    regexp  => qr/does\s+not\s+exists/xsmi
+  );
 
   my ($rule) = @{$result};
 
@@ -151,15 +156,17 @@ sub delete_rule {
 ########################################################################
 sub put_rule {
 ########################################################################
-  my ( $self, $rule_name, $schedule, $state ) = @_;
-  $state //= $TRUE;
+  my ( $self, %args ) = @_;
+
+  my ( $rule_name, $schedule, $state, $event_pattern ) = @args{qw(rule_name schedule state event_pattern)};
 
   return $self->command(
     'put-rule' => [
       '--name'           => $rule_name,
-      '--schedule'       => $schedule,
       '--event-bus-name' => $self->get_event_bus_name,
-      '--state'          => $state ? 'ENABLED' : 'DISABLED',
+      $schedule      ? ( '--schedule'      => $schedule )                       : (),
+      $event_pattern ? ( '--event-pattern' => $event_pattern )                  : (),
+      $state         ? ( '--state'         => $state ? 'ENABLED' : 'DISABLED' ) : (),
     ]
   );
 
@@ -178,8 +185,11 @@ sub target_exists {
     ]
   );
 
-  croak sprintf "could not list targets for %s\n%s", $rule_name, $self->get_error
-    if !$result && $self->get_error !~ /does\s+not\s+exist/xsm;
+  $self->check_result(
+    message => 'ERROR: could not list targets for %s',
+    params  => [$rule_name],
+    regexp  => qr/does\s+not\s+exist/xsmi
+  );
 
   return $result->[0];
 }
@@ -278,8 +288,7 @@ sub validate_schedule {
       $this_month++;
       $this_year += 1900;
 
-      my ( $year, $month, $day, $hour, $min, $sec )
-        = ( $args =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/xsm );
+      my ( $year, $month, $day, $hour, $min, $sec ) = ( $args =~ /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/xsm );
 
       return $FALSE
         if $year < $this_year;

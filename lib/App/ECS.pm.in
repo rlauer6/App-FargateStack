@@ -143,7 +143,7 @@ sub describe_tasks {
 
   return $self->command(
     'describe-tasks' => [
-      '--tasks'   => $task_arn,
+      '--tasks'   => ref $task_arn ? @{$task_arn} : $task_arn,
       '--cluster' => $cluster_name,
       $query ? ( '--query' => $query ) : ()
     ]

@@ -15,6 +15,7 @@ GPERL_MODULES = $(PERL_MODULES:.pm.in=.pm)
 AWS_PERL_MODULES = \
     lib/App/ACM.pm.in \
     lib/App/AWS.pm.in \
+    lib/App/CloudTrail.pm.in \
     lib/App/EC2.pm.in \
     lib/App/ECR.pm.in \
     lib/App/ECS.pm.in \
@@ -68,6 +69,7 @@ FARGATE_DEPS = \
     $(GAWS_PERL_MODULES) \
     lib/App/Benchmark.pm \
     lib/App/FargateStack/Pod.pm \
+    lib/App/FargateStack/CloudTrail.pm \
     lib/App/FargateStack/Constants.pm \
     lib/App/FargateStack/Init.pm \
     lib/App/FargateStack/Logs.pm \
