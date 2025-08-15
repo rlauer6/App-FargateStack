@@ -75,10 +75,16 @@ sub add_ecr_policy {
 
   my $tasks = $self->get_config->{tasks};
 
-  my @repos = map { $tasks->{$_}->{image} =~ /^([^:]+):?.*?$/xsm } keys %{$tasks};
+  my @repos;
 
-  for (@repos) {
-    $_ = sprintf $ECR_ARN_TEMPLATE, $self->get_region, $self->get_account, $_;
+  foreach my $task_name ( keys %{$tasks} ) {
+    my $image = $self->resolve_image_name( $tasks->{$task_name}->{image} );
+    if ( $image =~ m{/}xsm ) {
+      ($image) = ( split m{/}xsm, $image )[-1];
+    }
+
+    my ( $name, $tag ) = split /:/xsm, $image;
+    push @repos, sprintf $ECR_ARN_TEMPLATE, $self->get_region, $self->get_account, $name;
   }
 
   return (
@@ -87,7 +93,7 @@ sub add_ecr_policy {
       Resource => q{*}
     },
     { Effect   => 'Allow',
-      Action   => [qw(ecr:BatchGetImage ecr:GetDownloadUrlForLayer)],
+      Action   => [qw(ecr:BatchGetImage ecr:GetDownloadUrlForLayer ecr:BatchCheckLayerAvailability)],
       Resource => \@repos,
     }
   );

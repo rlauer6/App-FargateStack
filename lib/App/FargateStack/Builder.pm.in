@@ -737,9 +737,7 @@ sub _delete_log_group {
 
   my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
 
-  my $task = $tasks->{$task_name};
-
-  my ( $log_group, $log_group_arn ) = @{ $task->{log_group} }{qw(name arn)};
+  my ( $log_group, $log_group_arn ) = @{ $config->{log_group} }{qw(name arn)};
 
   if ( !$log_group && !$log_group_arn ) {
     $self->log_warn('logs: log group not defined in configuration file...skipping deletion');
@@ -771,7 +769,7 @@ sub _delete_log_group {
     regexp  => qr/notfound/xsmi
   );
 
-  delete $tasks->{$task_name}->{log_group};
+  delete $config->{log_group};
 
   return;
 }

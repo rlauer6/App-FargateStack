@@ -690,7 +690,7 @@ count argument:
   app-FargateTask start-service service-name 2
 
 
-=head2 create-stack
+=head3 create-stack
 
  create-stack app-name service-clauses...
 
@@ -718,7 +718,7 @@ Examples:
     scheduled:nightly 'schedule:rate(1 day)' image:etl:42 \
     http:api image:rest:latest domain:api.example.com
 
-=head3 Service clause grammar
+=head4 Service clause grammar
 
 Each service is introduced by C<< <type>:<name> >> followed by its required
 key:value pairs. You may specify multiple services in one command.
@@ -762,7 +762,7 @@ Long-running service without a load balancer.
 
 =back
 
-=head3 Image shorthand and resolution
+=head4 Image shorthand and resolution
 
 If C<image> is given as C<< repo[:tag] >> without a registry host:
 
@@ -788,7 +788,7 @@ C<docker.io/library/nginx:1.27>) are accepted as-is.
 
 =back
 
-=head3 Output
+=head4 Output
 
 Emits YAML to STDOUT that includes:
 
@@ -813,7 +813,7 @@ C<image>, and C<schedule> (when applicable)
 
 =back
 
-=head3 Options
+=head4 Options
 
 =over 4
 
@@ -844,12 +844,12 @@ Proceed even if some validations warn (for example, missing ECR repo).
 
 =back
 
-=head3 Exit Status
+=head4 Exit Status
 
   0 on success
   non-zero on argument or validation errors
 
-=head3 NOTES
+=head4 NOTES
 
 =over 4
 

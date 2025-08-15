@@ -27,13 +27,13 @@
     * [help](#help)
     * [apply](#apply)
     * [create-service](#create-service)
-  * [create-stack](#create-stack)
-    * [Service clause grammar](#service-clause-grammar)
-    * [Image shorthand and resolution](#image-shorthand-and-resolution)
-    * [Output](#output)
-    * [Options](#options)
-    * [Exit Status](#exit-status)
-    * [NOTES](#notes)
+    * [create-stack](#create-stack)
+      * [Service clause grammar](#service-clause-grammar)
+      * [Image shorthand and resolution](#image-shorthand-and-resolution)
+      * [Output](#output)
+      * [Options](#options)
+      * [Exit Status](#exit-status)
+      * [NOTES](#notes)
     * [delete-daemon](#delete-daemon)
     * [delete-scheduled-task](#delete-scheduled-task)
     * [delete-task](#delete-task)
@@ -173,7 +173,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.31.
+This documentation corresponds to version 1.0.32.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -673,7 +673,7 @@ count argument:
 
     app-FargateTask start-service service-name 2
 
-## create-stack
+### create-stack
 
     create-stack app-name service-clauses...
 
@@ -701,7 +701,7 @@ Examples:
       scheduled:nightly 'schedule:rate(1 day)' image:etl:42 \
       http:api image:rest:latest domain:api.example.com
 
-### Service clause grammar
+#### Service clause grammar
 
 Each service is introduced by `<type>:<name>` followed by its required
 key:value pairs. You may specify multiple services in one command.
@@ -741,7 +741,7 @@ Valid `type` values and minimum keys:
 
     Long-running service without a load balancer.
 
-### Image shorthand and resolution
+#### Image shorthand and resolution
 
 If `image` is given as `repo[:tag]` without a registry host:
 
@@ -756,7 +756,7 @@ work). This preserves convenience while making the fallback explicit.
 - Fully-qualified images (e.g., `public.ecr.aws/namespace/image:tag`,
 `docker.io/library/nginx:1.27`) are accepted as-is.
 
-### Output
+#### Output
 
 Emits YAML to STDOUT that includes:
 
@@ -766,7 +766,7 @@ Emits YAML to STDOUT that includes:
 - `tasks` map keyed by service `<name>` with fields such as `type`,
 `image`, and `schedule` (when applicable)
 
-### Options
+#### Options
 
 - **--route53-profile** _STR_
 
@@ -793,12 +793,12 @@ Emits YAML to STDOUT that includes:
 
     Proceed even if some validations warn (for example, missing ECR repo).
 
-### Exit Status
+#### Exit Status
 
     0 on success
     non-zero on argument or validation errors
 
-### NOTES
+#### NOTES
 
 - This command generates config; it does not deploy. Run your normal “plan/apply”
 flow after reviewing the YAML.

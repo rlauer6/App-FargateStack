@@ -326,6 +326,8 @@ sub cmd_run_task {
   log_die( $self, 'run-task: cluster has not been created yet...run "apply" first' )
     if !$cluster_name;
 
+  my $ecs = $self->fetch_ecs;
+
   my $result = $self->get_ecs->run_task(
     cluster               => $cluster->{name},
     task_definition       => $task_name,
@@ -365,7 +367,7 @@ sub cmd_run_task {
       sleep $DEFAULT_ECS_POLL_TIME;
     }
 
-    my $log_group = $config->{tasks}->{$task_name}->{log_group}->{name};
+    my $log_group = $config->{log_group}->{name};
 
     # by convention our log groups are named after our app
     my $log_stream = sprintf '%s/%s/%s', $config->{app}->{name}, $task_name, ( split /\//xsm, $task_arn )[-1];
@@ -432,9 +434,10 @@ sub get_task_status {
   my @elems = qw(last_status stopped_reason containers);
 
   my $query = jmespath_mapping 'tasks[0]' => \@elems;
+  my $ecs   = $self->fetch_ecs;
 
-  my $result = $self->get_ecs->describe_tasks( $cluster_name, $task_arn, $query );
-  $self->check_result( message => 'ERROR: unable to describe task: [%s]', $task_arn );
+  my $result = $ecs->describe_tasks( $cluster_name, $task_arn, $query );
+  $ecs->check_result( message => 'ERROR: unable to describe task: [%s]', $task_arn );
 
   my ( $status, $stopped_reason, $containers ) = @{$result}{@elems};
 
@@ -973,7 +976,7 @@ sub cmd_delete_task {
   die sprintf "ERROR: [%s] is a scheduled task...use 'delete-schedule'\n", $task_name
     if $tasks->{$task_name}->{schedule};
 
-  if ( scalar keys %{$tasks} == 1 ) {
+  if ( !$self->get_force && scalar keys %{$tasks} == 1 ) {
     print {*STDERR} <<"END_OF_ERROR";
 This is the only task in your configuration.
 

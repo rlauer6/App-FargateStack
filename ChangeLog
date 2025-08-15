@@ -1,3 +1,22 @@
+Fri Aug 15 14:56:43 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.32]
+	* VERSION: bump
+	* lib/App/FargateStack.pm.in
+	(cmd_run_task)
+	- fetch_ecs
+	- log_group from top level now
+	(get_task_status):
+	- $ecs->check_result
+	- fetch_ecs
+	(cmd_delete_task): allow --force to force delete
+	* lib/App/FargateStack/Builder.pm.in
+	(_delete_log_group): log_group from top level now
+	* lib/App/FargateStack/Builder/Cluster.pm.in
+	(add_ecr_policy)
+	- normalize image name
+	- add BatchCheckLayerAvailability permission
+
 Fri Aug 15 12:51:49 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.31]:
