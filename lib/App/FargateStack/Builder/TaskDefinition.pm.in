@@ -210,10 +210,7 @@ sub create_taskdef_files {
     my $stream_prefix = $config->{app}->{name};
 
     # -- image name --
-    my ( $image_name, $image_tag ) = $task->{image} =~ /^([^:]+)(?::(.+))?$/xsm;
-    $image_tag //= 'latest';
-
-    my $image = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s:%s', $self->get_account, $config->{region}, $image_name, $image_tag;
+    my $image = $self->resolve_image_name( $task->{image} );
 
     # -- environment --
     my @environment

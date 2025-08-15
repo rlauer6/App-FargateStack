@@ -27,6 +27,13 @@
     * [help](#help)
     * [apply](#apply)
     * [create-service](#create-service)
+  * [create-stack](#create-stack)
+    * [Service clause grammar](#service-clause-grammar)
+    * [Image shorthand and resolution](#image-shorthand-and-resolution)
+    * [Output](#output)
+    * [Options](#options)
+    * [Exit Status](#exit-status)
+    * [NOTES](#notes)
     * [delete-daemon](#delete-daemon)
     * [delete-scheduled-task](#delete-scheduled-task)
     * [delete-task](#delete-task)
@@ -166,7 +173,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.30.
+This documentation corresponds to version 1.0.31.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -219,6 +226,7 @@ object-oriented use. As such, this section is intentionally omitted.
     -------                  ---------                    -----------
     apply                                                 reads config and creates resources
     create-service           task-name                    create a new service (see Note 4)
+    create-stack             app-name service-clauses...  creates a new stack configuration
     delete-service           task-name                    alias for remove-service
     delete-task              task-name                    deletes all resources associated with a task (See Note 11)
     delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
@@ -253,6 +261,7 @@ object-oriented use. As such, this section is intentionally omitted.
     --color, --no-color        default: color
     --confirm-all              confirm deletion of all resources
     -d, --dryrun               just report actions, do not apply
+    --dns-profile              alias for --route53-profile
     -f, --force                force action (depends on context)
     --history, --no-history    save cli parameters to .fargatestack/defaults.json
     --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
@@ -411,6 +420,7 @@ syntax (See ["INJECTING SECRETS FROM SECRETS MANAGER"](#injecting-secrets-from-s
 - define and launch multiple independent Fargate tasks and services under a single stack
 - automatic creation of log groups with customizable retention period
 - discovery of existing environment to intelligently populate configuration defaults
+- automatically create a minimal Fargate app/service config from shorthand
 
 ## Minimal Configuration
 
@@ -662,6 +672,138 @@ If you want to start multiple tasks for the service, you can include a
 count argument:
 
     app-FargateTask start-service service-name 2
+
+## create-stack
+
+    create-stack app-name service-clauses...
+
+Parses a compact, positional CLI grammar and emits a ready-to-edit YAML
+configuration for your Fargate framework. The command **does not** create any
+AWS resources; it only synthesizes config based on the clauses you pass.
+
+Examples:
+
+    # One task service
+    app-fargate create-stack foo task:job image:myrepo:1.2.3
+
+    # HTTP service (ALB) + image
+    app-fargate create-stack foo http:web image:site:2025-08-14 domain:api.example.com
+
+    # HTTPS service (ALB + ACM; config only, no deploy)
+    app-fargate create-stack foo https:web image:site:stable domain:api.example.com
+
+    # Scheduled task (EventBridge schedule expression)
+    app-fargate create-stack foo scheduled:bar 'schedule:cron(0 10 * * * *)' image:helloworld
+
+    # Multiple services in one run
+    app-fargate create-stack foo \
+      task:ingest image:etl:42 \
+      scheduled:nightly 'schedule:rate(1 day)' image:etl:42 \
+      http:api image:rest:latest domain:api.example.com
+
+### Service clause grammar
+
+Each service is introduced by `<type>:<name>` followed by its required
+key:value pairs. You may specify multiple services in one command.
+
+Valid `type` values and minimum keys:
+
+- `task`
+
+        task:<name> image:<repo[:tag]>
+
+    Non-daemon task that can be run on demand.
+
+- `http`
+
+        http:<name> image:<repo[:tag]> domain:<fqdn>
+
+    ALB-backed HTTP service.
+
+- `https`
+
+        https:<name> image:<repo[:tag]> domain:<fqdn>
+
+    ALB-backed HTTPS service (certificate discovery/validation is out of scope for
+    this command; see the env checker).
+
+- `scheduled`
+
+        scheduled:<name> image:<repo[:tag]> schedule:<expr>
+
+    EventBridge-scheduled task. `schedule` must be a valid `cron(...)` or
+    `rate(...`) expression. Quote it in the shell, for example:
+    `'schedule:cron(0 10 * * * *)'`.
+
+- `daemon`
+
+        daemon:<name> image:<repo[:tag]>
+
+    Long-running service without a load balancer.
+
+### Image shorthand and resolution
+
+If `image` is given as `repo[:tag]` without a registry host:
+
+- The command _assumes_ the image lives in the current account's ECR and will
+format the Docker reference as:
+
+        <account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+
+- If ECR lookup does not find the repository+tag, the tool emits a warning and
+leaves the image string as-is (allowing public registries like Docker Hub to
+work). This preserves convenience while making the fallback explicit.
+- Fully-qualified images (e.g., `public.ecr.aws/namespace/image:tag`,
+`docker.io/library/nginx:1.27`) are accepted as-is.
+
+### Output
+
+Emits YAML to STDOUT that includes:
+
+- `account`, `profile`, `region`
+- `app.name` set from the first positional `<app-name>`
+- Optional `domain` (for HTTP/HTTPS stacks)
+- `tasks` map keyed by service `<name>` with fields such as `type`,
+`image`, and `schedule` (when applicable)
+
+### Options
+
+- **--route53-profile** _STR_
+
+    AWS profile to use when performing Route 53 API calls. Many environments
+    use a separate account for DNS management; this option lets you target
+    that account. If not provided, the tool uses **--profile**.
+
+    This option is only consulted when the command needs Route 53 (for example,
+    HTTP/HTTPS stacks that require hosted zone lookups or record creation).
+
+- **--dns-profile** _STR_
+
+    Alias for **--route53-profile**.
+
+- **--region** _STR_
+
+    AWS region used when expanding ECR shorthand.
+
+- **--out** _FILE_
+
+    Write YAML to a file instead of STDOUT.
+
+- **--force**
+
+    Proceed even if some validations warn (for example, missing ECR repo).
+
+### Exit Status
+
+    0 on success
+    non-zero on argument or validation errors
+
+### NOTES
+
+- This command generates config; it does not deploy. Run your normal “plan/apply”
+flow after reviewing the YAML.
+- For HTTP/HTTPS, `domain:` is required at creation time in this shorthand.
+- Always quote `schedule:...` to avoid shell interpretation of parentheses.
 
 ### delete-daemon
 
@@ -2100,6 +2242,6 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 1263:
+- Around line 864:
 
-    Non-ASCII character seen before =encoding in 'task’s'. Assuming UTF-8
+    Non-ASCII character seen before =encoding in '“plan/apply”'. Assuming UTF-8

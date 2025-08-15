@@ -17,9 +17,9 @@ __PACKAGE__->mk_accessors(qw(profile region));
 ########################################################################
 sub get_caller_identity {
 ########################################################################
-  my ($self) = @_;
+  my ( $self, $query ) = @_;
 
-  return $self->command('get-caller-identity');
+  return $self->command( 'get-caller-identity', [ $query ? ( '--query' => $query ) : () ] );
 }
 
 1;

@@ -447,9 +447,26 @@ sub create_alb {
   if ( !$self->get_create_alb && !$alb->{create} ) {
     my $alb_type = $alb->{type};
 
-    $self->log_warn( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB', $alb_type );
+    $self->log_error( 'http-service: WARNING - no ALB ARN defined in configuration...looking for %s ALB', $alb_type );
 
     my ( $alb_arn, $security_group_id ) = eval { return $elb->find_alb($alb_type); };
+    my $err = $EVAL_ERROR;
+
+    if ( !$alb_arn || $err ) {
+      if ( $err =~ /no\salbs/xsm ) {
+        $self->log_error( 'http-service: no %s ALBs were found in this VPC...a new ALB will be created...%s',
+          $alb_type, $dryrun );
+      }
+      elsif ( $err =~ /more\sthan\sone/xsm ) {
+        $self->log_die(
+          'http-service: more than 1 %s ALBs were found...add the ARN to your configuration file or use the --create-alb option.',
+          $alb_type
+        );
+      }
+      else {
+        die "$err";
+      }
+    }
 
     $self->log_trace(
       sub {
@@ -461,23 +478,30 @@ sub create_alb {
       }
     );
 
-    my $security_group_name = $ec2->find_security_group_name($security_group_id);
+    my $security_group_name;
+    my $is_valid_alb;
 
-    my $is_valid_alb = $elb->validate_alb(
-      arn    => $alb_arn,
-      scheme => $self->is_https ? 'internet-facing' : 'internal'
-    );
+    if ($alb_arn) {
+      $security_group_name = $ec2->find_security_group_name($security_group_id);
+
+      $is_valid_alb = $elb->validate_alb(
+        arn    => $alb_arn,
+        scheme => $self->is_https ? 'internet-facing' : 'internal'
+      );
+    }
 
     if ( $alb_arn && $is_valid_alb ) {
 
       # set this for later
       $self->set_alb( $elb->get_alb );
 
-      $self->log_info( "\tarn: %s", $alb_arn );
+      $self->log_error( 'http-service: Found an existing ALB (%s)...will be added to configuration.', $alb_arn );
 
       $security_groups->{alb}->{group_id} = $security_group_id;
-      $alb->{arn}                         = $alb_arn;
-      $alb->{name}                        = $self->get_alb->{LoadBalancerName};
+      $security_groups->{alb}->{name}     = $security_group_name;
+
+      $alb->{arn}  = $alb_arn;
+      $alb->{name} = $self->get_alb->{LoadBalancerName};
 
       $self->inc_existing_resources( alb => $config->{alb}->{name} );
 
@@ -510,7 +534,8 @@ sub create_alb {
     $self->log_warn( 'http-service: ALB creation forced by configuration or option...will be created...%s', $dryrun );
   }
   else {
-    $self->log_warn( 'http-service: no ALB defined and no usable ALB found...will be created...%s', $dryrun );
+    $self->log_error(
+      'http-service: no ALB defined in your configuration and no usable ALB found...an ALB will be created...%s', $dryrun );
   }
 
   my $alb_sg   = $self->create_alb_security_group;
@@ -554,6 +579,7 @@ sub create_alb_security_group {
   my ($self) = @_;
 
   my ( $config, $dryrun, $app, $security_groups ) = $self->common_args(qw(config dryrun app security_groups));
+
   $security_groups //= {};
   $config->{security_groups} = $security_groups;
 
@@ -587,6 +613,7 @@ sub create_alb_security_group {
     $ec2->check_result( message => 'ERROR: could not create security group: [%s]', $sg_name );
 
     $security_groups->{alb}->{group_id} = $sg;
+    $security_groups->{alb}->{name}     = $sg_name;
   }
   else {
     $sg = 'sg-????';

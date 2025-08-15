@@ -31,14 +31,18 @@ sub init {
 
   my $cmd_spec = $self->commands->{$command};
 
-  my $cmd_options = reftype($cmd_spec) eq 'ARRAY' ? $cmd_spec->[2] : $EMPTY;
+  my $cmd_options = reftype($cmd_spec) eq 'ARRAY' ? $cmd_spec->[2] // {} : {};
 
-  my $config = $self->_init_config;
+  my ( $skip_init, $skip_config ) = @{$cmd_options}{qw(skip_init skip_config)};
+
+  my $config = $skip_config ? {} : $self->_init_config;
+
+  $self->set_config($config);
 
   $self->_init_defaults($config);
 
   return
-    if $cmd_options && defined $cmd_options->{init} && !$cmd_options->{init};
+    if $skip_init;
 
   my $dryrun = $self->get_dryrun;
   $self->set_dryrun( $dryrun ? '(dryrun)' : $EMPTY );
@@ -311,8 +315,6 @@ sub _init_defaults {
 
   $self->set_profile_source($profile_source);
 
-  $config->{default_log_group} //= $self->create_default('log-group');
-
   my %global_options = (
     profile   => $self->get_profile,
     region    => $self->get_region,
@@ -353,6 +355,9 @@ sub _init_route53 {
   }
 
   if ( $self->get_route53_profile ) {
+    $route53_config->{profile} = $self->get_route53_profile;
+  }
+  elsif ( $self->get_dns_profile ) {
     $route53_config->{profile} = $self->get_route53_profile;
   }
   else {

@@ -7,8 +7,9 @@ use App::FargateStack::Constants;
 use Carp;
 use Data::Dumper;
 use File::Temp qw(tempfile);
-use List::Util qw(any none);
+use List::Util qw(any none uniq);
 use JSON;
+use Text::ASCIITable::EasyTable;
 
 use Role::Tiny::With;
 with 'App::AWS';
@@ -35,6 +36,7 @@ sub new {
 
   if ( !$self->get_vpc_id ) {
     my @eligible_vpcs = $self->find_eligible_vpcs;
+    $self->get_logger->info( sprintf 'eligible VPCS: [%s]', join q{,}, @eligible_vpcs );
 
     croak 'ERROR: could not find a Fargate-compatible VPC'
       if !@eligible_vpcs;
@@ -54,7 +56,7 @@ sub new {
   if ( !$subnets ) {
     my $result = $self->describe_subnets( $self->get_vpc_id, 'Subnets' );
 
-    log_die( $self, "ERROR: there are no subnets in %s\n", $self->get_vpc_id )
+    croak sprintf "ERROR: there are no subnets in %s\n", $self->get_vpc_id
       if !@{$result};
 
     $subnets = $self->categorize_subnets;  # find private, public subnets
@@ -114,7 +116,7 @@ sub find_eligible_vpcs {
     push @vpcs_with_natgw, @{$gateways};
   }
 
-  return @vpcs_with_natgw;
+  return uniq @vpcs_with_natgw, @vpcs_with_igw;
 }
 
 ########################################################################

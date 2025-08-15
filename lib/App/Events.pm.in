@@ -10,6 +10,7 @@ use English qw(-no_match_vars);
 use File::Temp qw(tempfile);
 use JSON;
 use List::Util qw(none any);
+use Scalar::Util qw(reftype);
 
 use Role::Tiny::With;
 with 'App::AWS';
@@ -105,12 +106,12 @@ sub rule_exists {
     regexp  => qr/does\s+not\s+exists/xsmi
   );
 
-  my ($rule) = @{$result};
+  my ($rule) = @{ $result || [] };
 
-  return $rule
-    if !$schedule;
+  return $FALSE
+    if !$rule || !$schedule;
 
-  return $schedule ? $rule && $schedule eq $rule->{ScheduleExpression} ? 1 : -1 : 0;
+  return $schedule ? $schedule eq $rule->{ScheduleExpression} ? 1 : -1 : 0;
 }
 
 ########################################################################
@@ -191,7 +192,7 @@ sub target_exists {
     regexp  => qr/does\s+not\s+exist/xsmi
   );
 
-  return $result->[0];
+  return reftype($result) ? $result->[0] : $result;
 }
 
 ########################################################################

@@ -130,7 +130,7 @@ sub confirm {
 
   print sprintf "$prompt [y/N] ", @args;
 
-  chomp( my $answer = <> );
+  chomp( my $answer = <STDIN> );
 
   return $answer =~ /^y(es)?$/xsmi;
 }

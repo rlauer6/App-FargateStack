@@ -285,15 +285,17 @@ sub _find_alb_of_type {
 
   $self->get_logger->debug( Dumper( [ albs => $albs ] ) );
 
-  croak "no ALBs of type: $type\n"
+  croak "ERROR: No ALBs of type: $type\n"
     if !$no_error && !$albs || !@{$albs};
 
-  croak sprintf "more than one ALBs of type: $type\n%s\n", join "\n", map { $_->{LoadBalancerName} } @{$albs}
+  croak sprintf "ERROR: More than one ALBs of type: $type\n%s\n", join "\n", map { $_->{LoadBalancerName} } @{$albs}
     if !$no_error && @{$albs} > 1;
 
   my $alb = $albs->[0];
 
   $self->set_alb($alb);
+
+  $self->get_logger->debug( sub { return Dumper( [ alb => $alb ] ) } );
 
   return ( $alb->{LoadBalancerArn}, $alb->{SecurityGroups}->[0] );
 }

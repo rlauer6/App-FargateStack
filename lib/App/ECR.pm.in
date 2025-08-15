@@ -32,6 +32,10 @@ sub get_latest_image {
 ########################################################################
   my ( $self, $repository_name ) = @_;
 
+  if ( $repository_name =~ /\//xsm ) {
+    $repository_name = ( split /\//xsm, $repository_name )[-1];
+  }
+
   ($repository_name) = split /:/xsm, $repository_name;
 
   my $query = 'imageDetails[?imageTags != null && contains(imageTags, `latest`)]';
@@ -47,7 +51,7 @@ sub validate_images {
   my ( $self, @images ) = @_;
 
   foreach my $image (@images) {
-    croak sprintf "ERROR: image not found in ECR: [%s]\n", $image
+    warn sprintf "WARN: image not found in ECR: [%s]\n", $image
       if !$self->get_latest_image($image);
   }
 

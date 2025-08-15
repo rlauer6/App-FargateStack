@@ -71,6 +71,8 @@ FARGATE_DEPS = \
     lib/App/FargateStack/Pod.pm \
     lib/App/FargateStack/CloudTrail.pm \
     lib/App/FargateStack/Constants.pm \
+    lib/App/FargateStack/Checker.pm \
+    lib/App/FargateStack/CreateStack.pm \
     lib/App/FargateStack/Init.pm \
     lib/App/FargateStack/Logs.pm \
     lib/App/FargateStack/Route53.pm \

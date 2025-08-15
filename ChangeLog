@@ -1,3 +1,59 @@
+Fri Aug 15 12:51:49 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.31]:
+	* VERSION: bump
+	* lib/App/EC2.pm.in
+	(new): croak, not log_die
+	(find_eligible_vpcs)
+	- return both nat and igw vpc ids
+	* lib/App/ECR.pm.in
+	(get_latest_image)
+	- support fully qualified image names
+	- warn don't croak if image not found in ECR
+	* lib/App/ElbV2.pm.in
+	(_find_alb_of_type):
+	- wordsmithing error messages
+	* lib/App/Events.pm.in
+	(rule_exists)
+	- fix issue when schedule passed
+	(target_exists): return undef for sure
+	* lib/App/FargateStack.pm.in
+	- cmd_create_service => cmd_deploy_service
+	(main)
+	- + dns-profile
+	- + cmd_create_stack
+	- skip_config, skip_init
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events)
+	- events have schedule key
+	- constructing, not construction
+	- skip tasks with no schedule, don't die
+	- refactoring
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(create_alb)
+	- trap errors returned from find_alb()
+	- don't try to find security group info if no alb
+	- log messages
+	- set security group name
+	(create_alb_security_group): set security group name
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(create_taskdef_file)
+	- use resolve_image_name() helper to resolve image name
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	- <STDIN>, not <>
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- use skip_config, skip_init flags
+	(init_defaults): no need to set default_log_group
+	(_init_route53): dns-profile alias
+	* lib/App/STS.pm.in
+	(get_caller_identity): add query
+	* lib/App/Fargate/Pod.pm.in: create-stack documentation, --dns-profile
+	* lib/App/FargateStack/Checker.pm.in: new
+	* lib/App/FargateStack/CreateStack.pm.in: new
+	* Makefile: above to build
+
+
 Wed Aug 13 11:59:54 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.30]:

@@ -151,6 +151,7 @@ object-oriented use. As such, this section is intentionally omitted.
  -------                  ---------                    -----------
  apply                                                 reads config and creates resources
  create-service           task-name                    create a new service (see Note 4)
+ create-stack             app-name service-clauses...  creates a new stack configuration
  delete-service           task-name                    alias for remove-service
  delete-task              task-name                    deletes all resources associated with a task (See Note 11)
  delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
@@ -185,6 +186,7 @@ object-oriented use. As such, this section is intentionally omitted.
  --color, --no-color        default: color
  --confirm-all              confirm deletion of all resources
  -d, --dryrun               just report actions, do not apply
+ --dns-profile              alias for --route53-profile
  -f, --force                force action (depends on context)
  --history, --no-history    save cli parameters to .fargatestack/defaults.json
  --log-level                'trace', 'debug', 'info', 'warn', 'error', default: info (See Note 6)
@@ -388,6 +390,8 @@ syntax (See L</INJECTING SECRETS FROM SECRETS MANAGER>)
 =item automatic creation of log groups with customizable retention period
 
 =item discovery of existing environment to intelligently populate configuration defaults
+
+=item automatically create a minimal Fargate app/service config from shorthand
 
 =back
 
@@ -684,6 +688,185 @@ If you want to start multiple tasks for the service, you can include a
 count argument:
 
   app-FargateTask start-service service-name 2
+
+
+=head2 create-stack
+
+ create-stack app-name service-clauses...
+
+Parses a compact, positional CLI grammar and emits a ready-to-edit YAML
+configuration for your Fargate framework. The command B<does not> create any
+AWS resources; it only synthesizes config based on the clauses you pass.
+
+Examples:
+
+  # One task service
+  app-fargate create-stack foo task:job image:myrepo:1.2.3
+
+  # HTTP service (ALB) + image
+  app-fargate create-stack foo http:web image:site:2025-08-14 domain:api.example.com
+
+  # HTTPS service (ALB + ACM; config only, no deploy)
+  app-fargate create-stack foo https:web image:site:stable domain:api.example.com
+
+  # Scheduled task (EventBridge schedule expression)
+  app-fargate create-stack foo scheduled:bar 'schedule:cron(0 10 * * * *)' image:helloworld
+
+  # Multiple services in one run
+  app-fargate create-stack foo \
+    task:ingest image:etl:42 \
+    scheduled:nightly 'schedule:rate(1 day)' image:etl:42 \
+    http:api image:rest:latest domain:api.example.com
+
+=head3 Service clause grammar
+
+Each service is introduced by C<< <type>:<name> >> followed by its required
+key:value pairs. You may specify multiple services in one command.
+
+Valid C<type> values and minimum keys:
+
+=over 4
+
+=item C<task>
+
+  task:<name> image:<repo[:tag]>
+
+Non-daemon task that can be run on demand.
+
+=item C<http>
+
+  http:<name> image:<repo[:tag]> domain:<fqdn>
+
+ALB-backed HTTP service.
+
+=item C<https>
+
+  https:<name> image:<repo[:tag]> domain:<fqdn>
+
+ALB-backed HTTPS service (certificate discovery/validation is out of scope for
+this command; see the env checker).
+
+=item C<scheduled>
+
+  scheduled:<name> image:<repo[:tag]> schedule:<expr>
+
+EventBridge-scheduled task. C<schedule> must be a valid C<cron(...)> or
+C<rate(...>) expression. Quote it in the shell, for example:
+C<'schedule:cron(0 10 * * * *)'>.
+
+=item C<daemon>
+
+  daemon:<name> image:<repo[:tag]>
+
+Long-running service without a load balancer.
+
+=back
+
+=head3 Image shorthand and resolution
+
+If C<image> is given as C<< repo[:tag] >> without a registry host:
+
+=over 4
+
+=item *
+
+The command I<assumes> the image lives in the current account's ECR and will
+format the Docker reference as:
+
+  <account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+
+=item *
+
+If ECR lookup does not find the repository+tag, the tool emits a warning and
+leaves the image string as-is (allowing public registries like Docker Hub to
+work). This preserves convenience while making the fallback explicit.
+
+=item *
+
+Fully-qualified images (e.g., C<public.ecr.aws/namespace/image:tag>,
+C<docker.io/library/nginx:1.27>) are accepted as-is.
+
+=back
+
+=head3 Output
+
+Emits YAML to STDOUT that includes:
+
+=over 4
+
+=item *
+
+C<account>, C<profile>, C<region>
+
+=item *
+
+C<app.name> set from the first positional C<< <app-name> >>
+
+=item *
+
+Optional C<domain> (for HTTP/HTTPS stacks)
+
+=item *
+
+C<tasks> map keyed by service C<< <name> >> with fields such as C<type>,
+C<image>, and C<schedule> (when applicable)
+
+=back
+
+=head3 Options
+
+=over 4
+
+=item B<--route53-profile> I<STR>
+
+AWS profile to use when performing Route 53 API calls. Many environments
+use a separate account for DNS management; this option lets you target
+that account. If not provided, the tool uses B<--profile>.
+
+This option is only consulted when the command needs Route 53 (for example,
+HTTP/HTTPS stacks that require hosted zone lookups or record creation).
+
+=item B<--dns-profile> I<STR>
+
+Alias for B<--route53-profile>.
+
+=item B<--region> I<STR>
+
+AWS region used when expanding ECR shorthand.
+
+=item B<--out> I<FILE>
+
+Write YAML to a file instead of STDOUT.
+
+=item B<--force>
+
+Proceed even if some validations warn (for example, missing ECR repo).
+
+=back
+
+=head3 Exit Status
+
+  0 on success
+  non-zero on argument or validation errors
+
+=head3 NOTES
+
+=over 4
+
+=item *
+
+This command generates config; it does not deploy. Run your normal “plan/apply”
+flow after reviewing the YAML.
+
+=item *
+
+For HTTP/HTTPS, C<domain:> is required at creation time in this shorthand.
+
+=item *
+
+Always quote C<schedule:...> to avoid shell interpretation of parentheses.
+
+=back
 
 =head3 delete-daemon
 

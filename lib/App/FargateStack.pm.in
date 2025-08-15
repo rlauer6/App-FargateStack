@@ -36,6 +36,7 @@ with 'App::FargateStack::Init';
 with 'App::FargateStack::Logs';
 with 'App::FargateStack::Route53';
 with 'App::FargateStack::CloudTrail';
+with 'App::FargateStack::CreateStack';
 
 with 'App::Benchmark';
 
@@ -459,7 +460,7 @@ sub get_default_service_name {
 }
 
 ########################################################################
-sub cmd_create_service {
+sub cmd_deploy_service {
 ########################################################################
   my ($self) = @_;
 
@@ -474,7 +475,7 @@ sub cmd_create_service {
     my $err;
     ( $task_name, $err ) = $self->get_default_service_name($TRUE);  # skip arg
 
-    die sprintf "usage: %s create-service service-name\n", $ENV{SCRIPT_NAME}
+    die sprintf "usage: %s deploy-service service-name\n", $ENV{SCRIPT_NAME}
       if !$task_name || $err;
   }
 
@@ -1279,6 +1280,7 @@ sub main {
     color!
     confirm-all!
     create-alb|C
+    dns-profile
     dryrun|d
     force|f
     history|H!
@@ -1318,7 +1320,8 @@ sub main {
   );
 
   my %commands = (
-    'create-service'         => [ \&cmd_create_service, 'info' ],
+    'create-stack'           => [ \&cmd_create_stack,   'info', { skip_init => $TRUE, skip_config => $TRUE } ],
+    'deploy-service'         => [ \&cmd_deploy_service, 'info' ],
     'disable-scheduled-task' => \&cmd_disable_scheduled_task,
     'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
     'delete-schedule'        => \&cmd_delete_schedule,
@@ -1330,7 +1333,7 @@ sub main {
     'list-zones'             => [ \&cmd_list_zones, 'error' ],
     'register-task'          => \&cmd_register_task_definition,
     'remove-service'         => [ \&cmd_remove_service, 'info' ],
-    'reset-history'          => [ \&cmd_reset_history,  'info', { init => $FALSE } ],
+    'reset-history'          => [ \&cmd_reset_history,  'info', { skip_init => $TRUE, skip_config => $TRUE } ],
     'run-task'               => \&cmd_run_task,
     'start-service'          => [ \&cmd_update_service, 'info' ],
     'stop-service'           => [ \&cmd_update_service, 'error' ],
@@ -1340,13 +1343,13 @@ sub main {
     apply                    => \&cmd_apply,
     default                  => [ \&cmd_explain, 'error' ],
     destroy                  => \&cmd_destroy,
-    help                     => [ \&help,     'error', { init => $FALSE } ],
+    help                     => [ \&help,     'error', { skip_init => $TRUE, skip_config => $TRUE } ],
     logs                     => [ \&cmd_logs, 'error' ],
     plan                     => \&cmd_plan,
     redeploy                 => \&cmd_redeploy,
-    show                     => [ \&cmd_show,           'error', { init => $FALSE } ],
+    show                     => [ \&cmd_show,           'error', { skip_init => $TRUE, skip_config => $TRUE } ],
     status                   => [ \&cmd_service_status, 'error' ],
-    version                  => [ \&cmd_version,        'error', { init => $FALSE } ],
+    version                  => [ \&cmd_version,        'error', { skip_init => $TRUE, skip_config => $TRUE } ],
   );
 
   my $fargate_stack = App::FargateStack->new(

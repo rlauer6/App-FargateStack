@@ -20,7 +20,7 @@ sub build_events {
 
   my ( $config, $dryrun, $cluster, $tasks ) = $self->common_args(qw(config dryrun cluster tasks));
 
-  my @events = grep { $tasks->{$_}->{type} eq 'task' } keys %{$tasks};
+  my @events = grep { $tasks->{$_}->{type} eq 'task' && $tasks->{$_}->{schedule} } keys %{$tasks};
 
   if ( !@events ) {
     $self->log_info('events: no events to build');
@@ -29,7 +29,7 @@ sub build_events {
 
   $self->log_info( 'events: [%d] event(s) to build', scalar @events );
 
-  $self->log_info('events: construction IAM role for events');
+  $self->log_info('events: constructing IAM role for events...');
 
   $self->build_events_iam_role(@events);  # task names
 
@@ -45,8 +45,10 @@ sub build_events {
 
     my $schedule = $task->{schedule};
 
-    log_die( $self, sprintf "no schedule for event [%s]\n", $task_name )
-      if !$schedule;
+    if ( !$schedule ) {
+      $self->log_warn( 'events: no schedule for task: [%s]...skipping', $task_name );
+      return;
+    }
 
     $self->log_info( 'events: found a schedule...validating schedule: [%s]', $schedule );
 
@@ -64,9 +66,9 @@ sub build_events {
       $schedule = $valid_schedule;
     }
 
-    my $exists = $event->rule_exists( $rule_name, $schedule );
-
     $self->log_info( 'events: checking if rule [%s] exists or schedule [%s] changed', $rule_name, $schedule );
+
+    my $exists = $event->rule_exists( $rule_name, $schedule );
 
     my $rule_exists = $exists ? q{} : 'does not ';
 
@@ -172,10 +174,10 @@ sub create_event_target {
 
   my $current_target = $event->target_exists($rule_name);
 
-  my $replace_target = $FALSE;
+  my $replace_target = $current_target ? $TRUE : $FALSE;
 
   # compare $target vs $current_target
-  if ( !Compare( $target->[0], $current_target ) ) {
+  if ( $current_target && !Compare( $target->[0], $current_target ) ) {
 
     $self->display_diffs( $current_target, $target->[0], { style => 'Table', title => 'rule target differs' } );
     $replace_target = $TRUE;
