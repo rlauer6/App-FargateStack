@@ -225,13 +225,13 @@ object-oriented use. As such, this section is intentionally omitted.
     Command                  Arguments                    Description
     -------                  ---------                    -----------
     apply                                                 reads config and creates resources
-    create-service           task-name                    create a new service (see Note 4)
     create-stack             app-name service-clauses...  creates a new stack configuration
     delete-service           task-name                    alias for remove-service
     delete-task              task-name                    deletes all resources associated with a task (See Note 11)
     delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
     delete-daemon            task-name                    deletes all resources associated with a daemon  (See Note 11)
     delete-http-service      task-name                    deletes all resources associated with a http service  (See Note 11)
+    deploy-service           task-name                    create a new service (see Note 4)
     disable-scheduled-task   task-name                    disable a scheduled task
     enable-scheduled-task t  ask-name                     enable a scheduled task
     help                     [subject]                    displays general help or help on a particular subject (see Note 2)

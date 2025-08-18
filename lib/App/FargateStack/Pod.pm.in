@@ -150,13 +150,13 @@ object-oriented use. As such, this section is intentionally omitted.
  Command                  Arguments                    Description
  -------                  ---------                    -----------
  apply                                                 reads config and creates resources
- create-service           task-name                    create a new service (see Note 4)
  create-stack             app-name service-clauses...  creates a new stack configuration
  delete-service           task-name                    alias for remove-service
  delete-task              task-name                    deletes all resources associated with a task (See Note 11)
  delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
  delete-daemon            task-name                    deletes all resources associated with a daemon  (See Note 11)
  delete-http-service      task-name                    deletes all resources associated with a http service  (See Note 11)
+ deploy-service           task-name                    create a new service (see Note 4)
  disable-scheduled-task   task-name                    disable a scheduled task
  enable-scheduled-task t  ask-name                     enable a scheduled task
  help                     [subject]                    displays general help or help on a particular subject (see Note 2)
@@ -230,7 +230,7 @@ progress. This is set for you when your C<plan> or C<apply>.
 =item (4) By default an ECS service is NOT created for you by default
 for daemon and http tasks. Instead, after creating all of the
 necessary resources using C<apply>, run C<app-FargateStack
-create-service task-name>. This will launch your service with a count
+deploy-service task-name>. This will launch your service with a count
 of 1 task. You can optionally specify a different count after the task
 name.
 
@@ -672,24 +672,6 @@ Reads the configuration file and determines what actions to perform
 and what resources will be built.  Builds resources incrementally and
 updates configuration file with resource details.
 
-=head3 create-service
-
- create-service service-name
-
-When you provision an HTTP, HTTPS, or daemon service, the framework
-sets up all the necessary infrastructure components -- but it B<does not>
-automatically start the ECS service.
-
-Use this command to start the service:
-
-  app-FargateTask start-service service-name
-
-If you want to start multiple tasks for the service, you can include a
-count argument:
-
-  app-FargateTask start-service service-name 2
-
-
 =head3 create-stack
 
  create-stack app-name service-clauses...
@@ -867,6 +849,23 @@ For HTTP/HTTPS, C<domain:> is required at creation time in this shorthand.
 Always quote C<schedule:...> to avoid shell interpretation of parentheses.
 
 =back
+
+=head3 deploy-service
+
+ deploy-service service-name
+
+When you provision an HTTP, HTTPS, or daemon service, the framework
+sets up all the necessary infrastructure components -- but it B<does not>
+automatically create and start the ECS service.
+
+Use this command to start the service:
+
+  app-FargateTask deploy-service service-name
+
+If you want to start multiple tasks for the service, you can include a
+count argument:
+
+  app-FargateTask deploy-service service-name 2
 
 =head3 delete-daemon
 

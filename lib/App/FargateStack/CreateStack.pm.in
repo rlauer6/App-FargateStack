@@ -109,9 +109,14 @@ sub cmd_create_stack {
 
       $config->{domain} = ( split /[:]/xsm, $domain )[-1];
     }
-  }
 
-  #print {*STDERR} Dumper( [ config => $config ] );
+    my @environment = grep {/^environment:/xsm} @options;
+
+    foreach (@environment) {
+      my ( $key, $value ) = split /\s*=\s*/xsm, ( split /:/xsm )[-1];
+      $task->{environment} = { $key => $value };
+    }
+  }
 
   print {*STDOUT} Dump($config);
 

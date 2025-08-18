@@ -75,12 +75,14 @@ sub add_log_group_policy {
 ########################################################################
   my ($self) = @_;
 
-  my $log_group = $self->get_config->{log_group};
+  my $log_group = $self->get_config->{log_group} // {};
+
+  my $arn = $log_group->{arn} // q{};
 
   return {
     Effect   => 'Allow',
     Action   => [qw(logs:CreateLogStream logs:PutLogEvents logs:CreateLogGroup)],
-    Resource => [ $log_group->{arn}, $log_group->{arn} . ':log-stream:*' ],
+    Resource => [ $arn, $arn . ':log-stream:*' ],
   };
 }
 

@@ -1283,7 +1283,7 @@ sub main {
     color!
     confirm-all!
     create-alb|C
-    dns-profile
+    dns-profile=s
     dryrun|d
     force|f
     history|H!
