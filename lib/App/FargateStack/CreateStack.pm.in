@@ -39,11 +39,11 @@ sub cmd_create_stack {
 
   while ( my $tag = shift @args ) {
 
-    if ( $tag =~ /^(task|scheduled|https?):/xsm ) {
+    if ( $tag =~ /^(daemon|task|scheduled|https?):/xsm ) {
       $tasks{$tag} = [];
 
       while ( my $next_tag = shift @args ) {
-        if ( $next_tag =~ /^(?:task|scheduled|https?):/xsm ) {
+        if ( $next_tag =~ /^(?:daemon|task|scheduled|https?):/xsm ) {
           unshift @args, $next_tag;
           last;
         }
@@ -71,25 +71,27 @@ sub cmd_create_stack {
     # If the user omitted a tag, you can optionally default to :latest
     # $image_name .= ':latest' if $image_name !~ /:[^\/]+$/;
 
+    my ( $repo, $tag ) = split /:/xsm, $image_name, 2;
+    $tag //= 'latest';
+
     if ( $image_name !~ m{/}xsm ) {
       # ECR shorthand (repo[:tag]) in current account
-      my ( $repo, $tag ) = split /:/xsm, $image_name, 2;
 
       my $ecr    = $self->fetch_ecr;
       my $images = $ecr->describe_images( $repo, 'imageDetails' );
 
       if ( !$images || !@{$images} ) {
         $self->log_warn( 'create-stack: %s not found in ECR...assuming public image', $image );
-        $task->{image} = $image_name;  # leave as-is; ECS will try public registries
+        $task->{image} = "$image_name:$tag";  # leave as-is; ECS will try public registries
       }
       else {
-        my $uri = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s', $account, $self->get_region, $image_name;
+        my $uri = sprintf '%s.dkr.ecr.%s.amazonaws.com/%s:%s', $account, $self->get_region, $image_name, $tag;
         $task->{image} = $uri;
       }
     }
     else {
       # Fully-qualified external or cross-account reference; accept as-is
-      $task->{image} = $image_name;
+      $task->{image} = "$repo:$tag";
     }
 
     if ( $t =~ /^scheduled:/xsm ) {

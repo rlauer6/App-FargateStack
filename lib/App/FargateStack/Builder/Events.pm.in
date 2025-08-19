@@ -246,13 +246,14 @@ sub build_events_iam_role {
 
   my $iam = $self->fetch_iam;
 
-  my $role_name = $self->create_events_role();
+  my $role_config = $config->{events_role} // {};
 
-  my $policy_name = $config->{events_role}->{policy_name} // $self->create_default( 'policy-name', 'events' );
+  my ( $role_name, $role_arn ) = $self->create_events_role();
+
+  my $policy_name = $self->create_default( 'policy-name', 'events' );
+  @{$role_config}{qw(name arn policy_name)} = ( $role_name, $role_arn, $policy_name );
 
   my $policy = $iam->get_role_policy( $role_name, $policy_name );
-
-  $config->{events_role}->{policy_name} = $policy_name;
 
   my @statement = $self->add_events_policy();
 

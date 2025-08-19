@@ -467,6 +467,8 @@ sub cmd_deploy_service {
 ########################################################################
   my ($self) = @_;
 
+  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
+
   my ( $task_name, $desired_count ) = $self->get_args;
 
   if ( looks_like_number $task_name ) {
@@ -474,15 +476,15 @@ sub cmd_deploy_service {
     $task_name     = $EMPTY;
   }
 
-  if ( !$task_name ) {
-    my $err;
-    ( $task_name, $err ) = $self->get_default_service_name($TRUE);  # skip arg
+  if ( !$task_name || !exists $tasks->{$task_name} ) {
+    ( $task_name, my $err ) = $self->get_default_service_name($TRUE);  # skip arg
 
-    die sprintf "usage: %s deploy-service service-name\n", $ENV{SCRIPT_NAME}
-      if !$task_name || $err;
+    if ( !$task_name || $err ) {
+      $self->log_error( 'ERROR: no task-name or not a valid task-name: [%s]', $task_name // q{} );
+
+      die sprintf "usage: %s deploy-service service-name\n", $ENV{SCRIPT_NAME};
+    }
   }
-
-  my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
   if ( !$desired_count || !looks_like_number $desired_count ) {
     $desired_count = $tasks->{$task_name}->{desired_count} // 1;
@@ -1007,11 +1009,12 @@ sub cmd_delete_daemon {
     if $tasks->{$task_name}->{type} ne 'daemon';
 
   if ( scalar keys %{$tasks} == 1 ) {
-    print {*STDERR} <<'END_OF_ERROR';
+    my $msg = <<'END_OF_ERROR';
 This is the only task in your configuration.
 
 You can stop the daemon from running with the "stop-service" command.
 END_OF_ERROR
+    print {*STDERR} colored( $msg, 'bright_red' );
   }
 
   return $self->delete_task_resources( $task_name, 'daemon' );

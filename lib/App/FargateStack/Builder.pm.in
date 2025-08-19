@@ -423,7 +423,9 @@ sub delete_task_resources {
     ####################################################################
     # -- remove alias record
     ####################################################################
-    $self->_delete_alias_record($confirm_all);
+    if ( $type ne 'daemon' ) {
+      $self->_delete_alias_record($confirm_all);
+    }
 
     $self->_delete_service( $confirm_all, $task_name, $type );
   }
@@ -526,6 +528,9 @@ sub _delete_alias_record {
 
   my ( $config, $dryrun, $tasks, $alb ) = $self->common_args(qw(config dryrun tasks alb));
   my $domain = $config->{domain};
+
+  return  # belt & suspenders...we should never get here
+    if !$domain;
 
   my $confirmed = $confirm_all ? confirm( 'route53: delete alias record for: [%s]', $domain ) : $TRUE;
 

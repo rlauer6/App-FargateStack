@@ -26,7 +26,6 @@
   * [Command Descriptions](#command-descriptions)
     * [help](#help)
     * [apply](#apply)
-    * [create-service](#create-service)
     * [create-stack](#create-stack)
       * [Service clause grammar](#service-clause-grammar)
       * [Image shorthand and resolution](#image-shorthand-and-resolution)
@@ -34,6 +33,7 @@
       * [Options](#options)
       * [Exit Status](#exit-status)
       * [NOTES](#notes)
+    * [deploy-service](#deploy-service)
     * [delete-daemon](#delete-daemon)
     * [delete-scheduled-task](#delete-scheduled-task)
     * [delete-task](#delete-task)
@@ -173,7 +173,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.32.
+This documentation corresponds to version 1.0.34.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -302,7 +302,7 @@ progress. This is set for you when your `plan` or `apply`.
 - (4) By default an ECS service is NOT created for you by default
 for daemon and http tasks. Instead, after creating all of the
 necessary resources using `apply`, run `app-FargateStack
-create-service task-name`. This will launch your service with a count
+deploy-service task-name`. This will launch your service with a count
 of 1 task. You can optionally specify a different count after the task
 name.
 - (5) You can tail or display a set of log events from a task's
@@ -656,23 +656,6 @@ Reads the configuration file and determines what actions to perform
 and what resources will be built.  Builds resources incrementally and
 updates configuration file with resource details.
 
-### create-service
-
-    create-service service-name
-
-When you provision an HTTP, HTTPS, or daemon service, the framework
-sets up all the necessary infrastructure components -- but it **does not**
-automatically start the ECS service.
-
-Use this command to start the service:
-
-    app-FargateTask start-service service-name
-
-If you want to start multiple tasks for the service, you can include a
-count argument:
-
-    app-FargateTask start-service service-name 2
-
 ### create-stack
 
     create-stack app-name service-clauses...
@@ -804,6 +787,23 @@ Emits YAML to STDOUT that includes:
 flow after reviewing the YAML.
 - For HTTP/HTTPS, `domain:` is required at creation time in this shorthand.
 - Always quote `schedule:...` to avoid shell interpretation of parentheses.
+
+### deploy-service
+
+    deploy-service service-name
+
+When you provision an HTTP, HTTPS, or daemon service, the framework
+sets up all the necessary infrastructure components -- but it **does not**
+automatically create and start the ECS service.
+
+Use this command to start the service:
+
+    app-FargateTask deploy-service service-name
+
+If you want to start multiple tasks for the service, you can include a
+count argument:
+
+    app-FargateTask deploy-service service-name 2
 
 ### delete-daemon
 
@@ -2242,6 +2242,6 @@ This script is released under the same terms as Perl itself.
 
 Hey! **The above document had some coding errors, which are explained below:**
 
-- Around line 864:
+- Around line 846:
 
     Non-ASCII character seen before =encoding in '“plan/apply”'. Assuming UTF-8

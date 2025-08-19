@@ -1,3 +1,28 @@
+Tue Aug 19 09:04:55 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.34]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/FargateStack.pm.in
+	(cmd_deploy_service):
+	- make sure task actually exists in config
+	(cmd_delete_daemon): color for error message
+	* lib/App/FargateStack/Builder.pm.in
+	(delete_task_resources)
+	- only remove alias record for http services
+	(_delete_alias_records); return if no domain configured
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events_iam_role)
+	- refactored to properly set role in config
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- refactored to properly set role in config
+	- return role-name and role-arn
+	* lib/App/FargateStack/CreateStack.pm.in
+	(cmd_create_stack)
+	- add daemon to list of recognized types
+	- set image tag to latest if not provided in image uri
+
 Mon Aug 18 17:11:32 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.33]:

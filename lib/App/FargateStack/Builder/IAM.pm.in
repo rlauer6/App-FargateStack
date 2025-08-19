@@ -33,9 +33,10 @@ sub build_iam_role {
   ######################################################################
   # create role
   ######################################################################
-  my $role_name = $self->create_fargate_role();
+  my ( $role_name, $role_arn ) = $self->create_fargate_role();
 
   my $policy_name = $role->{policy_name} // $self->create_default( 'policy-name', 'ecs' );
+  @{$role}{qw(name arn policy_name)} = ( $role_name, $role_arn, $policy_name );
 
   ######################################################################
   # create policy - see if policy needs to be created or updated
@@ -111,8 +112,6 @@ sub build_iam_role {
   $self->log_warn( 'iam:policy: creating policy [%s] for role [%s]...', $policy_name, $role_name );
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
-
-  $config->{role}->{policy_name} = $policy_name;
 
   $self->log_trace( sub { return Dumper( [ 'iam:policy' => $role_policy ] ); } );
 
@@ -203,8 +202,6 @@ sub create_role {
 
   $role_name //= $self->create_default( 'role-name', $type );
 
-  $role_config->{name} = $role_name;
-
   my $role = choose {
     return { Role => { Arn => $role_config->{arn} } }
       if $self->get_cache && $role_config->{arn};
@@ -217,10 +214,9 @@ sub create_role {
   if ( $role->{Role}->{Arn} ) {
     $self->log_info( 'iam: role [%s] exists...%s', $role_name, $self->get_cache || 'skipping' );
 
-    $role_config->{arn} = $role->{Role}->{Arn};
     $self->inc_existing_resources( 'iam:role' => [ $role->{Role}->{Arn} ] );
 
-    return $role_name;
+    return ( $role_name, $role->{Role}->{Arn} );
   }
 
   $self->inc_required_resources(
@@ -234,8 +230,10 @@ sub create_role {
 
   $self->log_warn( 'iam: [%s] will be created...%s', $role_name, $self->get_dryrun );
 
+  my $role_arn;
+
   if ( !$dryrun ) {
-    $role_config->{arn} = $iam->create_role( $role_name, $trust_policy );
+    $role_arn = $iam->create_role( $role_name, $trust_policy );
 
     $self->log_trace( sub { return Dumper( [ 'iam: policy' => $trust_policy ] ); } );
 
@@ -243,7 +241,7 @@ sub create_role {
       if $iam->get_error;
   }
 
-  return $role_name;
+  return ( $role_name, $role_arn );
 }
 
 1;
