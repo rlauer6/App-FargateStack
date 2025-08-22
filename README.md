@@ -48,6 +48,7 @@
     * [register-task-definition](#register-task-definition)
     * [remove-service](#remove-service)
     * [run-task](#run-task)
+    * [state](#state)
     * [status](#status)
     * [stop-task](#stop-task)
     * [stop-service](#stop-service)
@@ -173,7 +174,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.34.
+This documentation corresponds to version 1.0.35.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -1004,6 +1005,28 @@ associated with the tag (typically `latest`) at runtime.
 If the digests do not match, the default behavior is to abort execution
 and warn you about the mismatch. To override this safety check and proceed
 anyway, use the `--force` option.
+
+### state
+
+    state config-name
+
+You can use this command to switch the default configuration that
+`app-FargateStack` will use when run without arguments.
+
+The default configuration controls which task profile, region, and
+configuration file are considered "current." This allows you to run
+commands without repeatedly specifying the same options.
+
+This command will output the table below that shows the currently
+active defaults:
+
+    .--------------------------------------------------------------------------------------------------.
+    |                                    Current Defaults: http-test                                   |
+    +---------+-------------+-----------+-------------------------------------------------+------------+
+    | Profile | DNS Profile | Region    | Config                                          | Max Events |
+    +---------+-------------+-----------+-------------------------------------------------+------------+
+    | sandbox | prod        | us-east-1 | /home/rlauer/git/App-FargateStack/http-test.yml |          5 |
+    '---------+-------------+-----------+-------------------------------------------------+------------'
 
 ### status
 

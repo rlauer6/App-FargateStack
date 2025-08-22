@@ -11,16 +11,17 @@ package App::FargateStack;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp);
 use App::FargateStack::Constants;
 use App::FargateStack::Pod;
-use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
-use CLI::Simple;
 use Carp;
+use CLI::Simple;
+use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
+use Cwd qw(realpath);
 use Data::Dumper;
 use Date::Parse qw(str2time);
 use English qw(no_match_vars);
-use File::Basename qw(basename);
+use File::Basename qw(basename fileparse);
 use List::Util qw(none any);
 use Log::Log4perl;
 use Pod::Usage;
@@ -149,6 +150,53 @@ sub check_service_name {
   }
 
   return $service_name;
+}
+
+########################################################################
+sub cmd_state {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my ($config_name) = $self->get_args;
+
+  my $options = $self->fetch_option_defaults;
+
+  my $defaults_file = '.fargatestack/defaults.json';
+
+  if ($config_name) {
+    my ( $name, $path, $ext ) = fileparse( $config_name, qr/[.][^.]+$/xsm );
+
+    $path = realpath($path);
+
+    my $fqp = sprintf '%s/%s%s', $path, $name, $ext || 'yml';
+
+    die sprintf "ERROR: file not found: [%s]\n", $fqp
+      if !-s $fqp;
+
+    $options->{config} = $fqp;
+
+    $self->write_json_file( $defaults_file, $options );
+    $config_name = $name;
+  }
+
+  my $data = [
+    { Profile       => $options->{profile},
+      'DNS Profile' => $options->{route53_profile},
+      'Max Events', => $options->{max_events},
+      'Config'      => $options->{config},
+      'Region'      => $options->{region},
+    }
+  ];
+
+  my @columns = ( 'Profile', 'DNS Profile', 'Region', 'Config', 'Max Events' );
+
+  print {*STDOUT} easy_table(
+    table_options => { headingText => sprintf 'Current Defaults: %s', $config_name },
+    columns       => \@columns,
+    data          => $data,
+  );
+
+  return $SUCCESS;
 }
 
 ########################################################################
@@ -1107,15 +1155,14 @@ sub fetch_option_defaults {
   return $self->write_json_file( $defaults_file, {} )
     if $reset;
 
-  $options->{profile}         = $self->get_profile         // $options->{profile};
-  $options->{config}          = $self->get_config          // $options->{config};
-  $options->{region}          = $self->get_region          // $options->{region};
+  $options->{profile}         = $self->get_profile     // $options->{profile};
+  $options->{config}          = $self->get_config_name // $options->{config};
+  $options->{region}          = $self->default_region( $options->{region} );
   $options->{route53_profile} = $self->get_route53_profile // $options->{route53_profile};
   $options->{max_events}      = $self->get_max_events      // $options->{max_events};
 
   $self->set_profile( $options->{profile} );
   $self->set_config( $options->{config} );
-  $self->set_region( $options->{region} );
   $self->set_route53_profile( $options->{route53_profile} );
   $self->set_max_events( $options->{max_events} );
 
@@ -1286,7 +1333,6 @@ sub main {
     color!
     confirm-all!
     create-alb|C
-    dns-profile=s
     dryrun|d
     force|f
     history|H!
@@ -1347,6 +1393,7 @@ sub main {
     'update-policy'          => \&cmd_update_policy,
     'update-target'          => \&cmd_update_target,
     apply                    => \&cmd_apply,
+    state                    => [ \&cmd_state,   'error', { skip_init => $TRUE, skip_config => $TRUE } ],
     default                  => [ \&cmd_explain, 'error' ],
     destroy                  => \&cmd_destroy,
     help                     => [ \&help,     'error', { skip_init => $TRUE, skip_config => $TRUE } ],
@@ -1368,6 +1415,7 @@ sub main {
       print {*STDERR} shift;
       return $FALSE;
     },
+    alias => { options => { 'dns-profile' => 'route53-profile' } },
   );
 
   $fargate_stack->run();

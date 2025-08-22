@@ -283,6 +283,17 @@ sub _init_account {
 }
 
 ########################################################################
+sub default_region {
+########################################################################
+  my ( $self, $region ) = @_;
+
+  $region //= $self->get_region // $ENV{AWS_DEFAULT_REGION} // 'us-east-1';
+  $self->set_region($region);
+
+  return $region;
+}
+
+########################################################################
 sub _init_defaults {
 ########################################################################
   my ( $self, $config ) = @_;
@@ -290,8 +301,7 @@ sub _init_defaults {
   my $last_updated = delete $config->{last_updated};
   delete $config->{id};
 
-  $config->{region} //= $self->get_region // $ENV{AWS_DEFAULT_REGION} // 'us-east-1';
-  $self->set_region( $config->{region} );  # let's make sure we can use get_region()
+  $config->{region} = $self->default_region( $config->{region} );
 
   my $profile        = $self->get_profile;
   my $profile_source = 'command line';

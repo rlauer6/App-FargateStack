@@ -1,3 +1,20 @@
+Fri Aug 22 10:26:54 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.35]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack.pm.in
+	(cmd_state): new
+	(fetch_option_defaults): call default_region
+	(main)
+	- make dns-profile an alias
+	- + cmd_state
+	* lib/App/FargateStack/Init.pm.in
+	(default_region): new
+	(_init_defaults): call default_region
+	* lib/App/FargateStack/Pod.pm.in
+	- pod updates (cmd_state)
+
 Tue Aug 19 09:04:55 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.34]:

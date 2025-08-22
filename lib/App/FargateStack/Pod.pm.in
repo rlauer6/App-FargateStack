@@ -1087,6 +1087,28 @@ If the digests do not match, the default behavior is to abort execution
 and warn you about the mismatch. To override this safety check and proceed
 anyway, use the C<--force> option.
 
+=head3 state
+
+ state config-name
+
+You can use this command to switch the default configuration that
+C<app-FargateStack> will use when run without arguments.
+
+The default configuration controls which task profile, region, and
+configuration file are considered "current." This allows you to run
+commands without repeatedly specifying the same options.
+
+This command will output the table below that shows the currently
+active defaults:
+
+  .--------------------------------------------------------------------------------------------------.
+  |                                    Current Defaults: http-test                                   |
+  +---------+-------------+-----------+-------------------------------------------------+------------+
+  | Profile | DNS Profile | Region    | Config                                          | Max Events |
+  +---------+-------------+-----------+-------------------------------------------------+------------+
+  | sandbox | prod        | us-east-1 | /home/rlauer/git/App-FargateStack/http-test.yml |          5 |
+  '---------+-------------+-----------+-------------------------------------------------+------------'
+
 =head3 status
 
   status service-name
