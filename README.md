@@ -11,7 +11,7 @@
   * [Commands](#commands)
   * [Options](#options)
   * [Notes](#notes)
-* [OVERVIEW](#overview)
+* [GETTING STARTED](#getting-started)
   * [Additional Features](#additional-features)
   * [Minimal Configuration](#minimal-configuration)
   * [Web Applications](#web-applications)
@@ -54,9 +54,13 @@
     * [stop-service](#stop-service)
     * [start-service](#start-service)
     * [update-policy](#update-policy)
+    * [update-service](#update-service)
     * [update-target](#update-target)
     * [version              ](#version-)
   * [Notes on Deletion of Resources](#notes-on-deletion-of-resources)
+* [DEPLOYMENT WORKFLOW GUIDE](#deployment-workflow-guide)
+  * [How to Use This Matrix](#how-to-use-this-matrix)
+  * [Notes on the Workflow](#notes-on-the-workflow)
 * [CLOUDWATCH LOG GROUPS](#cloudwatch-log-groups)
   * [Log Group Notes](#log-group-notes)
 * [IAM PERMISSIONS](#iam-permissions)
@@ -113,6 +117,8 @@
     * [Common causes](#common-causes)
     * [How to fix it](#how-to-fix-it)
     * [Note on Subnet Selection](#note-on-subnet-selection)
+  * [My task failed to start and the reason is unclear](#my-task-failed-to-start-and-the-reason-is-unclear)
+    * [The Solution: Finding the `stoppedReason`](#the-solution-finding-the-stoppedreason)
   * [Why is my task or service still using an old image?](#why-is-my-task-or-service-still-using-an-old-image)
     * [One-off tasks: `run-task` uses a fixed image digest](#one-off-tasks-run-task-uses-a-fixed-image-digest)
     * [Services: `create-service` and `update-service` use frozen images too](#services-create-service-and-update-service-use-frozen-images-too)
@@ -123,7 +129,6 @@
 * [SEE ALSO](#see-also)
 * [AUTHOR](#author)
 * [LICENSE](#license)
-* [POD ERRORS](#pod-errors)
 ---
 [Back to Table of Contents](#table-of-contents)
 
@@ -174,7 +179,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.35.
+This documentation corresponds to version 1.0.36.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -236,7 +241,7 @@ object-oriented use. As such, this section is intentionally omitted.
     disable-scheduled-task   task-name                    disable a scheduled task
     enable-scheduled-task t  ask-name                     enable a scheduled task
     help                     [subject]                    displays general help or help on a particular subject (see Note 2)
-    list-tasks                                            list running tasks
+    list-tasks                                            list running or stopped tasks
     list-zones               domain                       list the hosted zones for a domain
     logs                     task-name start end          display CloudWatch logs (see Note 5)
     plan                                                  reads config and reports on resource creation
@@ -376,13 +381,13 @@ the resources associated with that task.
     - These resources will **NOT** be removed:
 
             - ECR image associated with a task
-            - An ACM certificate provisioned by App::Fargate
+            - An ACM certificate provisioned by App::FargateStack
 
 [Back to Table of Contents](#table-of-contents)
 
-# OVERVIEW
+# GETTING STARTED
 
-_NOTE: This is a brief overview of `App::FargateStack`. To see a 
+_NOTE: This is a brief introduction to `App::FargateStack`. To see a 
 list of topics providing more detail use the `help help` command._
 
 The `App::FargateStack` framework, as its name implies provide developers
@@ -457,6 +462,9 @@ for minimal?
         image: my-worker:latest
         schedule: cron(50 12 * * * *)
 
+_TIP: You can use the ["create-stack"](#create-stack) command to create minimal
+configuration files for various Fargate application scenarios._
+
 Using this minimal configuration and running `app-FargateStack` like this:
 
     app-FargateStack plan
@@ -474,9 +482,9 @@ Using this minimal configuration and running `app-FargateStack` like this:
 - an IAM policy for EventBridge
 - an EventBridge rule that schedules the worker
 
-...so as you can see this can be a daunting task which becomes even
-more annoying when you want your worker to be able to access other AWS
-resources like buckets, queues or EFS directories.
+...so as you can see, rolling all of this by hand could be a daunting
+task and one made even more difficult when you want to enable your task to
+access other AWS resources like buckets, queues or EFS file systems!
 
 ## Web Applications
 
@@ -784,7 +792,7 @@ Emits YAML to STDOUT that includes:
 
 #### NOTES
 
-- This command generates config; it does not deploy. Run your normal “plan/apply”
+- This command generates config; it does not deploy. Run your normal "plan/apply"
 flow after reviewing the YAML.
 - For HTTP/HTTPS, `domain:` is required at creation time in this shorthand.
 - Always quote `schedule:...` to avoid shell interpretation of parentheses.
@@ -840,13 +848,13 @@ See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for addi
 Deletes the AWS resources associated with a task of type `http` or `https`.
 
 If the Application Load Balancer (ALB) used by the service was
-provisioned by `App::Fargate`, it will be automatically
+provisioned by `App::FargateStack`, it will be automatically
 deleted. However, if the ALB was discovered but not created by
-`App::Fargate`, it will be preserved. In that case, only the listener
-rules provisioned by `App::Fargate` will be removed.
+`App::FargateStack`, it will be preserved. In that case, only the listener
+rules provisioned by `App::FargateStack` will be removed.
 
 This command will also not delete any ACM certificate that was
-provisioned by `App::Fargate`.
+provisioned by `App::FargateStack`.
 
 See ["Notes on Deletion of Resources"](#notes-on-deletion-of-resources) for additional details.
 
@@ -874,7 +882,9 @@ your configuration file.
 
 ### list-tasks
 
-Lists running tasks and outputs a table of information about the tasks.
+    list-tasks [stopped]
+
+Lists running or stopped tasks and outputs a table of information about the tasks.
 
     Task Name
     Task Id
@@ -883,6 +893,7 @@ Lists running tasks and outputs a table of information about the tasks.
     CPU
     Start Time
     Elapsed Time
+    Stopped Reason
 
 ### list-zones
 
@@ -949,9 +960,10 @@ Note that if your task definition references an image by digest
 (e.g. `@sha256:...`), ECS will continue to use that exact image. In that case,
 you must register a new task definition to update the image.
 
-For best results, use this command only when your service's task definition
-uses an image tag that can be re-resolved, such as `:latest` or a CI-generated
-version tag.
+For best results, use this command as a shortcut to avoid
+`register-task`, `update-service` steps and only when your service's
+task definition uses an image tag that can be re-resolved, such as
+`:latest` or a CI-generated version tag.
 
 ### register-task-definition
 
@@ -1085,9 +1097,57 @@ configure, this will make sure that all configured resources are
 included in your policy.
 
 If `update-policy` identifies a need to update your role policy, you
-can view the changes before they are applied by running the `plan` command at the `trace` log level.
+can view the changes before they are applied by running the `plan`
+command at the `trace` log level.
 
     app-Fargate --log-level trace plan
+
+### update-service
+
+update-service \[service-name\]
+
+Updates an ECS service's configuration to use the latest registered
+task definition. This is the primary command for deploying any changes
+to your application, including new container images, environment
+variables, or resource allocations.
+
+When an ECS service is launched, it is "pinned" to a specific revision
+of a task definition (e.g., my-task:9). If you later push a new
+container image or change the task's configuration in your
+fargate-stack.yml, the running service will not automatically pick up
+those changes.
+
+This command is the essential final step in the deployment process.
+
+- If the service is running, this command will trigger a rolling
+deployment to replace the existing tasks with new ones based on the
+new task definition.
+- If the service is stopped, this command updates its
+configuration. The next time you run start-service, it will launch
+tasks using the new task definition.
+
+When to Use update-service vs. redeploy While both commands can result
+in a new deployment, they serve different purposes:
+
+Use update-service when you have made any changes to your
+configuration file that affect the task definition. This is the
+correct command for deploying a new image, adding environment
+variables, injecting secrets, changing CPU/memory, or adding EFS mount
+points. The workflow is:
+
+Update your fargate-stack.yml file.
+
+Run app-FargateStack register-task-definition task-name.
+
+Run app-FargateStack update-service task-name.
+
+Use redeploy as a shortcut only when you have pushed a new image using
+the same tag (e.g., :latest) and have made no other configuration
+changes. redeploy forces a new deployment using the existing task
+definition, which is simpler but will not apply any other updates.
+
+The status command can help you detect drift by showing if the running
+task definition is out of sync with your latest configuration.
 
 ### update-target
 
@@ -1116,6 +1176,60 @@ to recreate it from scratch.
 - `App::FargateStack` does not delete ECR images associated with tasks.
 - ACM certificates provisioned by `App::FargateStack` will not be
 deleted.
+
+[Back to Table of Contents](#table-of-contents)
+
+# DEPLOYMENT WORKFLOW GUIDE
+
+One of the most common questions when managing a stack is, "I changed
+X, what command(s) do I need to run now?" This guide provides a
+quick-reference matrix to help you choose the correct workflow for the
+most common changes.
+
+## How to Use This Matrix
+
+Find the change you made in the "Change Description" column and follow
+the row across to see which commands are required. Commands should be
+run in order from left to right.
+
+    +---------------------------------------------+---------+---------+----------+----------+
+    | Change Description                          | apply   | register| update-  | redeploy |
+    |                                             |         | -task   | service  |          |
+    +---------------------------------------------+---------+---------+----------+----------+
+    | Updated container image (new tag/digest)    |         |    X    |    X     |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Updated container image (same :latest tag)  |         |         |          |    X     |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Added/changed environment variables         |         |    X    |    X     |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Added/changed secrets                       |    X    |    X    |    X     |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Added/changed CPU, memory, or size          |         |    X    |    X     |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Changed a scheduled task's cron/rate        |    X    |         |          |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Added a new S3 bucket or SQS queue          |    X    |    X    |    X     |          |
+    |---------------------------------------------+---------+---------+----------+----------|
+    | Added or changed an EFS mount point         |    X    |    X    |    X     |          |
+    +---------------------------------------------+---------+---------+----------+----------+
+
+## Notes on the Workflow
+
+- `plan` is Your Best Friend: Before running apply or any command that
+makes changes, it is always a good practice to run app-FargateStack
+plan first. This will give you a dry-run preview of the changes and
+help you catch any configuration errors.
+- Why apply is Sometimes Needed: Changes that affect AWS
+resources beyond the ECS task definition itself -- like IAM
+permissions for a new secret, EventBridge rules for a new schedule, or
+provisioning a new S3 bucket -- require running apply to create or
+update that infrastructure.
+- redeploy is a Shortcut: The redeploy command is a special
+case. It's a convenient shortcut for the common scenario where you've
+pushed a new image to the :latest tag and need to force a deployment
+without changing the task definition itself. For all other changes,
+the register-task and update-service workflow is the correct and safer
+path.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -1326,7 +1440,7 @@ not usable for Fargate tasks.
 
 ### Task placement and Availability Zones
 
-The framework places each task’s ENI into exactly one subnet, which fixes
+The framework places each task's ENI into exactly one subnet, which fixes
 that task in a single AZ. A service can span multiple AZs by listing
 subnets from at least two AZs.
 
@@ -2140,6 +2254,59 @@ network access to launch a Fargate task successfully. The framework
 warns if you attempt to use a subnet that lacks internet or endpoint
 access.
 
+## My task failed to start and the reason is unclear
+
+This is one of the most common and frustrating scenarios when working
+with Fargate. You run `start-service` or `run-task`, the command
+seems to succeed, but then the task quickly stops. The `status`
+command shows the desired count is 1 but the running count is 0, and
+the logs are empty.
+
+This often happens due to a **resource initialization error**. The
+problem isn't with your container image itself, but with the
+infrastructure Fargate is trying to set up for it.
+
+Common causes include:
+
+- **Networking Issues**: The task is in a subnet that can't pull the
+image from ECR (e.g., no NAT Gateway or VPC endpoints).
+- **Permissions Errors**: The task's IAM role is missing a required
+permission.
+- **EFS Mount Failures**: The task cannot mount an EFS volume, often due
+to a misconfigured security group or incorrectly specified path.
+
+These errors are opaque because they happen deep inside the
+AWS-managed environment. The high-level ECS API only reports a generic
+failure, and since it's not an API call error, it won't appear in
+CloudTrail.
+
+### The Solution: Finding the `stoppedReason`
+
+To solve this, `App-FargateStack` provides an optional argument to
+the `list-tasks` command. By default, this command only shows
+`RUNNING` tasks. However, if you add the `stopped` argument, it will
+show recently stopped tasks and, most importantly, the reason they
+stopped.
+
+**The Command:**
+
+    app-FargateStack list-tasks stopped
+
+This will display a table of stopped tasks, including a `Stopped
+Reason` column. This column often contains the detailed, multi-line
+error message from the underlying AWS service that caused the failure,
+giving you the exact information you need to debug the problem.
+
+For example, if an EFS mount failed, the `stoppedReason` might
+contain:
+
+    ResourceInitializationError: failed to invoke EFS utils
+    commands... mount.nfs4: mounting failed, reason given by server: No
+    such file or directory
+
+This tells you immediately that the problem is with the EFS path, not
+a generic "task failed" message.
+
 ## Why is my task or service still using an old image?
 
 This is one of the most common points of confusion when working with
@@ -2260,11 +2427,3 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
-
-# POD ERRORS
-
-Hey! **The above document had some coding errors, which are explained below:**
-
-- Around line 846:
-
-    Non-ASCII character seen before =encoding in '“plan/apply”'. Assuming UTF-8
