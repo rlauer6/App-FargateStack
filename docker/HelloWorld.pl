@@ -3,37 +3,69 @@
 use strict;
 use warnings;
 
-use Data::Dumper;
-use JSON;
+use Log::Log4perl;
+use JSON qw(to_json);
+use Readonly;
 
-my $env = \%ENV;
+Readonly::Scalar our $TRUE => 1;
 
-while (1) {
-  print {*STDERR} "Hello World!\n";
+Readonly::Scalar our $LOG4PERL_CONF => <<END_OF_CONF;
+log4perl.rootLogger=DEBUG,HelloWorld
+log4perl.appender.HelloWorld=Log::Log4perl::Appender::Screen
+log4perl.appender.HelloWorld.layout = Log::Log4perl::Layout::JSON
+log4perl.appender.HelloWorld.layout.field.message = %m{chomp}
+log4perl.appender.HelloWorld.layout.field.category = %c
+log4perl.appender.HelloWorld.layout.field.class = %C
+log4perl.appender.HelloWorld.layout.field.file = %F{1}
+log4perl.appender.HelloWorld.layout.field.sub = %M{1}
+log4perl.appender.HelloWorld.layout.include_mdc = 1
+END_OF_CONF
 
-  $env->{TIMESTAMP} = scalar localtime;
+our $VERSION = '0.01';
 
-  my $json = JSON->new->pretty->encode($env);
+########################################################################
+sub init_logger {
+########################################################################
+  Log::Log4perl->init( \$LOG4PERL_CONF );
 
-  print {*STDERR} Dumper( [ env => $json ] );
+  return Log::Log4perl->get_logger;
+}
+
+########################################################################
+sub main {
+########################################################################
+  my $logger = init_logger();
+
+  $logger->info('starting process...');
+
+  my $env = to_json( \%ENV );
 
   if ( $ENV{HAS_EFS_MOUNT} ) {
-    open my $fh, '>>', sprintf '%s/env.json', $ENV{HAS_EFS_MOUNT}
-      or die "could not open file /mnt/session/env.json\n";
+    my $filename = sprintf '%s/env.json', $ENV{HAS_EFS_MOUNT};
 
-    print {$fh} $json;
+    open my $fh, '>>', $filename
+      or die "could not open file $filename";
+
+    print {$fh} $env;
 
     close $fh;
   }
   else {
-    print {*STDERR}
-      "add and an efs: section and set HAS_EFS_MOUNT to the mount point if you want to text EFS mount points.\n";
+    $logger->info('TIP: add an "efs:" section and set HAS_EFS_MOUNT to a mount if you want to test EFS mount points');
   }
 
-  last
-    if $ENV{RUN_ONCE};
+  while ($TRUE) {
+    $logger->info('Hello World!');
 
-  sleep 60;
+    last
+      if $ENV{RUN_ONCE};
+
+    sleep 60;
+  }
+
+  exit 0;
 }
+
+exit main();
 
 1;

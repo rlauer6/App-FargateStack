@@ -39,7 +39,18 @@ sub register_task_definition {
       $taskdef =~ s/\d+$/$version/xsm;
     }
 
-    $self->inc_required_resources( task => [$taskdef] );
+    $self->inc_required_resources(
+      task => [
+        sub {
+          my ($dryrun) = @_;
+
+          return $taskdef
+            if $taskdef !~ /[?]/xsm;
+
+          return $dryrun ? $taskdef : $tasks->{$task_name}->{arn};
+        }
+      ]
+    );
 
     my $task_definition = sprintf 'taskdef-%s.json', $task_name;
 
@@ -165,7 +176,7 @@ sub define_task_size {
     return 'task';
   };
 
-  $size = $ECS_TASK_PROFILE_TYPES{$logical_type};
+  $size //= $ECS_TASK_PROFILE_TYPES{$logical_type};
 
   if ($size) {
     my $profile = $ECS_TASK_PROFILES{$size};

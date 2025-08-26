@@ -10,8 +10,7 @@ use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);
 use File::Basename qw(basename);
-use YAML qw(Dump);
-
+use YAML qw(Dump DumpFile);
 use Role::Tiny;
 
 ########################################################################
@@ -21,12 +20,24 @@ sub cmd_create_stack {
 
   my ( $app_name, @args ) = $self->get_args;
 
-  croak sprintf "ERROR: app names should only have a-z_-0-9 characters\n"
-    if lc $app_name !~ /\A[[:lower:]\d_-]+\z/xsm;
+  if ( lc $app_name !~ /\A[[:lower:]\d_-]+\z/xsm ) {
+    if ( $app_name =~ /^(?:daemon|https?|scheduled|task):(.*?)$/xsm ) {
+      unshift @args, $app_name;
+      $app_name = $1;
+      carp sprintf "WARNING: no app name provided...using the task name: %s\n", $app_name;
+    }
+    else {
+      croak sprintf "ERROR: app names should only have a-z_-0-9 characters\n";
+    }
+  }
+
+  my $config_name = $self->get_config_name // "$app_name.yml";
+  $self->set_config_name($config_name);
 
   my $sts = $self->fetch_sts;
 
   my $account = $sts->get_caller_identity('Account');
+  $sts->check_result( message => 'ERROR: could not determine account for profile: [%s]', $self->get_profile );
 
   my $config = {
     account => $account,
@@ -120,7 +131,11 @@ sub cmd_create_stack {
     }
   }
 
+  $self->fetch_option_defaults;
+
   print {*STDOUT} Dump($config);
+
+  DumpFile( $config_name, $config );
 
   return;
 }

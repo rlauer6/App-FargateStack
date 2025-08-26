@@ -11,7 +11,7 @@ package App::FargateStack;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp choose);
 use App::FargateStack::Constants;
 use App::FargateStack::Pod;
 use Carp;
@@ -221,10 +221,11 @@ sub cmd_service_status {
 
   my $service_name = $self->check_service_name( @args, $self->get_args );
 
-  my $cluster      = $self->common_args('cluster');
+  my ( $cluster, $tasks ) = $self->common_args(qw(cluster tasks));
+
   my $cluster_name = $cluster->{name};
 
-  $self->verify_service( $cluster_name, $service_name );
+  $self->verify_service($service_name);
 
   require Text::Wrap;
   Text::Wrap->import('wrap');
@@ -238,8 +239,9 @@ sub cmd_service_status {
   my @elems = qw(running_count desired_count status pending_count events task_definition);
 
   my $query = jmespath_mapping 'services[0]' => \@elems;
+  my $ecs   = $self->fetch_ecs;
 
-  my $result = $self->get_ecs->describe_services(
+  my $result = $ecs->describe_services(
     cluster_name => $cluster_name,
     service_name => $service_name,
     query        => $query,
@@ -248,18 +250,22 @@ sub cmd_service_status {
   log_die( $self, "ERROR: could not describe service [%s]\n%s", $service_name, $self->get_ecs->get_error )
     if !$result;
 
-  my ( $running_count, $desired_count, $status, $pending_count, $events, $task_definition )
+  my ( $running_count, $desired_count, $status, $pending_count, $events, $task_definition_arn )
     = @{$result}{@elems};
 
   $pending_count //= q{-};
 
-  $status = colored( $status, $status eq 'ACTIVE' ? 'bright_green' : 'bright_yellow' );
+  $status = $self->maybe_color( $status eq 'ACTIVE' ? 'bright_green' : 'bright_yellow' => $status );
 
-  my $title = sprintf "Service:[%s]\n", colored( $service_name, 'bright_white' );
+  my $title = sprintf "Service:[%s]\n", $self->maybe_color( bright_white => $service_name );
+
   $title .= sprintf "Status:[%s] Running:[%s] Pending:[%s] Desired:[%s]\n",
-    $status, colored( $running_count, 'green' ), colored( $pending_count, 'yellow' ),
-    colored( $desired_count, 'bright_white' );
-  $title .= sprintf 'Task Definition: [%s]', colored( $task_definition, 'bright_white' );
+    $status,
+    $self->maybe_color( green        => $running_count ),
+    $self->maybe_color( yellow       => $pending_count ),
+    $self->maybe_color( bright_white => $desired_count );
+
+  $title .= sprintf 'Task Definition: [%s]', $self->maybe_color( 'bright_white' => $task_definition_arn );
 
   my @events = grep {defined} @{ $result->{events} }[ 0 .. ( $self->get_max_events - 1 ) ];
 
@@ -271,7 +277,98 @@ sub cmd_service_status {
     columns       => [qw(Time Event)],
   );
 
+  $self->display_task_status($service_name);
+
   return $SUCCESS;
+}
+
+########################################################################
+sub display_task_status {
+########################################################################
+  my ( $self, $service_name ) = @_;
+
+  my $ecs = $self->fetch_ecs;
+
+  my $cluster_name = $self->get_config->{cluster}->{name};
+
+  my $task_arns = $ecs->list_tasks( $cluster_name, 'taskArns' );
+  $ecs->check_result( message => 'ERROR: could not list tasks for cluster: [%s]', $cluster_name );
+
+  return
+    if !@{$task_arns};
+
+  $task_arns = [ map { basename($_) } @{$task_arns} ];
+
+  my $query
+    = sprintf
+    'tasks[?group == `service:%s`].{started_at:startedAt, task_definition_arn:taskDefinitionArn, last_status:lastStatus, image_digest:containers[0].imageDigest}',
+    $service_name;
+
+  my $service_tasks = $ecs->describe_tasks( $cluster_name, $task_arns, $query );
+  $ecs->check_result( message => 'ERROR: Could not describe tasks: [%s]', join q{,}, @{$task_arns} );
+
+  $self->log_debug( sub { return Dumper( [ service_tasks => $service_tasks ] ) } );
+
+  my @data;
+
+  foreach my $task ( @{$service_tasks} ) {
+    my ( $image_digest, $task_definition_arn, $started_at, $last_status )
+      = @{$task}{qw(image_digest task_definition_arn started_at last_status)};
+
+    my $short_image_digest        = abbrev( $image_digest, 16 );
+    my $short_task_definition_arn = ( split m{/}xsm, $task_definition_arn )[-1];
+
+    my $latest_task_definition_arn = $self->get_latest_task_definition($service_name);
+
+    my $latest_image_digest = $self->get_latest_image($service_name)->{imageDigest};
+
+    $last_status = $self->maybe_color( $last_status eq 'RUNNING' ? 'green' : 'yellow' => $last_status );
+
+    $self->log_debug(
+      sub {
+        return Dumper(
+          [ task                => $task,
+            latest_image_digest => $latest_image_digest
+          ]
+        );
+      }
+    );
+
+    my $task_definition_status = choose {
+      return $self->maybe_color( green => 'Current' )
+        if $task_definition_arn eq $latest_task_definition_arn;
+
+      return $self->maybe_color( red => ( split m{/}xsm, $latest_task_definition_arn )[-1] );
+    };
+
+    $image_digest //= q{};
+
+    my $image_digest_status = choose {
+      return $self->maybe_color( green => 'Current' )
+        if $image_digest eq $latest_image_digest;
+
+      return $self->maybe_color( red => abbrev( $latest_image_digest, 16 ) );
+    };
+
+    push @data,
+      {
+      'Started At'             => $started_at,
+      'Status'                 => $last_status,
+      'Task Definition'        => $short_task_definition_arn,
+      'Task Definition Status' => $task_definition_status,
+      'Image Digest'           => $short_image_digest,
+      'Image Status'           => $image_digest_status,
+      };
+  }
+
+  print {*STDOUT} "\n\n",
+    easy_table(
+    table_options => { headingText => 'Task Status', allowANSI => $TRUE },
+    data          => \@data,
+    columns       => [ 'Started At', 'Status', 'Task Definition', 'Task Definition Status', 'Image Digest', 'Image Status' ],
+    );
+
+  return;
 }
 
 ########################################################################
@@ -579,7 +676,7 @@ sub cmd_remove_service {
 
   my $cluster_name = $cluster->{name};
 
-  $self->verify_service( $cluster_name, $task_name );
+  $self->verify_service($task_name);
 
   $self->check_task( $task_name, 'warn' );
 
@@ -599,7 +696,11 @@ sub cmd_remove_service {
 ########################################################################
 sub verify_service {
 ########################################################################
-  my ( $self, $cluster_name, $service_name ) = @_;
+  my ( $self, $service_name ) = @_;
+
+  my ( $cluster, $config ) = $self->common_args(qw(cluster config));
+
+  my $cluster_name //= $cluster->{name};
 
   my $ecs = $self->fetch_ecs;
 
@@ -618,6 +719,102 @@ sub verify_service {
 }
 
 ########################################################################
+sub get_task_image_digests {
+########################################################################
+  my ( $self, $task_name ) = @_;
+  my $ecs = $self->fetch_ecs;
+
+  my $cluster_name = $self->get_config->{cluster}->{name};
+
+  my $task_arns = $ecs->list_tasks( $cluster_name, 'taskArns' );
+  $ecs->check_result( message => 'ERROR: Could not list tasks for cluster: [%s]', $cluster_name );
+
+  my $group = sprintf 'service:%s', $task_name;
+
+  my $query = sprintf 'tasks[?group == `%s`].containers[].{imageDigest:imageDigest}[].imageDigest', $task_name;
+
+  my $image_digests = $ecs->describe_tasks( $cluster_name, $task_arns, $query );
+  $ecs->check_result( message => 'ERROR: could not describe tasks for task arns: [%s]', join q{,}, @{$task_arns} );
+
+  return $image_digests;
+}
+
+########################################################################
+sub get_latest_task_definition {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $tasks = $self->get_config->{tasks};
+
+  my $task_definition_arn = $tasks->{$task_name};
+
+  my $ecs = $self->fetch_ecs;
+
+  my $task_definitions = $ecs->list_task_definitions( $task_name, 'taskDefinitionArns' );
+  $ecs->check_result( message => 'ERROR: could list task definitions for [%s]', $task_name );
+
+  my ($latest_task_definition) = sort {
+    my ($num_a) = $a =~ /:(\d+)$/xsm;
+    my ($num_b) = $b =~ /:(\d+)$/xsm;
+    $num_b <=> $num_a
+  } @{$task_definitions};
+
+  my ($latest_task_definition_version) = $latest_task_definition =~ /(:\d+)$/xsm;
+  my ($task_definition_version)        = $task_definition_arn    =~ /(:\d+)$/xsm;
+
+  return $latest_task_definition,;
+}
+
+########################################################################
+sub cmd_update_service {
+########################################################################
+  my ( $self, @args ) = @_;
+
+  my $service_name = $self->check_service_name( @args, $self->get_args );
+
+  my ($cluster) = $self->common_args(qw(cluster));
+
+  my $cluster_name = $cluster->{name};
+
+  $self->verify_service($service_name);
+
+  my $ecs                 = $self->fetch_ecs;
+  my $task_definition_arn = $self->get_latest_task_definition($service_name);
+
+  my @elems = qw(status running_count desired_count pending_count task_definition);
+
+  my $result = $ecs->update_service(
+    cluster_name    => $cluster_name,
+    service_name    => $service_name,
+    task_definition => basename($task_definition_arn),
+    query           => jmespath_mapping( service => \@elems ),
+  );
+
+  $ecs->check_result( message => 'ERROR: could not update service: [%s]', $service_name );
+
+  $self->log_debug( sub { return Dumper( [ result => $result ] ) } );
+
+  my @data = {
+    'Status'        => $self->maybe_color( bright_white => $result->{status} ),
+    'Running Count' => $self->maybe_color( green        => $result->{running_count} ),
+    'Desired Count' => $self->maybe_color( bright_white => $result->{desired_count} ),
+    'Pending Count' => $self->maybe_color( yellow       => $result->{pending_count} ),
+  };
+
+  print {*STDOUT} easy_table(
+    table_options => {
+      allowANSI   => $TRUE,
+      headingText => sprintf "Service Status\nTask Definition: %s",
+      $result->{task_definition}
+    },
+    data    => \@data,
+    columns => [ 'Status', 'Running Count', 'Pending Count', 'Desired Count' ]
+  );
+
+  return;
+}
+
+########################################################################
 sub update_task_count {
 ########################################################################
   my ( $self, $task_name, $desired_count ) = @_;
@@ -626,7 +823,7 @@ sub update_task_count {
 
   my $cluster_name = $cluster->{name};
 
-  $self->verify_service( $cluster_name, $task_name );
+  $self->verify_service($task_name);
 
   my $ecs = $self->get_ecs;
 
@@ -643,7 +840,7 @@ sub update_task_count {
 }
 
 ########################################################################
-sub cmd_update_service {
+sub cmd_start_stop_service {
 ########################################################################
   my ($self) = @_;
 
@@ -655,9 +852,12 @@ sub cmd_update_service {
   }
 
   $task_name = $self->check_service_name($task_name);
+  my $command = $self->command;
 
-  if ( $self->command eq 'start-service' ) {
+  if ( $command eq 'start-service' ) {
     $count ||= 1;
+  }
+  elsif ( $command eq 'update-service' ) {
   }
   else {
     $count = 0;
@@ -868,14 +1068,20 @@ sub cmd_list_tasks {
 
   my $config = $self->get_config;
 
+  my ($desired_status) = map {uc} $self->get_args;
+  $desired_status //= $EMPTY;
+
   my $cluster_name = $config->{cluster}->{name};
 
   my $ecs = $self->get_ecs;
 
-  my $result = $ecs->list_tasks( $cluster_name, 'taskArns' );
-
-  die sprintf "ERROR: could not list tasks for cluster: [%s]\n%s", $cluster_name, $ecs->get_error
-    if !$result;
+  my $result = $ecs->list_tasks(
+    { cluster_name   => $cluster_name,
+      query          => 'taskArns',
+      desired_status => $desired_status
+    }
+  );
+  $ecs->check_result( message => 'ERROR: could not list tasks for cluster: [%s]', $cluster_name );
 
   if ( !@{$result} ) {
     print {*STDERR} sprintf "No tasks currently running in cluster: [%s]\n", $cluster_name;
@@ -883,12 +1089,20 @@ sub cmd_list_tasks {
     return $SUCCESS;
   }
 
-  my @task_ids  = map { basename $_ } @{$result};
-  my $task_list = join q{ }, @task_ids;
+  my $task_list = [ map { basename $_ } @{$result} ];
 
-  my @elems = qw(status task_definition_arn last_status started_at memory cpu attachments task_arn);
+  require Text::Wrap;
+  Text::Wrap->import('wrap');
 
-  my $query = jmespath_mapping 'task[]' => \@elems;
+  {
+    ## no critic
+    no warnings 'once';
+    $Text::Wrap::columns = 100;
+  }
+
+  my @elems = qw(status task_definition_arn last_status started_at memory cpu attachments task_arn stopped_reason);
+
+  my $query = jmespath_mapping 'tasks[]' => \@elems;
 
   $result = $ecs->describe_tasks( $cluster_name, $task_list, $query );
 
@@ -900,27 +1114,37 @@ sub cmd_list_tasks {
   my @data;
 
   foreach ( @{$result} ) {
-    my ( $status, $last_status, $start_time, $memory, $cpu, $arn )
-      = @{$_}{qw(status last_status started_at memory cpu task_arn)};
+    my ( $status, $last_status, $start_time, $memory, $cpu, $arn, $stopped_reason )
+      = @{$_}{qw(status last_status started_at memory cpu task_arn stopped_reason)};
+
+    $stopped_reason = wrap( q{}, q{}, $stopped_reason // q{} );
+
     my $task_name = basename( $_->{task_definition_arn} );
     $task_name =~ s/:\d+$//;
 
+    $status //= $last_status;
+    $status = $self->maybe_color( $status =~ /running/xsmi ? 'green' : 'red' => $status );
+
     push @data,
       {
-      'Start Time'   => $start_time,
-      Status         => $status // $last_status,
-      Memory         => $memory,
-      CPU            => $cpu,
-      'Task Id'      => basename($arn),
-      'Task Name'    => $task_name,
-      'Elapsed Time' => elapsed_time($start_time),
+      'Start Time'     => $start_time,
+      Status           => $status // $last_status,
+      Memory           => $memory,
+      CPU              => $cpu,
+      'Task Id'        => basename($arn),
+      'Task Name'      => $task_name,
+      'Elapsed Time'   => elapsed_time($start_time),
+      'Stopped Reason' => $stopped_reason,
       };
   }
 
   print {*STDOUT} easy_table(
-    table_options => { headingText => $title },
+    table_options => { headingText => $title, allowANSI => $TRUE },
     data          => \@data,
-    columns       => [ 'Task Name', 'Task Id', 'Status', 'Memory', 'CPU', 'Start Time', 'Elapsed Time' ],
+    columns       => [
+      'Task Name', 'Task Id', 'Status', 'Memory', 'CPU',
+      ( $desired_status ne 'STOPPED' ) ? ( 'Start Time', 'Elapsed Time' ) : ('Stopped Reason')
+    ],
   );
 
   return $SUCCESS;
@@ -1162,7 +1386,7 @@ sub fetch_option_defaults {
   $options->{max_events}      = $self->get_max_events      // $options->{max_events};
 
   $self->set_profile( $options->{profile} );
-  $self->set_config( $options->{config} );
+  $self->set_config_name( $options->{config} );
   $self->set_route53_profile( $options->{route53_profile} );
   $self->set_max_events( $options->{max_events} );
 
@@ -1292,6 +1516,7 @@ sub help {
     -input   => $INC{'App/FargateStack/Pod.pm'},
     -exitval => 1,
     -verbose => 99,
+    -width   => 80,
     $section ? ( -sections => $section // 'USAGE' ) : ()
   );
 }
@@ -1372,7 +1597,7 @@ sub main {
   );
 
   my %commands = (
-    'create-stack'           => [ \&cmd_create_stack,   'info', { skip_init => $TRUE, skip_config => $TRUE } ],
+    'create-stack'           => [ \&cmd_create_stack,   'error', { skip_init => $TRUE, skip_config => $TRUE } ],
     'deploy-service'         => [ \&cmd_deploy_service, 'info' ],
     'disable-scheduled-task' => \&cmd_disable_scheduled_task,
     'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
@@ -1387,10 +1612,11 @@ sub main {
     'remove-service'         => [ \&cmd_remove_service, 'info' ],
     'reset-history'          => [ \&cmd_reset_history,  'info', { skip_init => $TRUE, skip_config => $TRUE } ],
     'run-task'               => \&cmd_run_task,
-    'start-service'          => [ \&cmd_update_service, 'info' ],
-    'stop-service'           => [ \&cmd_update_service, 'error' ],
-    'stop-task'              => [ \&cmd_stop_task,      'error' ],
+    'start-service'          => [ \&cmd_start_stop_service, 'info' ],
+    'stop-service'           => [ \&cmd_start_stop_service, 'error' ],
+    'stop-task'              => [ \&cmd_stop_task,          'error' ],
     'update-policy'          => \&cmd_update_policy,
+    'update-service'         => [ \&cmd_update_service, 'error', { skip_init => $TRUE } ],
     'update-target'          => \&cmd_update_target,
     apply                    => \&cmd_apply,
     state                    => [ \&cmd_state,   'error', { skip_init => $TRUE, skip_config => $TRUE } ],
@@ -1415,7 +1641,10 @@ sub main {
       print {*STDERR} shift;
       return $FALSE;
     },
-    alias => { options => { 'dns-profile' => 'route53-profile' } },
+    alias => {
+      options  => { 'dns-profile'    => 'route53-profile' },
+      commands => { 'create-service' => 'deploy-service' },
+    },
   );
 
   $fargate_stack->run();

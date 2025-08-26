@@ -390,13 +390,12 @@ the resources associated with that task.
 _NOTE: This is a brief introduction to `App::FargateStack`. To see a 
 list of topics providing more detail use the `help help` command._
 
-The `App::FargateStack` framework, as its name implies provide developers
-with a tool to create Fargate tasks and services. It has been designed
-to make creating and launching Fargate based services as simple as
-possible. Accordingly, it provides logical and pragmatic defaults
-based on the common uses for Fargate based applications. You can
-however customize many of the resources being built by the
-script.
+The `App::FargateStack` framework, as its name implies provides
+developers with a tool to create Fargate tasks and services. It has
+been designed to make creating and launching Fargate based services as
+simple as possible. Accordingly, it provides logical and pragmatic
+defaults based on the common uses for Fargate based applications. You
+can however customize many of the resources being built by the script.
 
 Using a YAML based configuration file, you specify your required
 resources and their attributes, run the `app-FargateStack` script and

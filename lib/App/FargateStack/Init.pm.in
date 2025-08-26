@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase log_die);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase log_die dmp);
 
 use Carp;
 use Data::Dumper;
@@ -23,7 +23,16 @@ sub init {
 ########################################################################
   my ($self) = @_;
 
+  if ( $self->get_version ) {
+    $self->set__command('version');
+    return $TRUE;
+  }
+
   my $command = $self->command;
+
+  if ( $self->get_config ) {
+    $self->set_config_name( $self->get_config );
+  }
 
   if ( $self->get_history ) {
     $self->fetch_option_defaults;
@@ -163,12 +172,10 @@ sub _init_config {
 ########################################################################
   my ($self) = @_;
 
-  my $config_file = $self->get_config // $ENV{FARGATE_STACK_CONFIG} // 'fargate-stack.yml';
+  my $config_file = $self->get_config_name // $ENV{FARGATE_STACK_CONFIG} // 'fargate-stack.yml';
 
   croak sprintf "ERROR: %s not found or is unreadable\n", $config_file
     if !-s $config_file || !-r $config_file;
-
-  $self->set_config_name($config_file);
 
   my $config = LoadFile($config_file);
 
@@ -270,9 +277,7 @@ sub _init_account {
   $self->log_info('init-account: determining AWS account value...');
 
   my $result = $sts->get_caller_identity;
-
-  log_die( $self, "ERROR: could not determine account\n%s", $sts->get_error )
-    if !$result;
+  $sts->check_result( message => 'ERROR: could not determine account for profile:[%s]', $self->get_profile );
 
   $config->{account} = $result->{Account};
   $self->log_info( 'init-account: AWS account: [%s]...', $config->{account} );

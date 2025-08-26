@@ -4,6 +4,8 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(choose);
+
 use Carp;
 use Data::Dumper;
 use File::Temp qw(tempfile);
@@ -102,7 +104,14 @@ sub describe_services {
 ########################################################################
 sub list_tasks {
 ########################################################################
-  my ( $self, $cluster_name, $query ) = @_;
+  my ( $self, @args ) = @_;
+
+  my ( $cluster_name, $query, $desired_status ) = choose {
+    return @args
+      if !ref $args[0];
+
+    return @{ $args[0] }{qw(cluster_name query desired_status)};
+  };
 
   croak "usage: list_tasks(cluster-name)\n"
     if !$cluster_name;
@@ -110,7 +119,8 @@ sub list_tasks {
   return $self->command(
     'list-tasks' => [
       '--cluster' => $cluster_name,
-      $query ? ( '--query' => $query ) : ()
+      $query          ? ( '--query'          => $query )          : (),
+      $desired_status ? ( '--desired-status' => $desired_status ) : (),
     ]
   );
 
@@ -369,8 +379,8 @@ sub update_service {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ( $cluster_name, $service_name, $task_definition, $force, $desired_count )
-    = @args{qw(cluster_name service_name task_definition force desired_count)};
+  my ( $cluster_name, $service_name, $task_definition, $force, $desired_count, $query )
+    = @args{qw(cluster_name service_name task_definition force desired_count query)};
 
   $cluster_name //= $self->get_cluster_name;
   $service_name //= $self->get_service_name;
@@ -379,6 +389,7 @@ sub update_service {
     'update-service' => [
       '--cluster' => $cluster_name,
       '--service' => $service_name,
+      $query                 ? ( '--query' => $query )                     : (),
       defined $desired_count ? ( '--desired-count' => $desired_count )     : (),
       ($task_definition)     ? ( '--task-definition' => $task_definition ) : (),
       $force                 ? '--force-new-deployment'                    : (),

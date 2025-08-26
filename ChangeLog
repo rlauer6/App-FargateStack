@@ -1,3 +1,68 @@
+Tue Aug 26 16:39:29 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.36]:
+	* VERSION: bump
+	* docker/Dockerfile
+	- add JSON, Log::Log4perl, Log::Log4perl::Layout::JSON, Readonly
+	* docker/HelloWorld.pl
+	- write JSON logs
+	- only write env out once
+	* lib/App/ECS.pm.in
+	(list_task)
+	- allow hash ref of args to support desired-status
+	(update-service): + query
+	* lib/App/FargateStack.pm.in
+	(cmd_service_status)
+	- refactoring
+	- maybecolor
+	- display task status too
+	(cmd_display_task_status): new
+	(cmd_remove_service): verify_service just takes task-name
+	(update_task_count): likewise
+	(verify_service): just accept task-name
+	(get_task_image_digests): new
+	(get_latest_task_definition): new
+	(cmd_update_service): new
+	(cmd_start_stop_service): renamed from cmd_update_service
+	(cmd_list_tasks)
+	- refactoring
+	- color
+	- stopped reason
+	(fetch_option_defaults)
+	- set config name
+	(help): width 80
+	(main)
+	- create-stack - error level
+	- start/stop service => cmd_start_stop_service
+	- + update-service
+	- alias: create-service -> deploy-service
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- authorize efs ingress if enabled
+	(_delete_security_group): ENI, not ALB ENI
+	(authorize_efs_ingres): no --
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(register_task_definition): lazy load the real arn
+	(define_task_size): don't clobber if it set in config
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(maybe_color): new
+	(abbrev): new
+	(log_die): exit 1;
+	* lib/App/FargateStack/CreateStack.pm.in
+	(cmd_create_stack)
+	- use task name if no app name given
+	- set the config file name
+	- save the config file
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- hijack command if --version
+	(_init_config): use config_name getter
+	(_init_accoutn): die if we can't get account from profile
+	* lib/App/FargateStack/Pod.pm.in
+	- OVERVIEW => GETTING STARTED
+	- updates based on new features
+	- tweaking & wordsmithing
+
 Fri Aug 22 10:26:54 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.35]:

@@ -27,7 +27,7 @@ sub build {
 
   $self->benchmark;
 
-  my ( $config, $dryrun ) = $self->common_args(qw(config dryrun));
+  my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
 
   my $domain = $config->{domain};
 
@@ -90,8 +90,20 @@ sub build {
   $self->section_break;
 
   # -- task definitions --
-  foreach my $task ( keys %{ $config->{tasks} } ) {
-    $self->register_task_definition($task);
+  foreach my $task_name ( keys %{$tasks} ) {
+    $self->register_task_definition($task_name);
+  }
+
+  # -- EFS ingress
+  foreach my $task_name ( keys %{$tasks} ) {
+    next if !exists $tasks->{$task_name}->{efs} || !$tasks->{$task_name}->{efs}->{authorize_ingress};
+
+    my $efs_id = $tasks->{$task_name}->{efs}->{id};
+    $self->log_warn( 'efs: authorizing task: [%s] ingress to EFS: [%s]...%s', $task_name, $efs_id, $dryrun );
+
+    if ( !$dryrun ) {
+      $self->authorize_efs_ingress( $config->{security_groups}->{fargate}->{group_id}, $efs_id );
+    }
   }
 
   $self->benchmark('task-definition');
@@ -825,7 +837,7 @@ sub _delete_security_group {
 
         sleep 2;
 
-        $self->log_info('ec2: waiting for ALB ENI to release security group...');
+        $self->log_info('ec2: waiting for ENI to release security group...');
       }
 
       delete $security_groups->{fargate};
@@ -1143,13 +1155,19 @@ sub authorize_efs_ingress {
 
   foreach my $efs_sg (@efs_sgs) {
     $ec2->authorize_security_group_ingress(
-      '--group-id'     => $efs_sg,
-      '--protocol'     => 'tcp',
-      '--port'         => $DEFAULT_EFS_PORT,
-      '--source-group' => $task_sg,
+      'group_id'     => $efs_sg,
+      'protocol'     => 'tcp',
+      'port'         => $DEFAULT_EFS_PORT,
+      'source_group' => $task_sg,
     );
 
-    $ec2->check_result( { message => 'ERROR: could not authorize ingress for: [%s] to EFS: [%s]' }, $task_sg, $efs_sg );
+    last
+      if !$ec2->check_result(
+      { message => 'ERROR: could not authorize ingress for: [%s] to EFS: [%s]',
+        params  => [ $task_sg, $efs_sg ],
+        regexp  => qr/already\sexists/xsmi
+      }
+      );  # assume if one ingress rule exists on the sg, all exist?
   }
 
   return;

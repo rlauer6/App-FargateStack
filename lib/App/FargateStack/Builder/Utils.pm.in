@@ -17,6 +17,7 @@ use English qw(no_match_vars);
 use JSON;
 use List::Util qw(any none);
 use Scalar::Util qw(blessed reftype refaddr looks_like_number);
+use Term::ANSIColor;
 use Time::Piece;
 use Time::HiRes qw(time);
 use Text::Diff;
@@ -106,6 +107,17 @@ sub fetch_cli_api {
   }
 
   return $class;
+}
+
+########################################################################
+sub maybe_color {
+########################################################################
+  my ( $self, $color, $text ) = @_;
+
+  return $text
+    if !$self->get_color;
+
+  return colored( $text, $color );
 }
 
 ########################################################################
@@ -373,6 +385,16 @@ sub normalize_name {
 }
 
 ########################################################################
+sub abbrev {
+########################################################################
+  my ( $text, $len, $offset ) = @_;
+  $offset //= 0;
+  $text   //= q{};
+
+  return sprintf '%s...', substr $text, $offset, $len;
+}
+
+########################################################################
 sub is_service_running {
 ########################################################################
   my ( $self, $task_name ) = @_;
@@ -420,7 +442,7 @@ sub log_info  { return _log( shift->get_logger, 'info',  @_ ) }
 sub log_debug { return _log( shift->get_logger, 'debug', @_ ) }
 sub log_warn  { return _log( shift->get_logger, 'warn',  @_ ) }
 sub log_error { return _log( shift->get_logger, 'error', @_ ) }
-sub log_die   { exit _log( shift->get_logger, 'error', @_ ) || 1; }
+sub log_die   { _log( shift->get_logger, 'error', @_ ); exit 1; }
 sub log_trace { return _log( shift->get_logger, 'trace', @_ ) }
 sub log_fatal { return _log( shift->get_logger, 'fatal', @_ ) }
 
