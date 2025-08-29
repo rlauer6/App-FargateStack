@@ -12,10 +12,14 @@ path:
   pm_module: lib
   scripts: bin
   tests: t
+postamble: postamble
 extra-files:
+  - postamble
+  - README.md
   - share:
     - README.md
     - ChangeLog
+    - postamble
 resources:
   homepage: http://github.com/rlauer6/App-FargateStack
   bugtracker:

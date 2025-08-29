@@ -1,3 +1,14 @@
+Fri Aug 29 11:52:03 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.37]:
+	* bin/app-FargateStack-docker: new
+	* bin/app-FargateStack-checker-docker: new
+	* bin/app-fargatestack: new
+	* postamble: new
+	* .gitignore: -postamble
+	* bin/app-fargatestack: simplified for App::Fargate
+	* buildspec.yml: +postamble
+
 Tue Aug 26 16:39:29 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.36]:
