@@ -324,7 +324,7 @@ deleting all of the resources.
 
 =back
 
-=head1 GETTING STARTED
+=head1 OVERVIEW
 
 I<NOTE: This is a brief introduction to C<App::FargateStack>. To see a 
 list of topics providing more detail use the C<help help> command.>
@@ -420,11 +420,11 @@ while allowing our development workflow to go something like:
 
 =back
 
-Of course, this is only a "good idea" if second point is truly
-minimal, otherwise it becomes an exercise similar to using Terraform
-or CloudFormation. So what is the minimum amount of configuration to
-inform our framework so it can create our Fargate worker? How's this
-for minimal?
+Of course, this is only a "good idea" if creating the initial
+configuration file is truly minimal, otherwise it becomes an exercise
+similar to using Terraform or CloudFormation. So what is the minimum
+amount of configuration to inform our framework so it can create our
+Fargate worker? How's this for minimal?
 
  ---
  app:
@@ -446,7 +446,7 @@ Using this minimal configuration and running C<app-FargateStack> like this:
 
 =over 8
 
-=item * a cluster name C<my-stack-cluster>
+=item * a cluster named C<my-stack-cluster>
 
 =item * a security group for the cluster
 
@@ -454,7 +454,7 @@ Using this minimal configuration and running C<app-FargateStack> like this:
 
 =item * an IAM  policy that has permissions enabling your worker
 
-=item * an ECS task definition for your work with defaults
+=item * an ECS task definition that describes your task
 
 =item * a CloudWatch log group
 
@@ -469,8 +469,9 @@ Using this minimal configuration and running C<app-FargateStack> like this:
 =back
 
 ...so as you can see, rolling all of this by hand could be a daunting
-task and one made even more difficult when you want to enable your task to
-access other AWS resources like buckets, queues or EFS file systems!
+task and one made even more difficult when you decide to use other AWS
+resources inside your task like buckets, queues or an EFS file
+systems!
 
 =head2 Web Applications
 
@@ -481,8 +482,6 @@ build a web application you can start with this minimal configuration:
  app:
    name: my-web-app
  domain: my-web-app.example.com
- route53:
-   zone_id: Z3YYX2RBQJTYM
  tasks:
    apache:
      type: https
@@ -519,15 +518,15 @@ installed and working requires a lot of what and how knowledge.
 
 =head2 Adding or Changing Resources
 
-Adding or updating resources for an existing application should also be
-easy. Updating the infrastructure should just be a matter of updating
-the configuration and re-running the framework's script. When you
-update the configuration the script will detect changes and update the
-necessary resources.
+Adding or updating resources for an existing application should also
+be easy. Updating the infrastructure should just be a matter of
+updating the configuration and re-running the framework's script. When
+you update the configuration the C<App::FargateStack> will detect the
+changes and update the necessary resources.
 
 Currently the framework supports adding a single SQS queue, a single
-S3 bucket, volumes using EFS mount points and, environment variables
-that can be injected from AWS Secrets Manager.
+S3 bucket, volumes using EFS mount points, environment variables and
+secrets from AWS Secrets Manager.
 
  my-worker:
    image: my-worker:latest
@@ -595,11 +594,21 @@ These values are stored in F<.fargatestack/defaults.json> within your current
 project directory. If you omit any of these options on subsequent runs, the
 most recently used value will be reused.
 
-Typically, you would create a dedicated project directory for your stack and
-place your configuration file there. Once you invoke a command that includes
-any of the tracked CLI options, the F<.fargatestack/defaults.json> file will be
-created automatically. Future commands run from that directory can then omit
-those options.
+Typically, you would create a dedicated project directory for your
+stack and place your configuration file there. Once you invoke a
+command that includes any of the tracked CLI options, the
+F<.fargatestack/defaults.json> file will be created
+automatically. Future commands run from that directory can then omit
+those options. A typical workflow to create a new stack with a
+scheduled job might look like this:
+
+ mkdir my-project
+ cd my-project
+ app-FargateStack create-stack foo task:my-cron image:my-project 'schedule:cron(0 10 * * * *)'
+ app-FargateStack plan
+ app-FargateStack apply
+
+That's it...you just created a scheduled job that will run at 10 AM every day!
 
 =head2 Disabling and Resetting
 
@@ -711,6 +720,13 @@ Valid C<type> values and minimum keys:
 
 =over 4
 
+=item C<environment>
+
+  environment:RUN_ONCE=1
+
+Sets an environment variable in the task. You can use C<env:> as an
+abbreviation for C<environment:>.
+
 =item C<task>
 
   task:<name> image:<repo[:tag]>
@@ -737,6 +753,9 @@ this command; see the env checker).
 EventBridge-scheduled task. C<schedule> must be a valid C<cron(...)> or
 C<rate(...>) expression. Quote it in the shell, for example:
 C<'schedule:cron(0 10 * * * *)'>.
+
+I<Note: You can use C<task:> or C<scheduled:> to indicate a scheduled task
+as long as you include a C<schedule:> term.>
 
 =item C<daemon>
 
@@ -1488,43 +1507,92 @@ C<apply>.
 
 =head2 GETTING STARTED
 
-Start by creating a minimal YAML configuration file with the required sections:
+The fastest way to get up and running with C<App::FargateStack> is to
+use the C<create-stack> command to generate a configuration file,
+inspect the deployment plan, and then apply it.
+
+=head3 Step 1: Create a Configuration Stub
+
+First, generate a minimal YAML configuration file. The C<create-stack>
+command provides a shorthand syntax to do this. You only need to
+provide an overall application name, a service type, a service name,
+and the container image to use.
+
+This command will create a file named F<my-stack.yml> in your current
+directory. Make sure you have your AWS profile configured in your
+environment or pass it using the C<--profile> option.
+
+  app-FargateStack create-stack my-stack daemon:my-stack-daemon image:my-stack-daemon:latest
+
+This will produce a configuration stub that looks like this:
 
   app:
     name: my-stack
-
   tasks:
-    my-stack-daemon-1:
+    my-stack-daemon:
       image: my-stack-daemon:latest
       type: daemon
 
-Each task represents a containerized service that you want to run. In this example,
-the framework will provision:
+This file contains the three key pieces of information you provided:
+the application name, the task name, and the image to use.
+
+=head3 Step 2: Plan the Deployment (Dry Run)
+
+Next, run the C<plan> command. This is a crucial step that acts as a
+dry run. The framework will:
 
 =over 4
 
-=item * a Fargate cluster in the C<us-east-1> region
+=item * Read your minimal configuration file.
 
-=item * one daemon service
+=item * Intelligently discover resources in your AWS account (like your VPC and subnets).
 
-=item * networking in the default VPC using a private subnet
+=item * Determine what new resources need to be created (like IAM roles, a security group, an ECS cluster and a CloudWatch log group).
 
-=item * any required AWS resources using the default profile (or the one specified in C<AWS_PROFILE>)
+=item * Report a full plan of action without making any actual changes.
+
+=item * Update your configuration file with the discovered values and
+sensible defaults.
 
 =back
 
-Once configured, run:
-
   app-FargateStack plan
 
-This will analyze your configuration and report what will be created. It will also
-update the file with any discovered defaults. To apply the plan and provision the
-stack, run:
+After this command completes, your F<my-stack.yml> file will be fully
+populated with all the information needed to provision your stack.
 
-  app-FargateStack -c my-stack.yml apply
+=head3 Step 3: Apply the Plan
 
-B<You do not need to specify every setting up front. The framework will attempt to
-auto-discover certain AWS resources if they are not configured.>
+Once you have reviewed the plan and are satisfied with the proposed
+changes, run the C<apply> command. This will execute the plan and
+create all the necessary AWS resources.
+
+  app-FargateStack apply
+
+=head3 Step 4: Deploy and Start the Service
+
+The C<apply> command creates all the necessary B<infrastructure>, but
+it does not start your service. This separation allows you to manage
+your infrastructure and your application's runtime state
+independently.
+
+To create the ECS service and start your container, use the
+C<deploy-service> command.
+
+  app-FargateStack deploy-service my-stack-daemon
+
+By default, this will start one instance of your task. To check its
+status, use the C<status> command:
+
+  app-FargateStack status my-stack-daemon
+
+And to stop the service, simply run:
+
+  app-FargateStack stop-service my-stack-daemon
+
+To restart a stopped service, run:
+
+  app-FargateStack start-service my-stack-daemon
 
 =head2 VPC AND SUBNET DISCOVERY
 
@@ -2644,25 +2712,13 @@ itself.
 
 =over 4
 
-=item * destroy [task-name]
+=item * Scaling configuration
 
-Destroy all resources for all tasks or for one task. Buckets and
-queues will not be deleted.
+=item * Service Connect, including certificates for internal HTTP services
 
-=item * scaling configuration
+=item * Multiple HTTP services
 
-=item * Add support for more advance configuration options for some
-resources
-
-=item * More documentation and recipes
-
-=item * explain [task-name]
-
-=item * certificates for internal http services
-
-=item * multiple http services ???
-
-=item * path based routing
+=item * Path based routing
 
 =back
 

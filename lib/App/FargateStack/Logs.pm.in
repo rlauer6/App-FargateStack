@@ -27,10 +27,20 @@ sub cmd_logs {
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
   my ( $task_name, $start, $end ) = $self->get_args;
 
+  $task_name //= $self->get_default_task_name;
+
   $self->check_task($task_name);
   my $task = $tasks->{$task_name};
 
   my ( $start_time, $end_time ) = normalize_time_range( $start, $end );
+
+  if ($start_time) {
+    $start_time = int $start_time;
+
+    if ($end_time) {
+      $end_time = int $end_time;
+    }
+  }
 
   my $logs = App::Logs->new( $self->get_global_options );
 

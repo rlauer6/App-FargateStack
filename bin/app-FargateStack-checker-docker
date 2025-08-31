@@ -8,9 +8,8 @@ fi
 
 docker run --rm -it \
    --user $(id -u):$(id -g) \
-   -v $(pwd):$HOME \
-   -v $HOME/.aws/credentials:$HOME/.aws/credentials \
+   -v $HOME/.aws:$HOME/.aws \
    -e HOME=$HOME \
    -e AWS_PROFILE="$AWS_PROFILE" \
    app-fargatestack \
-   /bin/bash -c  "cd $HOME && app-FargateStack-checker $*"
+   /bin/bash -c  "app-FargateStack-checker $*"

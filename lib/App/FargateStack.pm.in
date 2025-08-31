@@ -11,7 +11,7 @@ package App::FargateStack;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp choose);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp choose confirm);
 use App::FargateStack::Constants;
 use App::FargateStack::Pod;
 use Carp;
@@ -1211,7 +1211,7 @@ sub cmd_delete_schedule {
     if $tasks->{$task_name}->{type} ne 'task' || !$tasks->{$task_name}->{schedule};
 
   # $task_name must be a schedule because we filtered above
-  if ( scalar keys %{$tasks} == 1 ) {
+  if ( !$self->get_force && scalar keys %{$tasks} == 1 ) {
 
     print {*STDERR} <<"END_OF_ERROR";
 This is the only task in your configuration.
@@ -1220,13 +1220,16 @@ If you want to stop the task from running, consider:
   * Running: disable-scheduled-task $task_name
     (This leaves the task in place but disables the EventBridge rule.)
 
-If you're finished with this task and want to remove all artifacts,
-you can run:
-  * destroy
+If you're sure you want to delete this stack use the --force option.
 
 Deletion aborted to prevent unintended removal of the entire stack.
 END_OF_ERROR
     exit 1;
+  }
+
+  if ( !$self->get_force ) {
+    log_die( $self, 'Aborting...' )
+      if !confirm( sprintf 'Are you sure you want to delete the %s scheduled task', $task_name );
   }
 
   return $self->delete_task_resources( $task_name, 'scheduled' );

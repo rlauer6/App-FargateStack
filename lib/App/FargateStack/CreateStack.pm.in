@@ -11,6 +11,7 @@ use Data::Dumper;
 use English qw(-no_match_vars);
 use File::Basename qw(basename);
 use YAML qw(Dump DumpFile);
+
 use Role::Tiny;
 
 ########################################################################
@@ -105,8 +106,9 @@ sub cmd_create_stack {
       $task->{image} = "$repo:$tag";
     }
 
-    if ( $t =~ /^scheduled:/xsm ) {
-      my ($schedule) = grep {/^schedule:/xsm} @options;
+    my ($schedule) = grep {/^schedule:/xsm} @options;
+
+    if ( $t =~ /^scheduled:/xsm || ( $t =~ /task:/sxm && $schedule ) ) {
 
       croak "ERROR: scheduled tasks must have a schedule\n"
         if !$schedule;
@@ -123,7 +125,7 @@ sub cmd_create_stack {
       $config->{domain} = ( split /[:]/xsm, $domain )[-1];
     }
 
-    my @environment = grep {/^environment:/xsm} @options;
+    my @environment = grep {/^env(?:ironment)?:/xsm} @options;
 
     foreach (@environment) {
       my ( $key, $value ) = split /\s*=\s*/xsm, ( split /:/xsm )[-1];
