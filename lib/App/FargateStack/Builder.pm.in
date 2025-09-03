@@ -130,6 +130,12 @@ sub build {
     $self->section_break;
   }
 
+  # -- WAF
+  if ( $self->get_http() ) {
+    $self->build_waf();
+    $self->benchmark('waf');
+  }
+
   # -- finished --
   $self->log_info( 'builder: build completed in %ds', $self->benchmark('elapsed_time') );
 

@@ -109,6 +109,15 @@
   * [Example Minimal Configuration](#example-minimal-configuration)
   * [Application Load Balancer](#application-load-balancer)
     * [Why Does the Framework Force the Use of a Load Balancer?](#why-does-the-framework-force-the-use-of-a-load-balancer)
+  * [AWS WAF Support](#aws-waf-support)
+    * [Enabling WAF Protection](#enabling-waf-protection)
+    * [Configuring Managed Rules](#configuring-managed-rules)
+      * [Rule Set Keywords](#rule-set-keywords)
+      * [Rule Bundles](#rule-bundles)
+    * [The Bootstrap Process (First Run)](#the-bootstrap-process-first-run)
+    * [Ongoing Management (Subsequent Runs)](#ongoing-management-subsequent-runs)
+    * [Conflict and Drift Management](#conflict-and-drift-management)
+    * [Estimated Cost](#estimated-cost)
   * [Roadmap for HTTP Services](#roadmap-for-http-services)
 * [CURRENT LIMITATIONS](#current-limitations)
 * [TROUBLESHOOTING](#troubleshooting)
@@ -183,7 +192,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.38.
+This documentation corresponds to version 1.0.39.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -216,6 +225,7 @@ internal-only)
 - Built-in service health check integration
 - Automatic IAM role and policy generation based on task needs
 - Optional HTTPS support with ACM certificate discovery and creation
+- Optional support for adding AWS WAF support for your HTTPS site
 - Lightweight dependency stack: Perl, AWS CLI, a few CPAN modules
 - Convenient CLI: start, stop, update, and tail logs for any service
 
@@ -2181,6 +2191,133 @@ traffice a load balancer is required.
 With those things in mind the framework automatically uses an ALB for
 HTTP services and creates an alias record (A) for your domain for both
 internal and external facing services.
+
+## AWS WAF Support
+
+For external-facing HTTPS services, `App::FargateStack` can automate
+the creation and association of an AWS Web Application Firewall (WAF)
+to provide an essential layer of security. This protects your
+application from common web exploits and bots that could affect
+availability or compromise security.
+
+The framework follows a "Hybrid Management Model" for WAF, designed to
+provide a secure, sensible baseline out-of-the-box while giving you
+full control over fine-grained rule customization.
+
+### Enabling WAF Protection
+
+To enable WAF, simply add a `waf` block with `enabled: true` to your
+`alb` configuration:
+
+    alb:
+      # ... existing alb configuration ...
+      waf:
+        enabled: true
+
+### Configuring Managed Rules
+
+To simplify configuration, `App::FargateStack` uses a keyword-based
+system for enabling AWS Managed Rule Groups. You can specify a list of
+keywords under the `managed_rules` key in your `waf` configuration.
+
+If the `managed_rules` key is omitted, the framework will apply the
+`default` bundle, which provides a strong and cost-effective security
+baseline.
+
+    waf:
+      enabled: true
+      managed_rules: [linux-app, admin, -php]
+
+The framework supports both individual rule sets and pre-configured
+"bundles" for common application types. It also supports a subtractive
+syntax (prefixing a keyword with a `-`) to remove rule sets from a
+bundle.
+
+#### Rule Set Keywords
+
+- **base**: A strong baseline including `AWSManagedRulesCommonRuleSet`, `AWSManagedRulesAmazonIpReputationList`, and `AWSManagedRulesKnownBadInputsRuleSet`.
+=item \* **admin**: Protects exposed administrative pages (`AWSManagedRulesAdminProtectionRuleSet`).
+=item \* **sql**: Protects against SQL injection attacks (`AWSManagedRulesSQLiRuleSet`).
+=item \* **linux**: Includes rules for Linux and Unix-like environments.
+=item \* **php**: Includes rules for applications running on PHP.
+=item \* **wordpress**: Includes rules specific to WordPress sites.
+=item \* **windows**: Includes rules for Windows Server environments.
+=item \* **anonymous**: **Use with caution.** Blocks traffic from anonymous sources like VPNs and proxies, which may block legitimate users.
+=item \* **ddos**: Mitigates application-layer (Layer 7) DDoS attacks like HTTP floods.
+=item \* **premium**: **Warning: Extra Cost.** Enables advanced, paid protections for bot control and account takeover prevention.
+
+#### Rule Bundles
+
+- **default**: Includes `base` and `sql`. This is the recommended starting point for most applications.
+=item \* **linux-app**: Includes `default` and `linux`.
+=item \* **wordpress-app**: Includes `default`, `linux`, and `wordpress`.
+=item \* **windows-app**: Includes `default` and `windows`.
+=item \* **all**: Includes all standard, non-premium rule sets. **Warning:** This will likely exceed the default WCU quota and may incur additional costs.
+
+### The Bootstrap Process (First Run)
+
+On the first `apply` run with WAF enabled, the framework will perform
+a one-time bootstrap:
+
+1. It generates a default `web-acl.json` file in your project
+directory. This file contains the complete definition of your Web ACL,
+including the rules generated from your `managed_rules` keywords.
+2. It calls `aws wafv2 create-web-acl` to create a new Web ACL.
+3. It calls `aws wafv2 associate-web-acl` to link the new Web ACL to
+your Application Load Balancer.
+4. It updates your configuration file with the state of the new
+WAF resources, including its Name, ID, ARN, LockToken, and a checksum
+of the `web-acl.json` file.
+
+### Ongoing Management (Subsequent Runs)
+
+After the initial creation, you take full control of the rules. To
+add, remove, or modify rules, you simply edit the `web-acl.json` file
+directly.
+
+On subsequent runs of `apply`, `App::FargateStack` will:
+
+- Calculate a checksum of your `web-acl.json` file.
+- If the checksum has changed, it will safely update the remote Web ACL
+with your new rule set.
+- If the checksum has not changed, it will skip the update to avoid
+unnecessary API calls.
+
+This model gives you the best of both worlds: the "minimal
+configuration, maximum results" of a secure default, and the full
+"transparent box" control to customize your security posture as your
+application's needs evolve.
+
+### Conflict and Drift Management
+
+The framework includes robust safety checks to prevent accidental data
+loss. If it detects that the Web ACL has been modified in the AWS
+Console _and_ you have also modified your local `web-acl.json` file,
+it will detect the state conflict, refuse to make any changes, and
+provide a clear error message with instructions on how to resolve it.
+
+### Estimated Cost
+
+The default WAF configuration is designed to provide a strong security
+baseline while remaining cost-effective. When you enable WAF without
+specifying any `managed_rules`, the framework applies the `default`
+bundle, which includes the `base` and `sql` rule sets.
+
+The approximate monthly cost for this default configuration is
+**~$9.00 per month**, plus per-request charges.
+
+The cost is broken down as follows:
+
+- **$5.00 / month** for the Web ACL itself.
+- **$4.00 / month** for the four AWS Managed Rule Groups included
+in the `default` bundle (3 in 'base', 1 in 'sql').
+- **$0.60 / per 1 million requests** processed by the Web ACL.
+
+**Warning:** Enabling the `premium` rule set will incur significant
+additional monthly and per-request fees for services like Bot Control
+and Account Takeover Prevention. Always review the [AWS WAF
+pricing](https://aws.amazon.com/waf/pricing/) page before enabling
+premium features.
 
 ## Roadmap for HTTP Services
 

@@ -57,6 +57,7 @@ with 'App::FargateStack::Builder::S3Bucket';
 with 'App::FargateStack::Builder::SQSQueue';
 with 'App::FargateStack::Builder::TaskDefinition';
 with 'App::FargateStack::Builder::Utils';
+with 'App::FargateStack::Builder::WafV2';
 
 our $VERSION = '@PACKAGE_VERSION@';
 

@@ -11,6 +11,8 @@ path=$(basename $($REALPATH $0))
 
 if ! [ "$path" = "app-fargatestack" ]; then
     pgm=$(basename $($REALPATH $0))
+else
+    pgm="app-FargateStack"
 fi
 
 MODULINO_PATH=$(echo $pgm | perl -ne 'chomp; printf "%s.pm", join "/", map { ucfirst $_ } split /-/;')

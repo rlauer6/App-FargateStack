@@ -1,3 +1,24 @@
+Wed Sep  3 05:05:15 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.39]:
+	* VERSION: bump
+	* lib/App/FargateStack/Builder/WafV2.pm.in: new
+	* lib/App/WafV2.pm.in: new
+	* Makefile: add above to build
+	* README.md: generated
+	* bin/app-fargatestack: app-fargatestack -> app-FargateStack
+	* lib/App/FargateStack.pm.in: + App::FargateStack::Builder::WafV2
+	* lib/App/FargateStack/Builder.pm.in: build waf
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_wafv2): new
+	* lib/App/FargateStack/Constants.pm.in
+	- + $WAF_AVAILABILITY_TIMEOUT
+	- + $WAF_AVAILABILITY_SLEEP_TIME
+	- + %WAF_MANAGED_RULES
+	- + %WAF_MANAGED_RULE_BUNDLES
+	- + $WAF_RULE_STUB
+	(%DEFAULT_NAMES): + web-acl-name
+
 Sun Aug 31 08:23:10 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.38]:

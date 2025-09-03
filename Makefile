@@ -29,6 +29,7 @@ AWS_PERL_MODULES = \
     lib/App/SecretsManager.pm.in \
     lib/App/SQS.pm.in \
     lib/App/STS.pm.in \
+    lib/App/WafV2.pm.in
 
 GAWS_PERL_MODULES = $(AWS_PERL_MODULES:.pm.in=.pm)
 
@@ -59,7 +60,8 @@ FARGATE_BUILDERS = \
     lib/App/FargateStack/Builder/S3Bucket.pm.in \
     lib/App/FargateStack/Builder/SQSQueue.pm.in \
     lib/App/FargateStack/Builder/TaskDefinition.pm.in \
-    lib/App/FargateStack/Builder/Utils.pm.in
+    lib/App/FargateStack/Builder/Utils.pm.in \
+    lib/App/FargateStack/Builder/WafV2.pm.in
 
 GFARGATE_BUILDERS = $(FARGATE_BUILDERS:.pm.in=.pm)
 
