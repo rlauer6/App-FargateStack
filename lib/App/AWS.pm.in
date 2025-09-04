@@ -13,6 +13,11 @@ use JSON;
 
 use Role::Tiny;
 
+use parent qw(Class::Accessor::Fast);
+
+__PACKAGE__->follow_best_practice();
+__PACKAGE__->mk_accessors(qw(_service_name));
+
 ########################################################################
 sub profile {
 ########################################################################
@@ -34,7 +39,7 @@ sub command {
 ########################################################################
   my ( $self, $command, $extra ) = @_;
 
-  my ( undef, $service ) = split /::/xsm, lc ref $self;
+  my $service = $self->get__service_name;
 
   my @cmd = ( 'aws', $service, $command );
 

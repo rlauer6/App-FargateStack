@@ -28,7 +28,6 @@
     * [apply](#apply)
     * [create-stack](#create-stack)
       * [Service clause grammar](#service-clause-grammar)
-      * [Image shorthand and resolution](#image-shorthand-and-resolution)
       * [Output](#output)
       * [Options](#options)
       * [Exit Status](#exit-status)
@@ -119,6 +118,14 @@
     * [Conflict and Drift Management](#conflict-and-drift-management)
     * [Estimated Cost](#estimated-cost)
   * [Roadmap for HTTP Services](#roadmap-for-http-services)
+* [AUTOSCALING](#autoscaling)
+  * [Overview](#overview)
+  * [Enabling Autoscaling](#enabling-autoscaling)
+  * [Configuration Parameters](#configuration-parameters)
+  * [Example: Scaling on CPU Utilization](#example-scaling-on-cpu-utilization)
+  * [Example: Scaling on ALB Requests](#example-scaling-on-alb-requests)
+  * [Drift Detection and Management](#drift-detection-and-management)
+    * [The `autoscaling` keyword](#the-autoscaling-keyword)
 * [CURRENT LIMITATIONS](#current-limitations)
 * [TROUBLESHOOTING](#troubleshooting)
   * [Warning: task placed in a public subnet](#warning-task-placed-in-a-public-subnet)
@@ -192,7 +199,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.39.
+This documentation corresponds to version 1.0.40.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -761,24 +768,104 @@ Valid `type` values and minimum keys:
 
 - `daemon`
 
-        daemon:<name> image:<repo[:tag]>
+        daemon:<name>
 
     Long-running service without a load balancer.
 
-#### Image shorthand and resolution
+- `image`
 
-If `image` is given as `repo[:tag]` without a registry host:
+        image:<repo[:tag]>
 
-- The command _assumes_ the image lives in the current account's ECR and will
-format the Docker reference as:
+    If `image` is given as `repo[:tag]` without a registry host:
 
-        <account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+    - The command _assumes_ the image lives in the current account's ECR and will
+    format the Docker reference as:
 
-- If ECR lookup does not find the repository+tag, the tool emits a warning and
-leaves the image string as-is (allowing public registries like Docker Hub to
-work). This preserves convenience while making the fallback explicit.
-- Fully-qualified images (e.g., `public.ecr.aws/namespace/image:tag`,
-`docker.io/library/nginx:1.27`) are accepted as-is.
+            <account_id>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+
+    - If ECR lookup does not find the repository+tag, the tool emits a warning and
+    leaves the image string as-is (allowing public registries like Docker Hub to
+    work). This preserves convenience while making the fallback explicit.
+    - Fully-qualified images (e.g., `public.ecr.aws/namespace/image:tag`,
+    `docker.io/library/nginx:1.27`) are accepted as-is.
+
+- `autoscaling`
+
+        autoscaling:cpu|request[=value]
+
+    For services of type `https`, `http`, or `daemon`, you can enable
+    and configure autoscaling directly from the command line. This provides a
+    quick-start method to make your service elastic from the moment it's created.
+
+    The `autoscaling:` keyword accepts a metric and an optional target value:
+
+    - **Enable with a specific target value:**
+
+            autoscaling:requests=500
+            autoscaling:cpu=60
+
+        This will enable autoscaling and set the target for either ALB requests per
+        task or average CPU utilization.
+
+    - **Enable with default target value:**
+
+            autoscaling:requests
+            autoscaling:cpu
+
+        If you omit the target value, a sensible default will be used (e.g.,
+        `500` for requests, `60` for CPU).
+
+    When the `create-stack` command sees the C>autoscaling:> keyword, it
+    will generate a complete `autoscaling` block in your configuration
+    file. This block will be populated with safe defaults (`min_capacity: 1`,
+    `max_capacity: 2`), the specified metric, and all other necessary fields,
+    making it easy to review and customize later. See ["AUTOSCALING"](#autoscaling) for
+    a full list of configuration options.
+
+- `waf`
+
+        waf:true|enabled|default|rule...
+
+    For `https` services, you can enable and configure an AWS Web
+    Application Firewall (WAF) directly from the command line. This
+    provides a powerful shortcut to bootstrapping a secure,
+    production-ready WAF with minimal configuration.
+
+    The `waf:` keyword is highly flexible and accepts several forms:
+
+    - **Enable with defaults:**
+
+            waf:true
+            waf:enabled
+            waf:default
+
+        Any of these will enable WAF and apply the `default` managed rule
+        bundle, which provides a strong security baseline including
+        protections against the OWASP Top 10 and SQL injection.
+
+    - **Enable with specific rule sets:**
+
+        You can specify a comma-separated list of rule set keywords. This
+        allows you to tailor the protection to your application's specific
+        needs from the very first command.
+
+            waf:base,php,admin
+
+    - **Enable with bundles and subtractive syntax:**
+
+        For more complex configurations, you can use pre-configured bundles
+        and the subtractive syntax (prefixing a keyword with a `-`) to remove
+        unwanted rule sets.
+
+            waf:all,-windows,-php
+
+    When the `create-stack` command sees the `waf:` keyword, it will
+    automatically generate the corresponding `waf` block in your
+    `fargate-stack.yml` file, including `enabled: true` and the
+    specified `managed_rules`. See ["Configuring Managed Rules"](#configuring-managed-rules) for a
+    full list of available keywords and bundles.
+
+    For more information see ["AWS WAF Support"](#aws-waf-support).
 
 #### Output
 
@@ -1299,11 +1386,17 @@ in the task's log\_group section:
 - The log group is reused if it already exists.
 - Only numeric values accepted by CloudWatch are valid for
 retention\_days (e.g., 1, 3, 5, 7, 14, 30, 60, 90, etc.).
-- You can customize the log group name by setting the name in the `log_group:` section.
+- You can customize the log group name by setting the name in
+the `log_group:` section (not recommended).
 
         log_group:
           retention_days: 14
           name: /ecs/my-stack
+
+- You can change the retention period by updating the
+configuration file and re-running `apply`.
+- To retain logs indefinitely, remove the `retention_days`
+entry in your configuration file.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -2236,23 +2329,23 @@ bundle.
 #### Rule Set Keywords
 
 - **base**: A strong baseline including `AWSManagedRulesCommonRuleSet`, `AWSManagedRulesAmazonIpReputationList`, and `AWSManagedRulesKnownBadInputsRuleSet`.
-=item \* **admin**: Protects exposed administrative pages (`AWSManagedRulesAdminProtectionRuleSet`).
-=item \* **sql**: Protects against SQL injection attacks (`AWSManagedRulesSQLiRuleSet`).
-=item \* **linux**: Includes rules for Linux and Unix-like environments.
-=item \* **php**: Includes rules for applications running on PHP.
-=item \* **wordpress**: Includes rules specific to WordPress sites.
-=item \* **windows**: Includes rules for Windows Server environments.
-=item \* **anonymous**: **Use with caution.** Blocks traffic from anonymous sources like VPNs and proxies, which may block legitimate users.
-=item \* **ddos**: Mitigates application-layer (Layer 7) DDoS attacks like HTTP floods.
-=item \* **premium**: **Warning: Extra Cost.** Enables advanced, paid protections for bot control and account takeover prevention.
+- **admin**: Protects exposed administrative pages (`AWSManagedRulesAdminProtectionRuleSet`).
+- **sql**: Protects against SQL injection attacks (`AWSManagedRulesSQLiRuleSet`).
+- **linux**: Includes rules for Linux and Unix-like environments.
+- **php**: Includes rules for applications running on PHP.
+- **wordpress**: Includes rules specific to WordPress sites.
+- **windows**: Includes rules for Windows Server environments.
+- **anonymous**: **Use with caution.** Blocks traffic from anonymous sources like VPNs and proxies, which may block legitimate users.
+- **ddos**: Mitigates application-layer (Layer 7) DDoS attacks like HTTP floods.
+- **premium**: **Warning: Extra Cost.** Enables advanced, paid protections for bot control and account takeover prevention.
 
 #### Rule Bundles
 
 - **default**: Includes `base` and `sql`. This is the recommended starting point for most applications.
-=item \* **linux-app**: Includes `default` and `linux`.
-=item \* **wordpress-app**: Includes `default`, `linux`, and `wordpress`.
-=item \* **windows-app**: Includes `default` and `windows`.
-=item \* **all**: Includes all standard, non-premium rule sets. **Warning:** This will likely exceed the default WCU quota and may incur additional costs.
+- **linux-app**: Includes `default` and `linux`.
+- **wordpress-app**: Includes `default`, `linux`, and `wordpress`.
+- **windows-app**: Includes `default` and `windows`.
+- **all**: Includes all standard, non-premium rule sets. **Warning:** This will likely exceed the default WCU quota and may incur additional costs.
 
 ### The Bootstrap Process (First Run)
 
@@ -2268,6 +2361,9 @@ your Application Load Balancer.
 4. It updates your configuration file with the state of the new
 WAF resources, including its Name, ID, ARN, LockToken, and a checksum
 of the `web-acl.json` file.
+5. The `waf` block in your `fargate-stack.yml` is updated to reflect
+the bootstrapped state. If the `managed_rules` key was not present,
+it will be added with the default value of `[default]`.
 
 ### Ongoing Management (Subsequent Runs)
 
@@ -2322,7 +2418,158 @@ premium features.
 ## Roadmap for HTTP Services
 
 - path based routing on ALB listeners
-- Auto-scaling policies
+
+[Back to Table of Contents](#table-of-contents)
+
+# AUTOSCALING
+
+## Overview
+
+For services that experience variable load, such as HTTP applications or
+background job processors, CApp::FargateStack can automate the process of
+scaling the number of running tasks up or down to meet demand. This ensures
+high availability during traffic spikes and saves costs during quiet periods.
+
+The framework integrates with AWS Application Auto Scaling to provide target
+tracking scaling policies. This allows you to define a target metric - such as
+average CPU utilization or the number of requests per minute - and the framework
+will automatically manage the number of Fargate tasks to keep that metric at
+your desired level.
+
+## Enabling Autoscaling
+
+To enable autoscaling for a service, add an `autoscaling` block to its task
+configuration in your .yml configuration file.
+
+tasks:
+  my-service:
+    # ... other task settings ...
+    autoscaling:
+      min\_capacity: 1
+      max\_capacity: 10
+      cpu: 60
+
+## Configuration Parameters
+
+The `autoscaling` block accepts the following keys:
+
+- **min\_capacity** (Required)
+
+    The minimum number of tasks to keep running at all times. The service will
+    never scale in below this number.
+
+- **max\_capacity** (Required)
+
+    The maximum number of tasks that the service can scale out to. This acts as
+    a safeguard to control costs.
+
+- **cpu** OR **requests** (Required, mutually exclusive)
+
+    You must specify exactly one scaling metric.
+
+    - `cpu`: The target average CPU utilization percentage across all tasks in
+    the service. Valid values are between 1 and 100.
+    - `requests`: The target number of requests per minute for each task. This
+    is only valid for tasks of type `http` or `https` that are behind an
+    Application Load Balancer.
+
+- **scale\_in\_cooldown** (Optional)
+
+    The amount of time, in seconds, to wait after a scale-in activity before
+    another scale-in activity can start. This prevents the service from scaling
+    in too aggressively.
+
+    Default: `300`
+
+- **scale\_out\_cooldown** (Optional)
+
+    The amount of time, in seconds, to wait after a scale-out activity before
+    another scale-out activity can start. This allows new tasks time to warm up
+    and start accepting traffic before the service decides to scale out again.
+
+    Default: `60`
+
+- **policy\_name** (Managed by CApp::FargateStack)
+
+    This is a unique name for the scaling policy generated by the framework. It
+    is written to your configuration file and used to detect drift between your
+    configuration and the live environment in AWS. You should not modify this
+    value.
+
+## Example: Scaling on CPU Utilization
+
+This configuration will maintain at least 1 task, scale up to a maximum of 5
+tasks, and will add or remove tasks to keep the average CPU utilization at or
+near 60%.
+
+tasks:
+  my-cpu-intensive-worker:
+    type: daemon
+    image: my-worker:latest
+    autoscaling:
+      min\_capacity: 1
+      max\_capacity: 5
+      cpu: 60
+
+## Example: Scaling on ALB Requests
+
+This configuration will maintain at least 2 tasks, scale up to a maximum of 20
+tasks, and will add or remove tasks to keep the number of requests per minute
+for each task at or near 1000. It also specifies custom cooldown periods.
+
+tasks:
+  my-website:
+    type: https
+    image: my-website:latest
+    autoscaling:
+      min\_capacity: 2
+      max\_capacity: 20
+      requests: 1000
+      scale\_in\_cooldown: 600
+      scale\_out\_cooldown: 120
+
+## Drift Detection and Management
+
+CApp::FargateStack treats your YAML configuration as the single source of
+truth. On every `plan` or `apply` run, it will compare the `autoscaling`
+configuration in your file with the live scaling policy in AWS.
+
+If it detects any differences (e.g., someone manually changed the max capacity
+in the AWS Console), it will report the drift and will not apply any changes.
+To overwrite the live settings and enforce the configuration from your file,
+you must re-run the `apply` command with the `--force` flag. This provides a
+critical safety check against accidental configuration changes.
+
+### The `autoscaling` keyword
+
+For any service type (`https`, `http`, `daemon`, or `task`), you can enable
+and configure autoscaling directly from the command line. This provides a
+quick-start method to make your service elastic from the moment it's created.
+
+The Cautoscaling: keyword accepts a metric and an optional target value:
+
+- **Enable with a specific target value:**
+
+    autoscaling:requests=500
+    autoscaling:cpu=60
+
+    This will enable autoscaling and set the target for either ALB requests per
+    task or average CPU utilization.
+
+- **Enable with default target value:**
+
+    autoscaling:requests
+    autoscaling:cpu
+
+    If you omit the target value, a sensible default will be used (e.g.,
+    `500` for requests, `60` for CPU).
+
+When the `create-stack` command sees the Cautoscaling: keyword, it
+will generate a complete `autoscaling` block in your `fargate-stack.yml`
+file. This block will be populated with safe defaults (`min_capacity: 1`,
+`max_capacity: 2`), the specified metric, and all other necessary fields,
+making it easy to review and customize later. See ["AUTOSCALING"](#autoscaling) for
+a full list of configuration options.
 
 [Back to Table of Contents](#table-of-contents)
 

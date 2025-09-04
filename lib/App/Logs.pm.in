@@ -25,13 +25,10 @@ sub describe_log_groups {
 
   $log_group_name //= $self->get_log_group_name;
 
-  return $self->command(
-    'describe-log-groups' => [
-      $log_group_name ? ( '--log-group-name-prefix' => $log_group_name ) : (),
-      $query          ? ( '--query'                 => $query )          : ()
-    ]
-  );
+  return $self->command( 'describe-log-groups' =>
+      [ $log_group_name ? ( '--log-group-name-prefix' => $log_group_name ) : (), $query ? ( '--query' => $query ) : () ] );
 }
+
 ########################################################################
 sub delete_log_group {
 ########################################################################
@@ -39,12 +36,8 @@ sub delete_log_group {
 
   $log_group_name //= $self->get_log_group_name;
 
-  return $self->command(
-    'delete-log-group' => [
-      $log_group_name ? ( '--log-group-name' => $log_group_name ) : (),
-      $query          ? ( '--query'          => $query )          : ()
-    ]
-  );
+  return $self->command( 'delete-log-group' =>
+      [ $log_group_name ? ( '--log-group-name' => $log_group_name ) : (), $query ? ( '--query' => $query ) : () ] );
 }
 
 ########################################################################
@@ -138,7 +131,14 @@ sub put_retention_policy {
       '--retention-in-days' => $retention_days,
     ]
   );
+}
 
+########################################################################
+sub delete_retention_policy {
+########################################################################
+  my ( $self, $log_group ) = @_;
+
+  return $self->command( 'delete-retention-policy' => [ '--log-group-name' => $log_group, ] );
 }
 
 1;

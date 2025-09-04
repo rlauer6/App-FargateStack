@@ -40,6 +40,12 @@ Readonly::Scalar our $DEFAULT_ALB_MAX_TRIES       => 120;
 Readonly::Scalar our $DEFAULT_ALB_POLL_SLEEP_TIME => 5;
 
 ########################################################################
+# Autoscaling
+########################################################################
+Readonly::Scalar our $DEFAULT_CPU_SCALING_LEVEL      => 60;
+Readonly::Scalar our $DEFAULT_REQUESTS_SCALING_LEVEL => 500;
+
+########################################################################
 # WAF
 ########################################################################
 Readonly::Scalar our $WAF_AVAILABILITY_TIMEOUT    => 5 * 60;
@@ -464,6 +470,10 @@ our @EXPORT = (
     $SEC_PER_DAY
     $SEC_PER_HOUR
     $SEC_PER_MIN
+  ),
+  qw(
+    $DEFAULT_CPU_SCALING_LEVEL
+    $DEFAULT_REQUESTS_SCALING_LEVEL
   ),
   qw(
     $CLUSTER_ARN_TEMPLATE

@@ -3,7 +3,7 @@ package App::FargateStack::CreateStack;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(log_die);
+use App::FargateStack::Builder::Utils qw(log_die dmp);
 use App::FargateStack::Constants;
 use CLI::Simple::Constants qw(:booleans :chars);
 use Carp;
@@ -126,11 +126,35 @@ sub cmd_create_stack {
     }
 
     my @environment = grep {/^env(?:ironment)?:/xsm} @options;
-
     foreach (@environment) {
       my ( $key, $value ) = split /\s*=\s*/xsm, ( split /:/xsm )[-1];
       $task->{environment} = { $key => $value };
     }
+
+    ####################################################################
+    # WAF
+    ####################################################################
+    my ($waf) = grep {/^waf:.*$/xsm} @options;
+
+    if ($waf) {
+      croak "ERROR: waf option is only available for https services:\n"
+        if $t !~ /^https:/xsm;
+
+      $self->parse_waf_option( $config, $task, $waf );
+    }
+
+    ####################################################################
+    # Autoscaling
+    ####################################################################
+    my ($autoscaling) = grep {/autoscaling:.*$/xsm} @options;
+
+    if ($autoscaling) {
+      croak "ERROR: autoscaling option is only available for https services:\n"
+        if $t !~ /^https:/xsm;
+
+      $self->parse_autoscaling_option( $config, $task, $autoscaling );
+    }
+
   }
 
   $self->fetch_option_defaults;
@@ -138,6 +162,62 @@ sub cmd_create_stack {
   print {*STDOUT} Dump($config);
 
   DumpFile( $config_name, $config );
+
+  return;
+}
+
+########################################################################
+sub parse_autoscaling_option {
+########################################################################
+  my ( $self, $config, $task, $autoscaling ) = @_;
+
+  my $autoscaling_config = $task->{autoscaling} = {
+    min_capacity       => 1,
+    max_capacity       => 2,
+    scale_out_cooldown => 60,
+    scale_in_cooldown  => 300,
+  };
+
+  my ($metric) = $autoscaling =~ /:([^=]+)/xsm;
+
+  croak "ERROR: metric must be cpu or requests\n"
+    if $metric !~ /^cpu|requests/xsm;
+
+  my ($metric_value) = $autoscaling =~ /=(.*)$/xsm;
+
+  if ( !$metric_value ) {
+    $metric_value = $metric eq 'cpu' ? $DEFAULT_CPU_SCALING_LEVEL : $DEFAULT_REQUESTS_SCALING_LEVEL;
+  }
+
+  my $policy_name = sprintf 'app-fargatestack-%s-%s-policy', $metric, $config->{app}->{name};
+
+  $autoscaling_config->{policy_name} = $policy_name;
+  $autoscaling_config->{$metric} = $metric_value;
+
+  return;
+}
+
+########################################################################
+sub parse_waf_option {
+########################################################################
+  my ( $self, $config, $task, $waf ) = @_;
+
+  $config->{alb}->{waf} = { enabled => JSON::true };
+
+  my ($rule_list) = reverse split /:/xsm, $waf;
+
+  my @rules;
+
+  if ( $rule_list =~ /^(?:enabled|true|default)$/xsm ) {
+    push @rules, 'default';
+  }
+  else {
+    @rules = split /,/xsm, $rule_list;
+  }
+
+  if (@rules) {
+    $config->{alb}->{waf}->{managed_rules} = \@rules;
+  }
 
   return;
 }

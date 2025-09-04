@@ -43,6 +43,7 @@ with 'App::Benchmark';
 
 # builder methods
 with 'App::FargateStack::Builder';
+with 'App::FargateStack::Builder::Autoscaling';
 with 'App::FargateStack::Builder::IAM';
 with 'App::FargateStack::Builder::Certificate';
 with 'App::FargateStack::Builder::Events';

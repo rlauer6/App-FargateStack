@@ -26,13 +26,34 @@ sub build_log_group {
   my $log_group = $logs->log_group_exists( $config->{log_group}->{name} );
 
   if ($log_group) {
+    my ( $arn, $name, $retention_days ) = @{$log_group}{qw(logGroupArn logGroupName retentionInDays)};
 
-    $config->{log_group}->{arn}  = $log_group->{logGroupArn};
-    $config->{log_group}->{name} = ( split /:/xsm, $log_group->{logGroupArn} )[-1];
+    $config->{log_group}->{name} = $name;  # just in case
 
-    $self->log_info( 'logs: [%s] exists...%s', $config->{log_group}->{name}, 'skipping' );
+    $self->log_info( 'logs: [%s] exists...%s', $name, 'skipping' );
 
-    $self->inc_existing_resources( log_group => $config->{log_group}->{arn} );
+    $self->inc_existing_resources( log_group => $arn );
+
+    if ( exists $config->{log_group}->{retention_days} && $config->{log_group}->{retention_days} ) {
+      if ( $retention_days != $config->{log_group}->{retention_days} ) {
+        $self->log_warn( 'logs: [%s] retention policy has changed...will be updated...%s', $name, $dryrun );
+        $self->inc_required_resources( logs => sprintf 'update retention days to %s', $config->{log_group}->{retention_days} );
+        if ( !$dryrun ) {
+          $logs->put_retention_policy( $name, $config->{log_group}->{retention_days} );
+        }
+      }
+    }
+    else {
+      $self->log_error('logs: missing log retention policy. Logs will be stored indefinitely!');
+
+      if ($retention_days) {
+        $self->log_error( 'logs: retention policy for [%s] will be deleted...%s', $name, $dryrun );
+        $self->inc_required_resources( logs => sprintf 'delete retention policy' );
+        if ( !$dryrun ) {
+          $logs->delete_retention_policy($name);
+        }
+      }
+    }
 
     return;
   }

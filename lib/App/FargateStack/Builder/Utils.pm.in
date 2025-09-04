@@ -48,6 +48,7 @@ our @EXPORT = qw(
   write_json_file
   fetch_acm
   fetch_cloudtrail
+  fetch_application_autoscaling
   fetch_ecr
   fetch_ec2
   fetch_ecs
@@ -65,20 +66,21 @@ our @EXPORT = qw(
 );
 
 ########################################################################
-sub fetch_acm        { return shift->fetch_cli_api( 'ACM',        @_ ); }
-sub fetch_cloudtrail { return shift->fetch_cli_api( 'CloudTrail', @_ ); }
-sub fetch_iam        { return shift->fetch_cli_api( 'IAM',        @_ ); }
-sub fetch_logs       { return shift->fetch_cli_api( 'Logs',       @_ ); }
-sub fetch_efs        { return shift->fetch_cli_api( 'EFS',        @_ ); }
-sub fetch_ecs        { return shift->fetch_cli_api( 'ECS',        @_ ); }
-sub fetch_ec2        { return shift->fetch_cli_api( 'EC2',        @_ ); }
-sub fetch_ecr        { return shift->fetch_cli_api( 'ECR',        @_ ); }
-sub fetch_events     { return shift->fetch_cli_api( 'Events',     @_ ); }
-sub fetch_sts        { return shift->fetch_cli_api( 'STS',        @_ ); }
-sub fetch_secrets    { return shift->fetch_cli_api( 'Secrets',    @_ ); }
-sub fetch_elbv2      { return shift->fetch_cli_api( 'ElbV2',      @_ ); }
-sub fetch_route53    { return shift->fetch_cli_api( 'Route53',    @_ ); }
-sub fetch_wafv2      { return shift->fetch_cli_api( 'WafV2',      @_ ); }
+sub fetch_application_autoscaling { return shift->fetch_cli_api( 'Application-Autoscaling', @_ ); }
+sub fetch_acm                     { return shift->fetch_cli_api( 'ACM',                     @_ ); }
+sub fetch_cloudtrail              { return shift->fetch_cli_api( 'CloudTrail',              @_ ); }
+sub fetch_iam                     { return shift->fetch_cli_api( 'IAM',                     @_ ); }
+sub fetch_logs                    { return shift->fetch_cli_api( 'Logs',                    @_ ); }
+sub fetch_efs                     { return shift->fetch_cli_api( 'EFS',                     @_ ); }
+sub fetch_ecs                     { return shift->fetch_cli_api( 'ECS',                     @_ ); }
+sub fetch_ec2                     { return shift->fetch_cli_api( 'EC2',                     @_ ); }
+sub fetch_ecr                     { return shift->fetch_cli_api( 'ECR',                     @_ ); }
+sub fetch_events                  { return shift->fetch_cli_api( 'Events',                  @_ ); }
+sub fetch_sts                     { return shift->fetch_cli_api( 'STS',                     @_ ); }
+sub fetch_secrets                 { return shift->fetch_cli_api( 'Secrets',                 @_ ); }
+sub fetch_elbv2                   { return shift->fetch_cli_api( 'ElbV2',                   @_ ); }
+sub fetch_route53                 { return shift->fetch_cli_api( 'Route53',                 @_ ); }
+sub fetch_wafv2                   { return shift->fetch_cli_api( 'WafV2',                   @_ ); }
 ########################################################################
 sub fetch_cli_api {
 ########################################################################
@@ -90,22 +92,22 @@ sub fetch_cli_api {
     if $class && !keys %options;
 
   if ( !$class ) {
-    my $class_path = sprintf 'App/%s.pm', $api;
+    my $normalized_name = $api;
+    $normalized_name =~ s/[-]//xsm;
+
+    my $class_path = sprintf 'App/%s.pm', $normalized_name;
 
     require $class_path;
 
-    my $class_name = sprintf 'App::%s', $api;
+    my $class_name = sprintf 'App::%s', $normalized_name;
 
-    $self->set( lc $api, $class_name->new( %{ $self->get_global_options }, %options ) );
+    $self->set( lc $api, $class_name->new( _service_name => lc $api, %{ $self->get_global_options }, %options ) );
 
     $class = $self->get( lc $api );
   }
-  else {
-    if ( keys %options ) {
-      foreach ( keys %options ) {
-        $class->set( $_, $options{$_} );
-      }
-    }
+
+  foreach ( keys %options ) {
+    $class->set( $_, $options{$_} );
   }
 
   return $class;

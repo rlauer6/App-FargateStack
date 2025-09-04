@@ -165,7 +165,7 @@ sub build_waf {
       }
     }
     else {
-      $self->log_warn( 'waf: web-acl: [%s] has NOT changed...skipping', $name );
+      $self->log_info( 'waf: web-acl: [%s] has not changed...skipping', $name );
       $self->inc_existing_resources( waf => $waf_config->{arn} );
     }
 

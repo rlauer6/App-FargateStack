@@ -1,3 +1,44 @@
+Thu Sep  4 16:40:08 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.40]:
+	* lib/App/ApplicationAutoscaling.pm.in: new
+	* lib/App/FargateStack/Builder/Autoscaling.pm.in: new
+	* Makefile: add above to build
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/AWS.pm.in
+	(command): get service name from _service_name
+	* lib/App/FargateStack.pm.in
+	- + App::FargateStack::Builder::Autoscaling
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- clearer message for apply
+	- autoscaling
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	(build_log_group)
+	- refactoring
+	- detect and mitigate retention days drift
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_appliation_autoscaling): new
+	(fetch_cli_api)
+	- refactoring
+	- save _service_name
+	- set options properly
+	* lib/App/FargateStack/Builder/WafV2.pm.in
+	(build_waf)
+	- log message tweak
+	* lib/App/FargateStack/Constants.pm.in
+	- + $DEFAULT_CPU_SCALING_LEVEL, $DEFAULT_REQUESTS_SCALING_LEVEL
+	* lib/App/FargateStack/CreateStack.pm.in
+	(cmd_create_stack)
+	- add waf:, autoscaling: keywords
+	(parse_autoscaling_option): new
+	(parse_waf_option): new
+	* lib/App/FargateStack/Pod.pm.in
+	- document new features
+	* lib/App/Logs.pm.in
+	(delete_retention_policy): new
+
 Wed Sep  3 05:05:15 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.39]:

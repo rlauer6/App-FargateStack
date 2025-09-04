@@ -36,12 +36,12 @@ sub build {
   $self->section_break;
 
   if ( !$self->get_force && !$dryrun ) {
-    if ( !confirm('You are about to apply changes and possibly create resources. Proceed?') ) {
+    if ( !confirm('You are about to apply changes and possibly create or update resources. Proceed?') ) {
       $self->log_die('Aborting...');
     }
   }
 
-  $self->log_info( 'beginning %s phase...', $dryrun ? 'plan' : 'apply' );
+  $self->log_info( 'Beginning %s phase...', $dryrun ? 'plan' : 'apply' );
   $self->section_break;
 
   # -- log groups --
@@ -120,6 +120,13 @@ sub build {
   if ( $self->get_http() ) {
     $self->build_http_service;
     $self->benchmark('http-service');
+    $self->section_break;
+  }
+
+  ## -- autoscaling
+  if ( $self->get_http() ) {
+    $self->build_autoscaling();
+    $self->benchmark('autoscaling');
     $self->section_break;
   }
 

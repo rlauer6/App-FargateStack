@@ -1,0 +1,224 @@
+package App::FargateStack::Builder::Autoscaling;
+
+use strict;
+use warnings;
+
+use Carp;
+use CLI::Simple::Constants qw(:booleans);
+use Data::Dumper;
+use English qw(-no_match_vars);
+use List::Util qw(none any);
+use JSON;
+
+use App::FargateStack::Constants;
+use App::FargateStack::Builder::Utils qw(log_die dmp);
+
+use Role::Tiny;
+
+########################################################################
+sub build_autoscaling {
+########################################################################
+  my ($self) = @_;
+
+  my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
+
+  my $task_name = $self->get_http;
+
+  return
+    if !$task_name;
+
+  my $task = $tasks->{$task_name};
+
+  return
+    if !exists $task->{autoscaling};
+
+  my $autoscaling_config = $task->{autoscaling};
+
+  my ( $policy_name, $min_capacity, $max_capacity ) = @{$autoscaling_config}{qw(policy_name min_capacity max_capacity)};
+
+  my ( $scale_in_cooldown, $scale_out_cooldown ) = @{$autoscaling_config}{qw(scale_in_cooldown scale_out_cooldown)};
+
+  my $app_autoscaling = $self->fetch_application_autoscaling;
+
+  my $resource_id = sprintf 'service/%s/%s', $config->{cluster}->{name}, $task_name;
+
+  my $scaling_policy = $app_autoscaling->describe_scaling_policies(
+    service_namespace => 'ecs',
+    policy_names      => $policy_name,
+    query             => 'ScalingPolicies[0]',
+  );
+
+  $app_autoscaling->check_result( message => 'ERROR: could not describe scaling policies for: [%s]', $resource_id );
+
+  my $policy_configuration = $self->create_policy_configuration($task_name);
+
+  if ( !$scaling_policy ) {
+    $self->log_warn( 'autoscaling: policy: [%s] does not exists...will be created...%s', $policy_name, $dryrun );
+
+    $self->inc_existing_resources(
+      autoscaling => sub {
+        my ($dryrun) = @_;
+
+        return $dryrun ? 'arn:???' : $autoscaling_config->{policy_arn};
+      }
+    );
+
+    if ( !$dryrun ) {
+      my $arn = $self->create_autoscaling_policy(
+        app_autoscaling      => $app_autoscaling,
+        resource_id          => $resource_id,
+        min_capacity         => $min_capacity,
+        max_capacity         => $max_capacity,
+        policy_name          => $policy_name,
+        policy_configuration => $policy_configuration,
+      );
+
+      $autoscaling_config->{policy_arn} = $arn;
+    }
+
+    return $TRUE;
+  }
+
+  my $current_policy = $scaling_policy->{TargetTrackingScalingPolicyConfiguration};
+
+  my $diffs = $self->display_diffs( $policy_configuration, $current_policy );
+
+  if ($diffs) {
+    $self->log_error( "autoscaling: scaling policy: [%s] has changed:\n%s\n", $policy_name, $diffs );
+
+    log_die( $self, 'autoscaling: aborting update...use --force to force update' )
+      if !$self->get_force;
+
+    $self->log_warn( 'autoscaling: scaling policy: [%s] will be updated...%s', $policy_name, $dryrun );
+
+    if ( !$dryrun ) {
+      my $arn = $self->create_autoscaling_policy(
+        app_autoscaling      => $app_autoscaling,
+        resource_id          => $resource_id,
+        min_capacity         => $min_capacity,
+        max_capacity         => $max_capacity,
+        policy_name          => $policy_name,
+        policy_configuration => $policy_configuration,
+      );
+
+      $autoscaling_config->{policy_arn} = $arn;  # the arn should not change, but why not?
+    }
+  }
+  else {
+    $self->log_info( 'autoscaling: scaling policy: [%s] has not changed...skipping', $policy_name );
+    $self->inc_existing_resources( autoscaling => $autoscaling_config->{policy_arn} );
+  }
+
+  return $TRUE;
+}
+
+########################################################################
+sub create_policy_configuration {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $task = $self->get_config->{tasks}->{$task_name};
+
+  my $autoscaling_config = $task->{autoscaling};
+
+  my ( $scale_in_cooldown, $scale_out_cooldown )
+    = map { int $_ } @{$autoscaling_config}{qw(scale_in_cooldown scale_out_cooldown)};
+
+  my $metric = $autoscaling_config->{cpu} ? 'cpu' : $autoscaling_config->{requests} ? 'requests' : q{};
+  croak "autoscaling: metric must be one of 'cpu' or 'requests'\n"
+    if !$metric;
+
+  my $metric_value = int $autoscaling_config->{$metric};
+
+  my $predefined_metric_type = {
+    cpu      => 'ECSServiceAverageCPUUtilization',
+    requests => 'ALBRequestCountPerTarget',
+  }->{$metric};
+
+  my $resource_label = $metric eq 'requests' ? $self->create_resource_label($task_name) : q{};
+
+  my $predefined_metric_specficiation = {
+    PredefinedMetricType => $predefined_metric_type,
+    $resource_label ? ( ResourceLabel => $resource_label ) : ()
+  };
+
+  my $policy_configuration = {
+    TargetValue                   => $metric_value,
+    PredefinedMetricSpecification => $predefined_metric_specficiation,
+    ScaleOutCooldown              => $scale_out_cooldown,
+    ScaleInCooldown               => $scale_in_cooldown,
+  };
+
+  $self->log_debug(
+    sub {
+      return Dumper(
+        [ policy_configuration => $policy_configuration,
+          metric               => $metric,
+        ]
+      );
+    }
+  );
+
+  return $policy_configuration;
+}
+
+########################################################################
+sub create_resource_label {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $config = $self->get_config;
+
+  my $task = $config->{tasks}->{$task_name};
+
+  my $target_arn = $task->{target_group_arn};
+
+  my ($tg_part) = $target_arn =~ /(targetgroup\/.*)$/xsm;
+
+  my $alb_arn = $config->{alb}->{arn};
+  my ($alb_part) = $alb_arn =~ /loadbalancer\/(.*)$/xsm;
+
+  return sprintf '%s/%s', $alb_part, $tg_part;
+}
+
+########################################################################
+sub create_autoscaling_policy {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $resource_id, $min_capacity, $max_capacity, $policy_name, $policy_configuration, $app_autoscaling )
+    = @args{qw(resource_id min_capacity max_capacity policy_name policy_configuration app_autoscaling)};
+
+  my $query = sprintf 'ScalableTargets[?ResourceId == `%s`]|[0]', $resource_id;
+
+  my $scalable_targets = $app_autoscaling->describe_scalable_targets( service_namespace => 'ecs', query => $query );
+  $app_autoscaling->check_result( message => 'ERROR: could not describe scalable targets for: [%s]', $resource_id );
+
+  if ( !$scalable_targets ) {
+
+    $app_autoscaling->register_scalable_target(
+      service_namespace  => 'ecs',
+      scalable_dimension => 'ecs:service:DesiredCount',
+      resource_id        => $resource_id,
+      min_capacity       => $min_capacity,
+      max_capacity       => $max_capacity,
+    );
+
+    $app_autoscaling->check_result( message => 'ERROR: could not register scalable target for: [%s]', $resource_id );
+  }
+
+  my $scaling_policy = $app_autoscaling->put_scaling_policy(
+    policy_name          => $policy_name,
+    service_namespace    => 'ecs',
+    scalable_dimension   => 'ecs:service:DesiredCount',
+    resource_id          => $resource_id,
+    policy_type          => 'TargetTrackingScaling',
+    policy_configuration => encode_json($policy_configuration),
+  );
+
+  $app_autoscaling->check_result( message => 'ERROR: could not create scaling policy target for: [%s]', $resource_id );
+
+  return $scaling_policy->{PolicyARN};
+}
+
+1;

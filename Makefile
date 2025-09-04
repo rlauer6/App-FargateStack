@@ -13,6 +13,7 @@ PERL_MODULES = \
 GPERL_MODULES = $(PERL_MODULES:.pm.in=.pm)
 
 AWS_PERL_MODULES = \
+    lib/App/ApplicationAutoscaling.pm.in \
     lib/App/ACM.pm.in \
     lib/App/AWS.pm.in \
     lib/App/CloudTrail.pm.in \
@@ -47,6 +48,7 @@ all: $(TARBALL)
 
 FARGATE_BUILDERS = \
     lib/App/FargateStack/Builder.pm.in \
+    lib/App/FargateStack/Builder/Autoscaling.pm.in \
     lib/App/FargateStack/Builder/Certificate.pm.in \
     lib/App/FargateStack/Builder/Cluster.pm.in \
     lib/App/FargateStack/Builder/EFS.pm.in \
