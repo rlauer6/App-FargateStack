@@ -37,7 +37,7 @@ sub build_fargate_cluster {
   }
 
   if ($cluster_arn) {
-    $self->log_info( sprintf 'cluster: [%s] exists...%s', $cluster_name, $self->get_cache );
+    $self->log_info( sprintf 'cluster: [%s] exists...%s', $cluster_name, $self->get_cache || 'skipping' );
 
     $self->inc_existing_resources( cluster => [$cluster_arn] );
     $cluster->{arn} = $cluster_arn;

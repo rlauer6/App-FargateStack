@@ -84,18 +84,18 @@ sub build_iam_role {
   );
 
   if ( $policy_exists && $policy_exists != -1 ) {
-    $self->log_info( 'iam:policy [%s] exists...%s', $policy_name, $cache || 'skipping' );
+    $self->log_info( 'iam: policy: [%s] exists...%s', $policy_name, $cache || 'skipping' );
     $self->inc_existing_resources( 'iam:role-policy' => [$policy_name] );
     return;
   }
   elsif ( $policy_exists == -1 ) {
-    my $title = sprintf 'iam:policy role policy [%s] differs', $policy_name;
+    my $title = sprintf 'iam: role policy [%s] differs', $policy_name;
 
     $self->display_diffs( $policy, $role_policy, { title => $title } );
-    $self->log_warn( 'iam:policy [%s] will be replaced...%s', $policy_name, $dryrun );
+    $self->log_warn( 'iam: policy: [%s] will be replaced...%s', $policy_name, $dryrun );
   }
   else {
-    $self->log_warn( 'iam:policy [%s] will be created...%s', $policy_name, $dryrun );
+    $self->log_warn( 'iam: policy: [%s] will be created...%s', $policy_name, $dryrun );
   }
 
   $self->inc_required_resources( 'iam:policy' => [$policy_name] );
@@ -105,11 +105,11 @@ sub build_iam_role {
 
   # policy exists but differs
   if ( $policy_exists == -1 ) {
-    $self->log_warn( 'iam:policy: deleting policy [%s] for role [%s]...', $policy_name, $role_name );
+    $self->log_warn( 'iam: deleting policy [%s] for role [%s]...', $policy_name, $role_name );
     $iam->delete_role_policy( $role_name, $policy_name );
   }
 
-  $self->log_warn( 'iam:policy: creating policy [%s] for role [%s]...', $policy_name, $role_name );
+  $self->log_warn( 'iam: creating policy [%s] for role [%s]...', $policy_name, $role_name );
 
   $iam->put_role_policy( $role_name, $policy_name, $role_policy );
 
@@ -212,7 +212,7 @@ sub create_role {
   $self->log_trace( sub { return Dumper( [ role => $role ] ) } );
 
   if ( $role->{Role}->{Arn} ) {
-    $self->log_info( 'iam: role [%s] exists...%s', $role_name, $self->get_cache || 'skipping' );
+    $self->log_info( 'iam: role: [%s] exists...%s', $role_name, $self->get_cache || 'skipping' );
 
     $self->inc_existing_resources( 'iam:role' => [ $role->{Role}->{Arn} ] );
 
@@ -228,7 +228,7 @@ sub create_role {
     ]
   );
 
-  $self->log_warn( 'iam: [%s] will be created...%s', $role_name, $self->get_dryrun );
+  $self->log_warn( 'iam: role: [%s] will be created...%s', $role_name, $self->get_dryrun );
 
   my $role_arn;
 

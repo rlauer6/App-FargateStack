@@ -117,19 +117,22 @@ sub put_scheduled_action {
 ########################################################################
   my ( $self, %args ) = @_;
 
-  my ($query) = @args{qw(query)};
+  my ( $query, $service_namespace, $scalable_dimension, $resource_id, $scheduled_action_name, $schedule,
+    $scalable_target_action )
+    = @args{qw(query service_namespace scalable_dimension resource_id name schedule scalable_target_action)};
 
-  return $self->command( 'put-scheduled-action' => [ $query ? ( '--query' => $query ) : () ] );
-}
+  return $self->command(
+    'put-scheduled-action' => [
+      '--service-namespace'      => $service_namespace // 'ecs',
+      '--resource-id'            => $resource_id,
+      '--scalable-dimension'     => $scalable_dimension // 'ecs:service:DesiredCount',
+      '--schedule'               => $schedule,
+      '--scheduled-action-name'  => $scheduled_action_name,
+      '--scalable-target-action' => $scalable_target_action,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
 
-########################################################################
-sub describe_scheduled_actions {
-########################################################################
-  my ( $self, %args ) = @_;
-
-  my ($query) = @args{qw(query)};
-
-  return $self->command( 'describe-scheduled-actions' => [ $query ? ( '--query' => $query ) : () ] );
 }
 
 ########################################################################
@@ -159,6 +162,24 @@ sub describe_scalable_targets {
     'describe-scalable-targets' => [
       '--service-namespace' => $service_namespace,
       $query ? ( '--query' => $query ) : ()
+    ]
+  );
+}
+
+########################################################################
+sub describe_scheduled_actions {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $service_namespace, $resource_id, $scalable_dimension, $query )
+    = @args{qw(service_namespace resource_id scalable_dimension query )};
+
+  return $self->command(
+    'describe-scheduled-actions' => [
+      '--service-namespace' => $service_namespace,
+      $resource_id        ? ( '--resource-id'        => $resource_id )        : (),
+      $scalable_dimension ? ( '--scalable-dimension' => $scalable_dimension ) : (),
+      $query              ? ( '--query'              => $query )              : ()
     ]
   );
 }

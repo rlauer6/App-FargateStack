@@ -30,13 +30,13 @@ sub build_http_service {
   my $ec2 = $self->fetch_ec2;
 
   if ( $fargate_sg && $alb_sg && $ec2->is_sg_authorized( $fargate_sg, $alb_sg ) ) {
-    $self->log_info( q{http-service:security-group-ingress: ALB's security group: [%s] already authorized...skipping},
+    $self->log_info( q{http-service: security-group-ingress: ALB's security group: [%s] already authorized...skipping},
       $alb_sg );
   }
   else {
 
     $self->log_warn(
-      q{http-service:security-group-ingress: ALB's security group: [%s] will be authorized to Fargate's: [%s]...%s},
+      q{http-service: security-group-ingress: ALB's security group: [%s] will be authorized to Fargate's: [%s]...%s},
       $alb_sg // '???',
       $fargate_sg // '???', $dryrun
     );
@@ -316,7 +316,7 @@ sub create_target_group {
     my $health_check = $task->{health_check} // {};
 
     if ( !defined $task->{health_check} || $health_check->{enabled} ) {
-      $health_check->{enabled} //= $JSON::true;
+      $health_check->{enabled} //= 'true';
       $health_check->{port}    //= $task->{container_port};
       $health_check->{path}    //= q{/};
 
@@ -414,7 +414,7 @@ sub create_alb {
       my $query = 'SecurityGroupRules[?IsEgress == `false` && ToPort == `443`]';
 
       foreach my $group_id ( @{$alb_security_groups} ) {
-        my $sg = $ec2->describe_security_group_rules( $group_id, $query );
+        my $sg = $ec2->describe_security_group_rules( group_id => $group_id, $query );
 
         next if !@{$sg};
 

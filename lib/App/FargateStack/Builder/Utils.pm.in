@@ -93,7 +93,7 @@ sub fetch_cli_api {
 
   if ( !$class ) {
     my $normalized_name = $api;
-    $normalized_name =~ s/[-]//xsm;
+    $normalized_name =~ s/[\-]//xsm;
 
     my $class_path = sprintf 'App/%s.pm', $normalized_name;
 
@@ -446,7 +446,7 @@ sub log_info  { return _log( shift->get_logger, 'info',  @_ ) }
 sub log_debug { return _log( shift->get_logger, 'debug', @_ ) }
 sub log_warn  { return _log( shift->get_logger, 'warn',  @_ ) }
 sub log_error { return _log( shift->get_logger, 'error', @_ ) }
-sub log_die   { _log( shift->get_logger, 'error', @_ ); exit 1; }
+sub log_die   { _log( shift->get_logger, 'error', @_ ); die q{}; }
 sub log_trace { return _log( shift->get_logger, 'trace', @_ ) }
 sub log_fatal { return _log( shift->get_logger, 'fatal', @_ ) }
 

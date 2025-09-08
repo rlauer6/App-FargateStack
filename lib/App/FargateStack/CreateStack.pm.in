@@ -25,7 +25,7 @@ sub cmd_create_stack {
     if ( $app_name =~ /^(?:daemon|https?|scheduled|task):(.*?)$/xsm ) {
       unshift @args, $app_name;
       $app_name = $1;
-      carp sprintf "WARNING: no app name provided...using the task name: %s\n", $app_name;
+      carp sprintf "WARNING: no app name provided...using the task name: [%s]\n", $app_name;
     }
     else {
       croak sprintf "ERROR: app names should only have a-z_-0-9 characters\n";
@@ -125,12 +125,17 @@ sub cmd_create_stack {
       $config->{domain} = ( split /[:]/xsm, $domain )[-1];
     }
 
-    my @environment = grep {/^env(?:ironment)?:/xsm} @options;
-    foreach (@environment) {
-      my ( $key, $value ) = split /\s*=\s*/xsm, ( split /:/xsm )[-1];
-      $task->{environment} = { $key => $value };
-    }
+    ####################################################################
+    # Environment
+    ####################################################################
 
+    my @environment = grep {/^env(?:ironment)?:/xsm} @options;
+
+    $self->parse_environment_option(
+      config => $config,
+      task   => $task,
+      tag    => \@environment
+    );
     ####################################################################
     # WAF
     ####################################################################
@@ -140,7 +145,11 @@ sub cmd_create_stack {
       croak "ERROR: waf option is only available for https services:\n"
         if $t !~ /^https:/xsm;
 
-      $self->parse_waf_option( $config, $task, $waf );
+      $self->parse_waf_option(
+        task   => $task,
+        config => $config,
+        tag    => $waf
+      );
     }
 
     ####################################################################
@@ -149,10 +158,14 @@ sub cmd_create_stack {
     my ($autoscaling) = grep {/autoscaling:.*$/xsm} @options;
 
     if ($autoscaling) {
-      croak "ERROR: autoscaling option is only available for https services:\n"
-        if $t !~ /^https:/xsm;
+      croak "ERROR: autoscaling option is only available for http and daemon services:\n"
+        if $t !~ /^(?:https?|daemon):/xsm;
 
-      $self->parse_autoscaling_option( $config, $task, $autoscaling );
+      $self->parse_autoscaling_option(
+        task   => $task,
+        config => $config,
+        tag    => $autoscaling
+      );
     }
 
   }
@@ -161,7 +174,24 @@ sub cmd_create_stack {
 
   print {*STDOUT} Dump($config);
 
-  DumpFile( $config_name, $config );
+  if ( $self->get_update ) {
+    DumpFile( $config_name, $config );
+  }
+
+  return;
+}
+
+########################################################################
+sub parse_environment_option {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $task, $environment ) = @args{qw(task tag)};
+
+  foreach ( @{$environment} ) {
+    my ( $key, $value ) = split /\s*=\s*/xsm, ( split /:/xsm )[-1];
+    $task->{environment} = { $key => $value };
+  }
 
   return;
 }
@@ -169,16 +199,21 @@ sub cmd_create_stack {
 ########################################################################
 sub parse_autoscaling_option {
 ########################################################################
-  my ( $self, $config, $task, $autoscaling ) = @_;
+  my ( $self, %args ) = @_;
+
+  my ( $config, $task, $autoscaling ) = @args{qw(config task tag)};
 
   my $autoscaling_config = $task->{autoscaling} = {
-    min_capacity       => 1,
-    max_capacity       => 2,
-    scale_out_cooldown => 60,
-    scale_in_cooldown  => 300,
+    min_capacity       => $DEFAULT_AUTOSCALING_MIN_CAPACITY,
+    max_capacity       => $DEFAULT_AUTOSCALING_MAX_CAPACITY,
+    scale_out_cooldown => $DEFAULT_AUTOSCALING_SCALE_OUT_COOLDOWN,
+    scale_in_cooldown  => $DEFAULT_AUTOSCALING_SCALE_IN_COOLDOWN,
   };
 
   my ($metric) = $autoscaling =~ /:([^=]+)/xsm;
+
+  croak "ERROR: requests can only be used with http services\n"
+    if $metric eq 'requests' && $task->{type} !~ /^http/xsm;
 
   croak "ERROR: metric must be cpu or requests\n"
     if $metric !~ /^cpu|requests/xsm;
@@ -189,9 +224,7 @@ sub parse_autoscaling_option {
     $metric_value = $metric eq 'cpu' ? $DEFAULT_CPU_SCALING_LEVEL : $DEFAULT_REQUESTS_SCALING_LEVEL;
   }
 
-  my $policy_name = sprintf 'app-fargatestack-%s-%s-policy', $metric, $config->{app}->{name};
-
-  $autoscaling_config->{policy_name} = $policy_name;
+  # TBD: check for sane values
   $autoscaling_config->{$metric} = $metric_value;
 
   return;
@@ -200,9 +233,11 @@ sub parse_autoscaling_option {
 ########################################################################
 sub parse_waf_option {
 ########################################################################
-  my ( $self, $config, $task, $waf ) = @_;
+  my ( $self, %args ) = @_;
 
-  $config->{alb}->{waf} = { enabled => JSON::true };
+  my ( $config, $task, $waf ) = @args{qw(config task tag)};
+
+  $config->{alb}->{waf} = { enabled => 'true' };
 
   my ($rule_list) = reverse split /:/xsm, $waf;
 

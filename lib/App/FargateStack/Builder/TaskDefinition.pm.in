@@ -54,10 +54,12 @@ sub register_task_definition {
 
     my $task_definition = sprintf 'taskdef-%s.json', $task_name;
 
-    $self->log_warn( 'task: task definition for [%s] changed or does not exists...will be created...%s', $task_name, $dryrun );
+    $self->log_warn(
+      'register-task-definition: task definition for [%s] changed or does is not registered...will be registered...%s',
+      $task_name, $dryrun );
 
     if ( !$dryrun ) {
-      $self->log_warn( 'task: creating task definition [%s]...', $task_name );
+      $self->log_warn( 'register-task-definition: registering task definition [%s]...', $task_name );
 
       my $result = $ecs->register_task_definition($task_definition);
 
@@ -69,7 +71,7 @@ sub register_task_definition {
     }
   }
   else {
-    $self->log_info( 'task: [%s] unchanged...skipping', $task_name );
+    $self->log_info( 'register-task-definition: task definition for: [%s] has not changed...skipping', $task_name );
 
     $tasks->{$task_name}->{arn} = $task_definitions[-1];
 
@@ -81,7 +83,7 @@ sub register_task_definition {
     my $latest_image  = $self->get_latest_image($task_name);
     my $latest_digest = $latest_image->{imageDigest};
 
-    $self->log_warn( 'task: updating image digest in config: [%s]', $latest_digest );
+    $self->log_warn( 'register-task-definition: updating image digest in config: [%s]', $latest_digest );
 
     $tasks->{$task_name}->{image_digest} = $latest_digest;
   }

@@ -124,6 +124,8 @@
   * [Configuration Parameters](#configuration-parameters)
   * [Example: Scaling on CPU Utilization](#example-scaling-on-cpu-utilization)
   * [Example: Scaling on ALB Requests](#example-scaling-on-alb-requests)
+  * [Scheduled Scaling Configuration](#scheduled-scaling-configuration)
+  * [Example: Combined Metric and Scheduled Scaling](#example-combined-metric-and-scheduled-scaling)
   * [Drift Detection and Management](#drift-detection-and-management)
     * [The `autoscaling` keyword](#the-autoscaling-keyword)
 * [CURRENT LIMITATIONS](#current-limitations)
@@ -199,7 +201,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.40.
+This documentation corresponds to version 1.0.41.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -2426,7 +2428,7 @@ premium features.
 ## Overview
 
 For services that experience variable load, such as HTTP applications or
-background job processors, CApp::FargateStack can automate the process of
+background job processors, `App::FargateStack` can automate the process of
 scaling the number of running tasks up or down to meet demand. This ensures
 high availability during traffic spikes and saves costs during quiet periods.
 
@@ -2502,14 +2504,14 @@ This configuration will maintain at least 1 task, scale up to a maximum of 5
 tasks, and will add or remove tasks to keep the average CPU utilization at or
 near 60%.
 
-tasks:
-  my-cpu-intensive-worker:
-    type: daemon
-    image: my-worker:latest
-    autoscaling:
-      min\_capacity: 1
-      max\_capacity: 5
-      cpu: 60
+    tasks:
+      my-cpu-intensive-worker:
+        type: daemon
+        image: my-worker:latest
+        autoscaling:
+          min_capacity: 1
+          max_capacity: 5
+          cpu: 60
 
 ## Example: Scaling on ALB Requests
 
@@ -2517,16 +2519,83 @@ This configuration will maintain at least 2 tasks, scale up to a maximum of 20
 tasks, and will add or remove tasks to keep the number of requests per minute
 for each task at or near 1000. It also specifies custom cooldown periods.
 
-tasks:
-  my-website:
-    type: https
-    image: my-website:latest
+    tasks:
+      my-website:
+        type: https
+        image: my-website:latest
+        autoscaling:
+          min_capacity: 2
+          max_capacity: 20
+          requests: 1000
+          scale_in_cooldown: 600
+          scale_out_cooldown: 120
+
+## Scheduled Scaling Configuration
+
+To configure predictive, time-based scaling, add a `scheduled` block
+inside the main `autoscaling` configuration. This allows you to
+define named time windows for scaling.
+
+Example:
+
     autoscaling:
-      min\_capacity: 2
-      max\_capacity: 20
-      requests: 1000
-      scale\_in\_cooldown: 600
-      scale\_out\_cooldown: 120
+      ...
+      scheduled:
+        business_hours:
+          start_time: 00:18
+          end_time: 00:02
+          min_capacity: 2/1
+          max_capacity: 3/2
+
+_Note: **start\_time** and **end\_time** are UTC_
+
+- **scheduled** (Optional)
+
+    A hash where each key is a unique, descriptive name for the schedule
+    group (e.g., `business_hours`). Each group defines a time window and
+    the capacity changes for that window.
+
+    - **start\_time** (Required): The time to scale up, in HH:MM
+    format (24-hour clock, UTC).
+    - **end\_time** (Required): The time to scale down, in HH:MM
+    format (24-hour clock, UTC).
+    - **days** (Required): The days of the week for the schedule. Can
+    be a range (e.g., `MON-FRI`) or comma-separated values.
+    - **min\_capacity** (Optional): The minimum capacity during and
+    outside the window. The two values should be separated by a slash,
+    comma, colon, hyphen, or space (e.g., `2/1` or `2,1`).
+    - **max\_capacity** (Optional): The maximum capacity during and
+    outside the window, using the same `in/out` format as
+    `min_capacity`.
+
+The parser will generate two scheduled actions from this block: one to
+apply the "in" capacity at the `start_time` and one to apply the
+"out" capacity at the `end_time`.
+
+## Example: Combined Metric and Scheduled Scaling
+
+This configuration creates a robust scaling strategy. The service will
+reactively scale based on CPU load at all times, but the capacity
+"guardrails" will be adjusted automatically for business hours.
+
+    tasks:
+      my-website:
+        type: https
+        image: my-website:latest
+        autoscaling:
+          # Default metric-based scaling policy
+          min_capacity: 1
+          max_capacity: 10
+          cpu: 75
+    
+          # Scheduled scaling actions to adjust the guardrails
+          schedule:
+            business_hours:
+              start_time: "09:00"
+              end_time: "18:00"
+              days: MON-FRI
+              min_capacity: 2/1
+              max_capacity: 10/2
 
 ## Drift Detection and Management
 

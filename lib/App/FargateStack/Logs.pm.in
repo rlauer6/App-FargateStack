@@ -42,7 +42,7 @@ sub cmd_logs {
     }
   }
 
-  my $logs = App::Logs->new( $self->get_global_options );
+  my $logs = $self->fetch_logs;
 
   my $log_group_name    = $config->{log_group}->{name};
   my $log_stream_prefix = sprintf '%s/%s', $config->{app}->{name}, $task_name;

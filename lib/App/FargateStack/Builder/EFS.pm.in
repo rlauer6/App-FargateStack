@@ -47,6 +47,8 @@ sub add_volumes {
       if !$file_system;
 
     $arn = $efs_config->{arn} = $file_system->[0]->{FileSystemArn};
+
+    $self->log_info( 'task: EFS ARN: [%s]', $arn );
   }
 
   return (

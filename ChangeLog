@@ -1,3 +1,71 @@
+Sun Sep  7 18:18:57 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.41]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/FargateStack/AutoscalingConfig.pm.in: new
+	* Makefile: add above to build
+	* lib/App/ApplicationAutoscaling.pm.in
+	(put_scheduled_action)
+	- fleshed out API call
+	(describe_scheduled_actions): likewise
+	* lib/App/EC2.pm.in
+	(describe_security_groups): named args
+	* lib/App/Events.pm.in
+	(_validate_range): escape -
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- register-task-definitions
+	- check EFS ingress state
+	(is_efs_ingress_authorized): new
+	(get_efs_sgs): save state
+	* lib/App/FargateStack/Builder/Autoscaling.pm.in
+	(build_autoscaling)
+	- refactored to use App::FargateStack::AutoScalingConfig
+	(build_scheduled_actions): new
+	(_build_autoscaling): new
+	* lib/App/FargateStack/Builder/Cluster.pm.in
+	- log message tweaking
+	* lib/App/FargateStack/Builder/EFS.pm.in: likewise
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	- likewise
+	- describe_security_group_rules named arguments
+	- true not JSON::true
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	- log message tweaks
+	* lib/App/FargateStack/Builder/SecurityGroup.pm.in
+	(build_security_group)
+	- check_result
+	- report security_group_id properly
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	- log message tweaks
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(log_die): die, so we invoke the handler
+	(fetch_cli_api): escape -
+	* lib/App/FargateStack/Builder/WafV2.pm.in: likewise
+	* lib/App/FargateStack/Constants.pm.in
+	- reorganize
+	* lib/App/FargateStack/CreateStack.pm.in
+	- refactored
+	- respect --no-update option
+	- true not JSON::true
+	(cmd_create_stack)
+	- validate config
+	- use constants
+	(parse_autoscaling_options)
+	- policy_name already set\
+	- true, not JSON::true
+	(parse_environment_option): new
+	* lib/App/FargateStack/Init.pm.in
+	(init)
+	- warn on caught eval errors
+	(_init_route53): log message tweaks
+	* lib/App/FargateStack/Logs.pm.in
+	(cmd_logs): fetch_logs
+	* lib/App/FargateStack/Pod.pm.in
+	- fixes
+	* t/02-cron.t: new 
+
 Thu Sep  4 16:40:08 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.40]:
@@ -1733,7 +1801,3 @@ Fri Jul 18 10:40:23 2025  Rob Lauer  <rlauer6@comcast.net>
 	* t/00-app-fargatestack.t: new
 	* test-requires: new
 	* version.mk: new
-
-
-
-

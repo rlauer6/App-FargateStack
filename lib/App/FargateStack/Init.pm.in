@@ -92,7 +92,10 @@ sub init {
     $SIG{__DIE__} = sub {
       my $msg = shift;
 
-      return if $EXCEPTIONS_BEING_CAUGHT;  # eval
+      if ($EXCEPTIONS_BEING_CAUGHT) {  # eval
+        warn $msg;
+        return;
+      }
 
       # if config exists...we have removed last_updated and id
       if ( $config && $config->{config_name} ) {
@@ -426,14 +429,16 @@ sub _init_route53 {
   return
     if $self->get_cache;
 
-  $self->log_warn( 'init-route53: validating hosted zone id: [%s]', $zone_id );
+  $self->log_info( 'init-route53: validating hosted zone id: [%s]...', $zone_id );
 
   my $zone = eval { return $route53->validate_hosted_zone( zone_id => $zone_id, domain => $domain, alb_type => $alb_type, ); };
 
   my $err = $EVAL_ERROR;
 
-  return
-    if $zone && !$err;
+  if ( $zone && !$err ) {
+    $self->log_info( 'init-route53: hosted zone id: [%s/%s]', $zone->{Id}, $zone->{Name} );
+    return;
+  }
 
   # output a helpful table of hosted zones for this domain
   $self->log_warn( "\n" . $self->display_hosted_zones($domain) );

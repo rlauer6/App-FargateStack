@@ -235,14 +235,17 @@ sub describe_subnet {
 ########################################################################
 sub describe_security_group_rules {
 ########################################################################
-  my ( $self, $group_id, $query ) = @_;
+  my ( $self, %args ) = @_;
 
-  croak "usage: describe_security_group_rules(group-id, [query])\n"
-    if !$group_id;
+  my ( $group_id, $query, $filters ) = @args{qw(group_id query filters)};
 
-  return $self->command( 'describe-security-group-rules' =>
-      [ '--filters', 'Name=group-id,Values=' . $group_id, $query ? ( '--query' => $query ) : (), ] );
+  if ($group_id) {
+    $filters = sprintf 'Name=group-id,Values=%s', $group_id;
+  }
 
+  return $self->command(
+    'describe-security-group-rules' => [ $filters ? ( '--filters' => $filters ) : (), $query ? ( '--query' => $query ) : (), ]
+  );
 }
 
 ########################################################################

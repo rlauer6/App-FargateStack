@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die confirm);
+use App::FargateStack::Builder::Utils qw(log_die confirm dmp);
 
 use CLI::Simple::Constants qw(:booleans);
 use Carp;
@@ -92,22 +92,28 @@ sub build {
   # -- task definitions --
   foreach my $task_name ( keys %{$tasks} ) {
     $self->register_task_definition($task_name);
+    $self->benchmark( 'register-task-definition:' . $task_name );
+    $self->section_break;
   }
 
   # -- EFS ingress
   foreach my $task_name ( keys %{$tasks} ) {
     next if !exists $tasks->{$task_name}->{efs} || !$tasks->{$task_name}->{efs}->{authorize_ingress};
+    my $efs_config = $tasks->{$task_name}->{efs};
+    my $efs_id     = $efs_config->{id};
 
-    my $efs_id = $tasks->{$task_name}->{efs}->{id};
-    $self->log_warn( 'efs: authorizing task: [%s] ingress to EFS: [%s]...%s', $task_name, $efs_id, $dryrun );
+    if ( !$self->is_efs_ingress_authorized($efs_config) ) {
+      $self->log_warn( 'efs: authorizing task: [%s] ingress to EFS: [%s]...%s', $task_name, $efs_id, $dryrun );
 
-    if ( !$dryrun ) {
-      $self->authorize_efs_ingress( $config->{security_groups}->{fargate}->{group_id}, $efs_id );
+      $self->authorize_efs_ingress( $config->{security_groups}->{fargate}->{group_id}, $efs_config );
     }
-  }
+    else {
+      $self->log_info( 'efs: ingress for [%s] to [%s]...already authorized...skipping', $task_name, $efs_id );
+    }
 
-  $self->benchmark('task-definition');
-  $self->section_break;
+    $self->benchmark('efs-ingress');
+    $self->section_break;
+  }
 
   ## -- events --
   if ( $self->has_events ) {
@@ -1142,11 +1148,12 @@ sub remove_alias_record {
 ########################################################################
 sub get_efs_sgs {
 ########################################################################
-  my ( $self, $efs_id ) = @_;
+  my ( $self, $efs_config ) = @_;
 
   my $ec2 = $self->get_ec2;
 
-  my $efs = $self->fetch_efs();
+  my $efs    = $self->fetch_efs();
+  my $efs_id = $efs_config->{id};
 
   my $eni_list = $efs->describe_mount_targets( $efs_id, 'MountTargets[].NetworkInterfaceId' );
   $efs->check_result( message => 'ERROR: could not describe mount targets for: [%s]', $efs_id );
@@ -1154,19 +1161,54 @@ sub get_efs_sgs {
   my $sgs = $ec2->describe_network_interfaces( $eni_list, 'NetworkInterfaces[].Groups[].GroupId' );
   $ec2->check_result( message => 'ERROR: could not describe network interfaces for: [%s]', join q{,}, @{$eni_list} );
 
-  return uniq @{$sgs};
+  $efs_config->{security_groups} = [ uniq @{$sgs} ];
+
+  return $efs_config->{security_groups};
+}
+
+########################################################################
+sub is_efs_ingress_authorized {
+########################################################################
+  my ( $self, $efs_config ) = @_;
+
+  my $fargate_sg = $self->get_config->{security_groups}->{fargate}->{group_id};
+  my $efs_sgs    = $efs_config->{security_groups};
+
+  my $ec2 = $self->fetch_ec2;
+
+  my $filters = sprintf 'Name=group-id,Values=%s', join q{,}, @{$efs_sgs};
+  my $query = sprintf 'SecurityGroupRules[?IsEgress == `false` && ReferencedGroupInfo.GroupId == `%s`]|[0]', $fargate_sg;
+
+  my $ingress_rules = $ec2->describe_security_group_rules(
+    filters => $filters,
+    query   => $query
+  );
+
+  $ec2->check_result( message => 'ERROR: could not describe security group rules', join q{,}, @{$efs_sgs} );
+
+  return
+    if !$ingress_rules;
+
+  return $ingress_rules->{FromPort} == $DEFAULT_EFS_PORT && $ingress_rules->{ToPort} == $DEFAULT_EFS_PORT;
 }
 
 ########################################################################
 sub authorize_efs_ingress {
 ########################################################################
-  my ( $self, $task_sg, $efs_id ) = @_;
+  my ( $self, $task_sg, $efs_config ) = @_;
 
-  my @efs_sgs = $self->get_efs_sgs($efs_id);
+  my $dryrun = $self->get_dryrun;
+
+  my $efs_sgs = $efs_config->{security_groups} // $self->get_efs_sgs($efs_config);
+
+  dmp efs_config => $efs_config;
 
   my $ec2 = $self->fetch_ec2;
 
-  foreach my $efs_sg (@efs_sgs) {
+  return
+    if $dryrun;
+
+  foreach my $efs_sg ( @{$efs_sgs} ) {
     $ec2->authorize_security_group_ingress(
       'group_id'     => $efs_sg,
       'protocol'     => 'tcp',

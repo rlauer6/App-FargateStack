@@ -332,7 +332,7 @@ sub _validate_range {
   my ( $expr, $min, $max ) = @_;
 
   return $TRUE
-    if $expr !~ /[-]/xsm;
+    if $expr !~ /[\-]/xsm;
 
   return $FALSE
     if !$expr;
