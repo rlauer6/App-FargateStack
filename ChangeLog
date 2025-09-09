@@ -1,3 +1,34 @@
+Tue Sep  9 09:53:32 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.42]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/FargateStack/Autoscaling.pm.in: new
+	* Makefile: add above to build
+	* lib/App/ApplicationAutoscaling.pm.in
+	- delete_scheduled_action, not describe-scheduled-actions
+	* lib/App/FargateStack.pm.in
+	- + add-scaling-policy, add-scheduled-action,
+	- + delete-scaling-policy, delete-scheduled-action
+	* lib/App/FargateStack/AutoscalingConfig.pm.in
+	(new)
+	- update config
+	(parse_cooldown): use class values or use config
+	(parse_capacity): likewise
+	(parse_metric): likewise
+	* lib/App/FargateStack/Builder.pm.in
+	(get_scheduled_action_names): new
+	* lib/App/FargateStack/Builder/Autoscaling.pm.in
+	(_build_autoscaling)
+	- update policy_arn
+	- add task name to policy name
+	- log message tweaks
+	- qualify required resource (autoscaling:scaling-policy)
+	(build_scheduled_actions): juxtaposed values in log file
+	* lib/App/FargateStack/Constants.pm.in
+	(%DEFAULT_NAMES): add task name to autoscaling policy name for uniqueness
+	* lib/App/FargateStack/Pod.pm.in
+
 Sun Sep  7 18:18:57 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.41]:
@@ -64,7 +95,7 @@ Sun Sep  7 18:18:57 2025  Rob Lauer  <rlauer6@comcast.net>
 	(cmd_logs): fetch_logs
 	* lib/App/FargateStack/Pod.pm.in
 	- fixes
-	* t/02-cron.t: new 
+	* t/02-cron.t: new
 
 Thu Sep  4 16:40:08 2025  Rob Lauer  <rlauer6@comcast.net>
 

@@ -25,6 +25,9 @@
   * [Command Logging](#command-logging)
   * [Command Descriptions](#command-descriptions)
     * [help](#help)
+    * [add-autoscaling-policy](#add-autoscaling-policy)
+    * [add-scaling-policy](#add-scaling-policy)
+    * [add-scheduled-action](#add-scheduled-action)
     * [apply](#apply)
     * [create-stack](#create-stack)
       * [Service clause grammar](#service-clause-grammar)
@@ -151,6 +154,7 @@
 * [SEE ALSO](#see-also)
 * [AUTHOR](#author)
 * [LICENSE](#license)
+* [POD ERRORS](#pod-errors)
 ---
 [Back to Table of Contents](#table-of-contents)
 
@@ -201,7 +205,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.41.
+This documentation corresponds to version 1.0.42.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -251,34 +255,40 @@ object-oriented use. As such, this section is intentionally omitted.
 
 ## Commands
 
-    Command                  Arguments                    Description
-    -------                  ---------                    -----------
-    apply                                                 reads config and creates resources
-    create-stack             app-name service-clauses...  creates a new stack configuration
-    delete-service           task-name                    alias for remove-service
-    delete-task              task-name                    deletes all resources associated with a task (See Note 11)
-    delete-scheduled-task    task-name                    deletes all resources associated with a scheduled task (See Note 11)
-    delete-daemon            task-name                    deletes all resources associated with a daemon  (See Note 11)
-    delete-http-service      task-name                    deletes all resources associated with a http service  (See Note 11)
-    deploy-service           task-name                    create a new service (see Note 4)
-    disable-scheduled-task   task-name                    disable a scheduled task
-    enable-scheduled-task t  ask-name                     enable a scheduled task
-    help                     [subject]                    displays general help or help on a particular subject (see Note 2)
-    list-tasks                                            list running or stopped tasks
-    list-zones               domain                       list the hosted zones for a domain
-    logs                     task-name start end          display CloudWatch logs (see Note 5)
+    Command                   Arguments                    Description
+    -------                   ---------                    -----------
+    add-scaling-policy        See Note 12                  adds an autoscaling policy to the configuration
+    add-schedule-action       See Note 13                  adds a scheduled scaling action
+    apply                                                  reads config and creates resources
+    create-stack              app-name service-clauses...  creates a new stack configuration
+    delete-scaling-policy     task-name                    deletes the autoscaling policy for a task from your configuration
+    delete-scheduled-action   action-name                  deletes a named scheduled action from your configuration
+    delete-service            task-name                    alias for remove-service
+    delete-task               task-name                    deletes all resources associated with a task (See Note 11)
+    delete-autoscaling-policy task-name                    deletes a metric based scaling policy for the task
+    delete-scheduled-action   action-name                  deletes an existing autoscaling scheduled action
+    delete-scheduled-task     task-name                    deletes all resources associated with a scheduled task (See Note 11)
+    delete-daemon             task-name                    deletes all resources associated with a daemon  (See Note 11)
+    delete-http-service       task-name                    deletes all resources associated with a http service  (See Note 11)
+    deploy-service            task-name                    create a new service (see Note 4)
+    disable-scheduled-task    task-name                    disable a scheduled task
+    enable-scheduled-task t   ask-name                     enable a scheduled task
+    help                      [subject]                    displays general help or help on a particular subject (see Note 2)
+    list-tasks                                             list running or stopped tasks
+    list-zones                domain                       list the hosted zones for a domain
+    logs                      task-name start end          display CloudWatch logs (see Note 5)
     plan                                                  reads config and reports on resource creation
-    register-task-definition task-name                    creates a new task definition revision
-    remove-service           task-name                    removes an existing service but does not delete the task
-    run-task                 task-name                    launches an adhoc task
-    show                     command args                 output additional info about the stack or run states
-     cloudtrail-events   task-name start-time [end-time]  show cloudtrail events for a scheduled task (useful for debugging)
+    register-task-definition  task-name                    creates a new task definition revision
+    remove-service            task-name                    removes an existing service but does not delete the task
+    run-task                  task-name                    launches an adhoc task
+    show                      command args                 output additional info about the stack or run states
+     cloudtrail-events task-name start-time [end-time]  show cloudtrail events for a scheduled task (useful for debugging)
      stack                                                shows a summary of the stack configuration
-    start-service            task-name [count]            starts a service
-    status                   task-name                    provides the current status for a task
-    stop-service             task-name                    stops a running service
+    start-service             task-name [count]            starts a service
+    status                    task-name                    provides the current status for a task
+    stop-service              task-name                    stops a running service
     update-policy                                         updates the ECS policy in the event of resource changes
-    update-target            task-name                    force update of target definition
+    update-target             task-name                    force update of target definition
     version                                               display the current version number
 
 ## Options
@@ -405,6 +415,67 @@ the resources associated with that task.
 
             - ECR image associated with a task
             - An ACM certificate provisioned by App::FargateStack
+- (12) This command will add a scaling policy to an HTTP, HTTPS or
+daemon task. In order to apply the policy you must run `plan` &
+`apply`. You provide the following arguments in order:
+
+        [task-name] metric-type metric-value [min-capacity max-capacity [scale-out-cooldown scale-in-cooldown]]
+
+    - `task-name` is optional if you only have 1 scalable task.
+    - `min-capacity`, `max-capacity` are optional and will default to 1 and 2 respectively.
+    - `scale-out-cooldown`, `scale-in-cooldown` are optional. If
+    you provided you must include the capacity paramters.
+
+            app-FargateStack apache requests 500 2 3 60 300
+
+- (13) This command will add a schedule scaling action to your
+configuration. In order to activate the schedule you must run `plan`
+and `apply`. You provide the following arguments in order:
+
+        [task-name] action-name start-time end-time days scale-out-capacity scale-in-capacity
+
+    - `task-name` is optional if you only have 1 scalable task.
+    - `action-name` is a name for your schedule. It must be
+    unique within your entire configuration.
+    - `start-time` is UTC. The format for the staring time is
+    MM::HH. (Example: 00:18)
+    - `days` is the day or days of the week for the scheduled action.
+
+        _Note: Days should be one of MON,TUE,WED,THU,FRI,SAT or 1-7_
+
+        Example:
+
+        Scale out to 4 tasks at 10pm (EDT) for 30 minutes to run a batch job
+        on Friday night.
+
+            00:02 30:02 SAT 4/1 4/1
+
+        _Note that the cron specification is in UTC, hence we run at 2am for
+        30 minutes on Saturday morning in UTC._
+
+    - `end-time` time t scale back in. Same format as `start-time`
+    - `scale-out-capacity`, `scale-in-capacity` - These options
+    represent the scale out and scale in capacities.
+
+        Each value should be a tuple separated by '/', ',', ':' or '-'. The
+        first value represents the minimum or maximum capacity for scaling out
+        or in at the specified starting time of schedule action. The second
+        value represents the minimum or maximum capacity for scaling in or out
+        at the ending time of the action.
+
+        Example to scale out to 2 tasks during business hours of 8:30am and
+        5:30pm and scale in to 1 task during non-business hours.
+
+            app-FargateStack add-scheduled-action business_hours 30:12 30:21 MON-FRI 2/1 2/1
+
+        If you had a scaling policy, your scaling policies `max_capacity`
+        must be greater than or equal to the largest maximum capacity of your
+        all of you scheduled actions for that task.
+
+            app-FargateStack add-scheduled-action business_hours 30:12 30:21 2/1 4/1
+
+        In this case, your scaling policy `max_capacity` value must be at least
+        4.
 
 [Back to Table of Contents](#table-of-contents)
 
@@ -689,6 +760,158 @@ match if you do provide the exact help topic, so you can cheat and use
 shortened versions of the topic.
 
     help cloudwatch
+
+### add-autoscaling-policy
+
+### add-scaling-policy
+
+This command will add a scaling policy to an HTTP, HTTPS or
+daemon task. In order to apply the policy you must run `plan` &
+`apply`. You provide the following arguments in order:
+
+    [task-name] metric-type metric-value [min-capacity max-capacity [scale-out-cooldown scale-in-cooldown]]
+
+Example:
+
+    app-FargateStack add-scaling-policy cpu 60 1 3
+
+- task-name
+
+    The task in your configuration that will contain the new scaling
+    policy. This is optional if you only have 1 scalable task.
+
+- metric-type (required)
+
+    One of `cpu` or `requests`
+
+- metric-value (required)
+
+    The metric value. For `cpu` it should be an integer between 1 and
+    100\. For `requests` it should be a count representing the number of
+    requests your ALB receives per minute.
+
+- min-capacity
+
+    The minimum number of tasks to maintain.
+
+    default: 1
+
+- max-capacity
+
+    The maximum number of tasks to scale up.
+
+    default: 2
+
+- scale-out-cooldown
+
+    The number of seconds to wait before scaling up another task.
+
+    default: 60
+
+- scale-in-cooldown
+
+    The number of seconds to wait until scaling down a task.
+
+    default: 300 (5 minutes)
+
+### add-scheduled-action
+
+This command will add a schedule scaling action to your
+configuration. In order to activate the schedule you must run `plan`
+and `apply`. You provide the following arguments in order:
+
+    [task-name] action-name start-time end-time days scale-out-capacity scale-in-capacity
+
+- task-name (optional)
+
+    The task in your configuration that will contain the new scheduled action configuration.
+    This is optional if you only have 1 scalable task.
+
+- action-name
+
+    `action-name` is a name for your schedule. It must be
+    unique within your entire configuration.
+
+- start-time
+
+    The starting time of the scheduled action as MM::HH (UTC).
+
+        Example: 00:18
+
+- end-time
+
+    The time to scale back in. Same format as `start-time`.
+
+- days
+
+    The the day or days of the week for the scheduled action.
+
+    _Note: Days should be one of MON,TUE,WED,THU,FRI,SAT or 1-7_
+
+    Example 1:
+
+    Scale out to 4 tasks at 10pm (EDT) for 30 minutes to run a batch job
+    on Friday night.
+
+        00:02 30:02 SAT 4/1 4/1
+
+    _Note that the cron specification is in UTC, hence we run at 2am for
+    30 minutes on Saturday morning in UTC._
+
+- scale-out-capacity
+- scale-in-capacity
+
+    These options represent the scale out and scale in capacities.
+
+    Each value should be a tuple separated by '/', ',', ':' or '-'. The
+    first value represents the minimum or maximum capacity for scaling out
+    or in at the specified starting time of schedule action. The second
+    value represents the minimum or maximum capacity for scaling in or out
+    at the ending time of the action.
+
+    **Example 1:**
+
+    To scale out to 2 tasks during business hours of 8:30am and 5:30pm and
+    scale in to 1 task during non-business hours (with no metric based
+    scaling policy):
+
+        app-FargateStack add-scheduled-action business_hours 30:12 30:21 2/1 2/1
+
+    _Note that without a scaling policy your minimum and maximum
+    capacities for scaling in and out must be equal._
+
+    **Example 2:**
+
+    If your task includes a scaling policy, your scaling policy's `max_capacity`
+    must be greater than or equal to the largest maximum capacity of your
+    scheduled action.
+
+        app-FargateStack add-scheduled-action business_hours 30:12 30:21 2/1 3/1
+
+    In this case, your scaling policy `max_capacity` value must be at least
+    4\. You `autoscaling:` section will look like this:
+
+        tasks:
+          apache:
+            type: https
+            autoscaling:
+              min_capacity: 1
+              max_capacity: 3
+              requests: 1000
+              scale_in_cooldown: 300
+              scale_out_cooldown: 60
+              scheduled:
+                business_hours:
+                  start_time: 30:12
+                  end_time: 21:30
+                  min_capacity: 2/1
+                  max_capacity: 3/1
+
+**Note:**
+
+_Scheduled actions are only for HTTP, HTTPS and daemon tasks. If you
+need to run a one-shot job at a particular time use a [scheduled
+task](#scheduled-jobs)._
 
 ### apply
 
@@ -2941,3 +3164,23 @@ Rob Lauer - rclauer@gmail.com
 # LICENSE
 
 This script is released under the same terms as Perl itself.
+
+# POD ERRORS
+
+Hey! **The above document had some coding errors, which are explained below:**
+
+- Around line 367:
+
+    Expected '=item \*'
+
+- Around line 370:
+
+    Expected '=item \*'
+
+- Around line 384:
+
+    Expected '=item \*'
+
+- Around line 386:
+
+    Expected '=item \*'

@@ -42,7 +42,11 @@ sub new {
 
   my $self = $class->SUPER::new($options);
 
-  $self->update( policy_name => $self->get_policy_name );
+  foreach (qw(cpu requests scale_in_cooldown scale_out_cooldown policy_name)) {
+    next if !defined $self->get($_);
+
+    $self->update( $_ => $self->get($_) );
+  }
 
   $self->parse_metric();
 
@@ -114,16 +118,19 @@ sub parse_cooldown {
 ########################################################################
   my ($self) = @_;
 
+  return
+    if !$self->get_cpu && !$self->get_requests;
+
   my $config = $self->get_config;
 
-  my ( $scale_out_cooldown, $scale_in_cooldown )
-    = map { defined $_ ? int $_ : 0 } @{$config}{qw( scale_out_cooldown scale_in_cooldown)};
+  my $scale_out_cooldown = $self->get_scale_out_cooldown // $config->{scale_out_cooldown};
+  my $scale_in_cooldown  = $self->get_scale_in_cooldown  // $config->{scale_in_cooldown};
 
   $scale_out_cooldown ||= $DEFAULT_AUTOSCALING_SCALE_OUT_COOLDOWN;
   $scale_in_cooldown  ||= $DEFAULT_AUTOSCALING_SCALE_IN_COOLDOWN;
 
-  $self->update( scale_out_cooldown => $scale_out_cooldown );
-  $self->update( scale_in_cooldown  => $scale_in_cooldown );
+  $self->update( scale_out_cooldown => int $scale_out_cooldown );
+  $self->update( scale_in_cooldown  => int $scale_in_cooldown );
 
   return $self;
 }
@@ -133,9 +140,13 @@ sub parse_scaling_capacity {
 ########################################################################
   my ($self) = @_;
 
+  return
+    if !$self->get_cpu && !$self->get_requests;
+
   my $config = $self->get_config;
 
-  my ( $min_capacity, $max_capacity ) = map { defined $_ ? int $_ : 0 } @{$config}{qw( min_capacity max_capacity )};
+  my $min_capacity = $self->get_min_capacity // $config->{min_capacity};
+  my $max_capacity = $self->get_max_capacity // $config->{max_capacity};
 
   $min_capacity ||= $DEFAULT_AUTOSCALING_MIN_CAPACITY;
   $max_capacity ||= $DEFAULT_AUTOSCALING_MAX_CAPACITY;
@@ -143,8 +154,8 @@ sub parse_scaling_capacity {
   die sprintf 'autoscaling: min_capacity [%s] must be less than max_capacity [%s]', $min_capacity, $max_capacity
     if $min_capacity > $max_capacity;
 
-  $self->update( min_capacity => $min_capacity );
-  $self->update( max_capacity => $max_capacity );
+  $self->update( min_capacity => int $min_capacity );
+  $self->update( max_capacity => int $max_capacity );
 
   return $self;
 }
@@ -164,22 +175,38 @@ sub parse_metric {
 
   my $config = $self->get_config;
 
+  my $metric = $self->get_metric;
+
+  if ( $metric && $metric =~ /^(cpu|requests)[: \-,](\d+)$/xsm ) {
+    $metric = $1;
+    $config->{$1} = $2;
+  }
+  elsif ( defined $self->get_cpu ) {
+    $config->{cpu} = $self->get_cpu;
+  }
+  elsif ( defined $self->get_requests ) {
+    $config->{requests} = $self->get_requests;
+  }
+
   my @metric = choose {
     return ( 'cpu', int $config->{cpu} )
-      if $config->{cpu};
+      if defined $config->{cpu};
 
     return ( 'requests', int $config->{requests} )
-      if $config->{requests};
+      if defined $config->{requests};
 
     # scheduled only?
     return ( $config->{scheduled}, 0 )
-      if $config->{scheduled};
+      if defined $config->{scheduled};
 
     return;
   };
 
   die 'autoscaling: autoscaling type must be one of "cpu", "requests" or "scheduled"'
     if !@metric;
+
+  return  # scheduled
+    if !$metric[1];
 
   $self->set_metric( $metric[0] );
 

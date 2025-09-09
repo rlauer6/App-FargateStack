@@ -237,11 +237,11 @@ Readonly::Scalar our $SEC_PER_DAY  => 24 * $SEC_PER_HOUR;
 ########################################################################
 Readonly::Hash our %DEFAULT_NAMES => (
   'autoscaling-policy-name' => sub {
-    my ($self) = @_;
+    my ( $self, $task_name ) = @_;
 
     my $app_name = $self->get_config->{app}->{name};
 
-    return sprintf 'app-fargatestack-%s-autoscaling-policy', $app_name;
+    return sprintf 'app-fargatestack-%s-%s-autoscaling-policy', $app_name, $task_name;
   },
   'security-group' => sub {
     my ( $self, @args ) = @_;

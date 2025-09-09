@@ -235,6 +235,23 @@ sub resolve_resource_value {
 }
 
 ########################################################################
+sub get_scheduled_action_names {
+########################################################################
+  my ($self) = @_;
+
+  my $config = $self->get_config;
+  my @scheduled_action_names;
+
+  foreach ( keys %{ $config->{tasks} } ) {
+    next if !exists $config->{tasks}->{$_}->{autoscaling};
+    next if !exists $config->{tasks}->{$_}->{autoscaling}->{scheduled};
+    push @scheduled_action_names, keys %{ $config->{tasks}->{$_}->{autoscaling}->{scheduled} };
+  }
+
+  return @scheduled_action_names;
+}
+
+########################################################################
 sub update_config_id {
 ########################################################################
   my ($self) = @_;

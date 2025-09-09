@@ -38,6 +38,7 @@ with 'App::FargateStack::Logs';
 with 'App::FargateStack::Route53';
 with 'App::FargateStack::CloudTrail';
 with 'App::FargateStack::CreateStack';
+with 'App::FargateStack::Autoscaling';
 
 with 'App::Benchmark';
 
@@ -1602,38 +1603,42 @@ sub main {
   );
 
   my %commands = (
-    'create-stack'           => [ \&cmd_create_stack,   'error', { skip_init => $TRUE, skip_config => $TRUE } ],
-    'deploy-service'         => [ \&cmd_deploy_service, 'info' ],
-    'disable-scheduled-task' => \&cmd_disable_scheduled_task,
-    'enable-scheduled-task'  => \&cmd_enable_scheduled_task,
-    'delete-schedule'        => \&cmd_delete_schedule,
-    'delete-daemon'          => \&cmd_delete_daemon,
-    'delete-task'            => \&cmd_delete_task,
-    'delete-service'         => [ \&cmd_remove_service, 'info' ],
-    'delete-http-service'    => \&cmd_delete_http_service,
-    'list-tasks'             => [ \&cmd_list_tasks, 'error' ],
-    'list-zones'             => [ \&cmd_list_zones, 'error' ],
-    'register-task'          => \&cmd_register_task_definition,
-    'remove-service'         => [ \&cmd_remove_service, 'info' ],
-    'reset-history'          => [ \&cmd_reset_history,  'info', { skip_init => $TRUE, skip_config => $TRUE } ],
-    'run-task'               => \&cmd_run_task,
-    'start-service'          => [ \&cmd_start_stop_service, 'info' ],
-    'stop-service'           => [ \&cmd_start_stop_service, 'error' ],
-    'stop-task'              => [ \&cmd_stop_task,          'error' ],
-    'update-policy'          => \&cmd_update_policy,
-    'update-service'         => [ \&cmd_update_service, 'error', { skip_init => $TRUE } ],
-    'update-target'          => \&cmd_update_target,
-    apply                    => \&cmd_apply,
-    state                    => [ \&cmd_state,   'error', { skip_init => $TRUE, skip_config => $TRUE } ],
-    default                  => [ \&cmd_explain, 'error' ],
-    destroy                  => \&cmd_destroy,
-    help                     => [ \&help,     'error', { skip_init => $TRUE, skip_config => $TRUE } ],
-    logs                     => [ \&cmd_logs, 'error' ],
-    plan                     => \&cmd_plan,
-    redeploy                 => \&cmd_redeploy,
-    show                     => [ \&cmd_show,           'error', { skip_init => $TRUE, skip_config => $TRUE } ],
-    status                   => [ \&cmd_service_status, 'error' ],
-    version                  => [ \&cmd_version,        'error', { skip_init => $TRUE, skip_config => $TRUE } ],
+    'add-scaling-policy'      => [ \&cmd_add_scaling_policy,   'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    'add-scheduled-action'    => [ \&cmd_add_scheduled_action, 'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    'create-stack'            => [ \&cmd_create_stack,         'error', { skip_init => $TRUE, skip_config => $TRUE } ],
+    'delete-daemon'           => \&cmd_delete_daemon,
+    'delete-http-service'     => \&cmd_delete_http_service,
+    'delete-scaling-policy'   => [ \&cmd_delete_autoscaling_policy, 'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    'delete-schedule'         => \&cmd_delete_schedule,
+    'delete-scheduled-action' => [ \&cmd_delete_scheduled_action, 'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    'delete-service'          => [ \&cmd_remove_service, 'info' ],
+    'delete-task'             => \&cmd_delete_task,
+    'deploy-service'          => [ \&cmd_deploy_service, 'info' ],
+    'disable-scheduled-task'  => \&cmd_disable_scheduled_task,
+    'enable-scheduled-task'   => \&cmd_enable_scheduled_task,
+    'list-tasks'              => [ \&cmd_list_tasks, 'error' ],
+    'list-zones'              => [ \&cmd_list_zones, 'error' ],
+    'register-task'           => \&cmd_register_task_definition,
+    'remove-service'          => [ \&cmd_remove_service, 'info' ],
+    'reset-history'           => [ \&cmd_reset_history,  'info', { skip_init => $TRUE, skip_config => $TRUE } ],
+    'run-task'                => \&cmd_run_task,
+    'start-service'           => [ \&cmd_start_stop_service, 'info' ],
+    'stop-service'            => [ \&cmd_start_stop_service, 'error' ],
+    'stop-task'               => [ \&cmd_stop_task,          'error' ],
+    'update-policy'           => \&cmd_update_policy,
+    'update-service'          => [ \&cmd_update_service, 'error', { skip_init => $TRUE } ],
+    'update-target'           => \&cmd_update_target,
+    apply                     => \&cmd_apply,
+    default                   => [ \&cmd_explain, 'error' ],
+    destroy                   => \&cmd_destroy,
+    help                      => [ \&help,     'error', { skip_init => $TRUE, skip_config => $TRUE } ],
+    logs                      => [ \&cmd_logs, 'error' ],
+    plan                      => \&cmd_plan,
+    redeploy                  => \&cmd_redeploy,
+    show                      => [ \&cmd_show,           'error', { skip_init => $TRUE, skip_config => $TRUE } ],
+    state                     => [ \&cmd_state,          'error', { skip_init => $TRUE, skip_config => $TRUE } ],
+    status                    => [ \&cmd_service_status, 'error' ],
+    version                   => [ \&cmd_version,        'error', { skip_init => $TRUE, skip_config => $TRUE } ],
   );
 
   my $fargate_stack = App::FargateStack->new(
@@ -1647,8 +1652,11 @@ sub main {
       return $FALSE;
     },
     alias => {
-      options  => { 'dns-profile'    => 'route53-profile' },
-      commands => { 'create-service' => 'deploy-service' },
+      options  => { 'dns-profile' => 'route53-profile' },
+      commands => {
+        'create-service'            => 'deploy-service',
+        'delete-autoscaling-policy' => 'delete-scaling-policy',
+      },
     },
   );
 

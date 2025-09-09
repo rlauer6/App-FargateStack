@@ -47,7 +47,7 @@ sub _build_autoscaling {
 
   my $app_autoscaling = $self->fetch_application_autoscaling;
 
-  my $policy_name = $self->create_default('autoscaling-policy-name');
+  my $policy_name = $self->create_default( 'autoscaling-policy-name', $task_name );
 
   my $autoscaling_config
     = eval { return App::FargateStack::AutoscalingConfig->new( config => $task->{autoscaling}, policy_name => $policy_name ); };
@@ -84,10 +84,10 @@ sub _build_autoscaling {
   my $policy_configuration = $self->create_policy_configuration( $task_name, $autoscaling_config );
 
   if ( !$scaling_policy ) {
-    $self->log_warn( 'autoscaling: policy: [%s] does not exists...will be created...%s', $policy_name, $dryrun );
+    $self->log_warn( 'autoscaling: policy: [%s] does not exist...will be created...%s', $policy_name, $dryrun );
 
     $self->inc_required_resources(
-      autoscaling => sub {
+      'autoscaling:scaling-policy' => sub {
         my ($dryrun) = @_;
 
         return $dryrun ? 'arn:???' : $autoscaling_config->get_policy_arn;
@@ -132,7 +132,7 @@ sub _build_autoscaling {
         policy_configuration => $policy_configuration,
       );
 
-      $autoscaling_config->{policy_arn} = $arn;  # the arn should not change, but why not?
+      $autoscaling_config->update( policy_arn => $arn );  # the arn should not change, but why not?
     }
   }
   else {
@@ -315,7 +315,7 @@ sub build_scheduled_actions {
         && $min_capacity == $action->{$scale_type}->{Action}->{MinCapacity}
         && $max_capacity == $action->{$scale_type}->{Action}->{MaxCapacity} ) {
 
-        $self->log_info( 'autoscaling: scheduled action: [%s] has not changed...skipping', $action_name );
+        $self->log_info( 'autoscaling: scheduled action: [%s] for [%s] has not changed...skipping', $action_name, $scale_type );
         $self->inc_existing_resources(
           'autoscaling:scheduled' => [
             join "\n",
@@ -328,7 +328,8 @@ sub build_scheduled_actions {
 
       }
       else {
-        $self->log_warn( 'autoscaling: scheduled action: [%s] has changed...will be updated...%s', $dryrun, $action_name );
+        $self->log_warn( 'autoscaling: scheduled action: [%s] for [%s] has changed...will be updated...%s',
+          $action_name, $scale_type, $dryrun );
         $self->inc_required_resources( 'autoscaling:scheduled-action' => $action_name );
         $put_scheduled_actions{$action_name} = $action;
       }

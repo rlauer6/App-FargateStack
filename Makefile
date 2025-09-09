@@ -73,6 +73,7 @@ FARGATE_DEPS = \
     $(GAWS_PERL_MODULES) \
     lib/App/Benchmark.pm \
     lib/App/FargateStack/AutoscalingConfig.pm \
+    lib/App/FargateStack/Autoscaling.pm \
     lib/App/FargateStack/Checker.pm \
     lib/App/FargateStack/CloudTrail.pm \
     lib/App/FargateStack/Constants.pm \
