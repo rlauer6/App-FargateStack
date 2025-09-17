@@ -9,10 +9,10 @@ REALPATH=${REALPATH:-readlink -f}
 
 path=$(basename $($REALPATH $0))
 
-if ! [ "$path" = "app-fargatestack" ]; then
-    pgm=$(basename $($REALPATH $0))
-else
+if [ "$pgm" = "app-fargatestack" ]; then 
     pgm="app-FargateStack"
+elif [ "$pgm" = "app-fargatestack-checker" ]; then 
+   pgm="app-FargateStack-checker"
 fi
 
 MODULINO_PATH=$(echo $pgm | perl -ne 'chomp; printf "%s.pm", join "/", map { ucfirst $_ } split /-/;')

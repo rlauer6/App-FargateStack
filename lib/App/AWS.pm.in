@@ -41,6 +41,11 @@ sub command {
 
   my $service = $self->get__service_name;
 
+  if ( !$service ) {
+    ($service) = ref($self) =~ /App::(.*)$/xsm;
+    $service = lc $service;
+  }
+
   my @cmd = ( 'aws', $service, $command );
 
   my @args = (
