@@ -1,3 +1,41 @@
+Fri Sep 19 14:12:27 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.44]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/EC2.pm.in
+	(new): refactored
+	* lib/App/FargateStack.pm.in
+	(cmd_update_service): force-update
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(register_task_definition)
+	- warn if image not pushed to ECR
+	(compare_task_definition)
+	- compare arrays separately
+	(array_compare): new
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_cli_api)
+	- don't clobber options set during new()
+	* lib/App/FargateStack/CreateStack.pm.in
+	(cmd_create_stack): croak if wrong order of spec
+	* lib/App/FargateStack/Init.pm.in
+	(init): set vpc_id if not set
+	* lib/App/FargateStack/Pod.pm.in
+	- mention order of specs for create-stack
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(build_iam_role)
+	- refactored to add task role & policy
+	(create_fargate_policy): remove S3, SQS permissions
+	(create_fargate_task_policy):new
+	(create_fargate_task_role): new
+	(create_role): new
+	* lib/App/FargateStack/Constants.pm.in
+	(%DEFALT_NAMES)
+	- handle 'task' roles for 'role-name'
+	* lib/App/IAM.pm.in
+	(is_policy_attached)
+	- whitepace, refactored
+
 Wed Sep 17 10:27:29 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.43]:

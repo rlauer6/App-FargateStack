@@ -936,7 +936,7 @@ updates configuration file with resource details.
 
 Parses a compact, positional CLI grammar and emits a ready-to-edit YAML
 configuration for your Fargate framework. The command B<does not> create any
-AWS resources; it only synthesizes config based on the clauses you pass.
+AWS resources; it only synthesizes a configuration based on the clauses you pass.
 
 Examples:
 
@@ -962,6 +962,9 @@ Examples:
 
 Each service is introduced by C<< <type>:<name> >> followed by its required
 key:value pairs. You may specify multiple services in one command.
+
+I<Note: You must start each task definition set with a task type (one of
+daemon, task, scheduled, http or https).>
 
 Valid C<type> values and minimum keys:
 
@@ -1759,9 +1762,23 @@ role will be permitted to access only that specific bucket - not all
 buckets in your account. The policy is updated when new resources are
 added to the configuration file.
 
-The role name an role policy name are found under the C<role:> key in
-the configuration. A role name and role policy name are automatically
+The task execution role name and role policy name are found under the
+C<role:> key in the configuration. The task role is found under the
+C<task_role:> key. Role names and role policy names are automatically
 fabricated for you from the name you specified under the C<app:> key.
+
+=head2 Task Execution Role vs. Task Role
+
+It's important to understand that App::FargateStack provisions two
+distinct IAM roles for your service. The Task Role, which is detailed
+above, grants your application the specific permissions it needs to
+interact with other AWS services like S3 or SQS. In addition, the
+framework also creates a Task Execution Role. This second role is used
+by the Amazon ECS container agent itself and grants it permission to
+perform essential actions, such as pulling container images from ECR
+and sending logs to CloudWatch. You typically won't need to modify the
+Task Execution Role, as the framework manages its permissions
+automatically.
 
 =head1 SECURITY GROUPS
 

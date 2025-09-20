@@ -66,6 +66,7 @@
 * [CLOUDWATCH LOG GROUPS](#cloudwatch-log-groups)
   * [Log Group Notes](#log-group-notes)
 * [IAM PERMISSIONS](#iam-permissions)
+  * [Task Execution Role vs. Task Role](#task-execution-role-vs-task-role)
 * [SECURITY GROUPS](#security-groups)
 * [FILESYSTEM SUPPORT](#filesystem-support)
   * [Field Descriptions](#field-descriptions)
@@ -205,7 +206,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.43.
+This documentation corresponds to version 1.0.44.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -925,7 +926,7 @@ updates configuration file with resource details.
 
 Parses a compact, positional CLI grammar and emits a ready-to-edit YAML
 configuration for your Fargate framework. The command **does not** create any
-AWS resources; it only synthesizes config based on the clauses you pass.
+AWS resources; it only synthesizes a configuration based on the clauses you pass.
 
 Examples:
 
@@ -951,6 +952,9 @@ Examples:
 
 Each service is introduced by `<type>:<name>` followed by its required
 key:value pairs. You may specify multiple services in one command.
+
+_Note: You must start each task definition set with a task type (one of
+daemon, task, scheduled, http or https)._
 
 Valid `type` values and minimum keys:
 
@@ -1640,9 +1644,23 @@ role will be permitted to access only that specific bucket - not all
 buckets in your account. The policy is updated when new resources are
 added to the configuration file.
 
-The role name an role policy name are found under the `role:` key in
-the configuration. A role name and role policy name are automatically
+The task execution role name and role policy name are found under the
+`role:` key in the configuration. The task role is found under the
+`task_role:` key. Role names and role policy names are automatically
 fabricated for you from the name you specified under the `app:` key.
+
+## Task Execution Role vs. Task Role
+
+It's important to understand that App::FargateStack provisions two
+distinct IAM roles for your service. The Task Role, which is detailed
+above, grants your application the specific permissions it needs to
+interact with other AWS services like S3 or SQS. In addition, the
+framework also creates a Task Execution Role. This second role is used
+by the Amazon ECS container agent itself and grants it permission to
+perform essential actions, such as pulling container images from ECR
+and sending logs to CloudWatch. You typically won't need to modify the
+Task Execution Role, as the framework manages its permissions
+automatically.
 
 [Back to Table of Contents](#table-of-contents)
 

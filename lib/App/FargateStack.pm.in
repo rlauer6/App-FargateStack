@@ -791,6 +791,7 @@ sub cmd_update_service {
     service_name    => $service_name,
     task_definition => basename($task_definition_arn),
     query           => jmespath_mapping( service => \@elems ),
+    force           => $TRUE,
   );
 
   $ecs->check_result( message => 'ERROR: could not update service: [%s]', $service_name );
