@@ -1,3 +1,20 @@
+Mon Sep 22 07:00:50 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.50]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack/Builder/LogGroup.pm.in
+	(build_log_group)
+	- update ARN 
+	* lib/App/Logs.pm.in
+	(describe_log_groups)
+	- lookup exact name if given
+	* requires
+	- + Sub::Util
+	(check_service_name)
+	- better error reporting
+	(cmd_deploy_service): likewise
+
 Mon Sep 22 06:28:03 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.49]:

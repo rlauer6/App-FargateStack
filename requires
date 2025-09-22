@@ -1,6 +1,6 @@
 Carp::Always
 Class::Accessor::Fast
-CLI::Simple 1.0.0
+CLI::Simple
 CLI::Simple::Constants
 Data::Compare
 Date::Parse
@@ -13,6 +13,7 @@ Log::Log4perl::Level
 Readonly
 Role::Tiny
 Role::Tiny::With
+Sub::Util
 Text::ASCIITable::EasyTable
 Text::Diff
 Time::Piece
