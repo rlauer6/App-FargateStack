@@ -1,3 +1,15 @@
+Mon Sep 22 06:28:03 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.49]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack/Constants.pm.in
+	(%DEFAULT_NAMES)
+	- create a more unique log-group name
+	* lib/App/Logs.pm.in
+	(describe_log_groups)
+	- add "/" for exact match
+
 Mon Sep 22 06:09:10 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.48]:
