@@ -1065,22 +1065,28 @@ sub cmd_stop_task {
 
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
-  my ($task_id) = $self->get_args;
+  my ($task_name) = $self->get_default_task_name('task');
+  my $cluster_name = $config->{cluster}->{name};
 
-  my ($task_name) = $self->check_service_name( $task_id, $TRUE );
+  my $ecs       = $self->fetch_ecs;
+  my $task_arns = $ecs->list_tasks( $cluster_name, 'taskArns' );
+  $ecs->check_result( 'ERROR: could not list tasks for cluster: [%s]', $cluster_name );
 
-  if ($task_name) {
-    $task_id = $tasks->{$task_name}->{arn};
-  }
+  log_die( $self, 'ERROR: no running tasks' )
+    if !@{$task_arns};
 
-  my $ecs = $self->get_ecs;
+  my $task_arn
+    = $ecs->describe_tasks( $cluster_name, $task_arns, sprintf 'tasks[?group == `family:%s`].containers|[0]|[0].taskArn',
+    $task_name );
 
-  die sprintf "usage: %s stop-task task-name|task-id|task-arn\n", $ENV{SCRIPT_NAME}
-    if none { length $task_id == $_ } ( 32, 36 );
+  $ecs->check_result( 'ERROR: could not describe tasks for: [%s]', $task_arns );
 
-  my $result = $ecs->stop_task( $config->{cluster}->{name}, $task_id );
+  die sprintf "ERROR: no running task for: [%s]\n", $task_name
+    if !$task_arn;
 
-  log_die( $self, "ERROR: could not stop task: [%s]\n%s", $task_id, $ecs->get_error )
+  my $result = $ecs->stop_task( $cluster_name, $task_arn );
+
+  log_die( $self, "ERROR: could not stop task: [%s]\n%s", $task_name, $ecs->get_error )
     if !$result;
 
   return $SUCCESS;

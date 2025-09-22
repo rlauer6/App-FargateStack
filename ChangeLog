@@ -1,3 +1,12 @@
+Mon Sep 22 14:22:46 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.51]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack.pm.in
+	(cmd_stop_task):
+	- stop a task, not a service
+
 Mon Sep 22 07:00:50 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.50]:
