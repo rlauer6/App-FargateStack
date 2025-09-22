@@ -1,3 +1,12 @@
+Mon Sep 22 06:09:10 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.48]:
+	* VERSION: bump
+	* README.md: generated
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(create_policy)
+	- skip policy if not required
+
 Mon Sep 22 05:34:42 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.47]:
