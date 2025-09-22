@@ -7,7 +7,7 @@ MODULE_NAME := App::FargateStack
 MODULE_PATH := $(subst ::,/,$(MODULE_NAME)).pm
 
 PERL_MODULES = \
-    lib/App/Benchmark.pm.in \
+    lib/App/BenchmarkRole.pm.in \
     lib/App/Command.pm.in
 
 GPERL_MODULES = $(PERL_MODULES:.pm.in=.pm)

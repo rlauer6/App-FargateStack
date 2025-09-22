@@ -1,3 +1,24 @@
+Mon Sep 22 05:21:47 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.46]:
+	* VERSION: bump
+	* lib/App/Benchmark.pm.in -> lib/App/BenchmarkRole.pm.in
+	* Makefile: above
+	* lib/App/Command.pm.in: above
+	* lib/App/FargateStack.pm.in: above
+	* lib/App/AWS.pm.in
+	(command): don't decode if output is text
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	- import log_die
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in
+	(task_execution_role): remove
+	(create_role_arn): new
+	(create_taskdef_files)
+	- use above
+	- add taskRoleArn
+	* lib/App/FargateStack/Constants.pm.in: amazon, not amazn
+
+
 Sun Sep 21 11:19:05 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.45]:

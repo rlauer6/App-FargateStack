@@ -9,7 +9,7 @@ use Data::Compare;
 use English qw(-no_match_vars);
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(choose);
+use App::FargateStack::Builder::Utils qw(choose log_die);
 use Text::Diff;
 use JSON;
 

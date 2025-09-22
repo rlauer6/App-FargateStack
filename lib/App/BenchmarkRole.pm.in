@@ -1,4 +1,4 @@
-package App::Benchmark;
+package App::BenchmarkRole;
 
 use strict;
 use warnings;

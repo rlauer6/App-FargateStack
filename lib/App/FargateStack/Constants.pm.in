@@ -38,7 +38,7 @@ Readonly::Scalar our $IAM_POLICY_VERSION  => '2012-10-17';
 Readonly::Hash our %AWS_SERVICE_DOMAINS => (
   events => 'events.amazonaws.com',
   ecs    => 'ecs-tasks.amazonaws.com',
-  task   => 'ecs-tasks.amaznaws.com'
+  task   => 'ecs-tasks.amazonaws.com'
 );
 
 Readonly::Hash our %ECS_TASK_PROFILES => (

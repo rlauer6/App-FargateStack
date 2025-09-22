@@ -40,7 +40,7 @@ with 'App::FargateStack::CloudTrail';
 with 'App::FargateStack::CreateStack';
 with 'App::FargateStack::Autoscaling';
 
-with 'App::Benchmark';
+with 'App::BenchmarkRole';
 
 # builder methods
 with 'App::FargateStack::Builder';

@@ -116,22 +116,9 @@ sub taskdef_status {
 }
 
 ########################################################################
-sub task_execution_role {
+sub create_role_arn {
 ########################################################################
   my ( $self, $role_name ) = @_;
-
-  my $config = $self->get_config;
-
-  $role_name //= $config->{role}->{name};
-
-  if ( !$role_name ) {
-    my $app_name = $self->get_config->{app}->{name};
-    $app_name =~ s/[^[:alpha:]_-]//xsm;
-
-    $role_name = sprintf 'Fargate%sRole', $role_name;
-
-    $config->{role}->{name} = $role_name;
-  }
 
   return sprintf 'arn:aws:iam::%s:role/%s', $self->get_account, $role_name;
 }
@@ -252,10 +239,17 @@ sub create_taskdef_files {
     # -- efs mounts --
     my ( $volumes, $mount_points ) = $self->add_volumes($task);
 
-    my $role_name = $config->{role}->{name} // $self->create_default( 'role-name', 'ecs' );
+    my $role_name      = $config->{role}->{name}      // $self->create_default( 'role-name', 'ecs' );
+    my $task_role_name = $config->{task_role}->{name} // $self->create_default( 'role-name', 'task' );
+
+    # Note that we create the role ARNs rather than taking them from
+    # the config. This is because we create the task definition before
+    # we actually create the roles. The role ARN is determistic...so
+    # why not?
 
     my $taskdef = {
-      executionRoleArn     => $self->task_execution_role($role_name),
+      executionRoleArn     => $self->create_role_arn($role_name),
+      taskRoleArn          => $self->create_role_arn($task_role_name),
       memory               => "$task->{memory}",
       containerDefinitions => [
         { logConfiguration => {
