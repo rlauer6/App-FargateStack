@@ -1,3 +1,25 @@
+Sun Sep 21 11:19:05 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.45]:
+	* VERSION: bump
+	* lib/App/FargateStack.pm.in
+	(cmd_update_service): remove --force, use redeploy
+	(cmd_destroy): new
+	(cmd_tasks): new
+	(cmd_delete_schedule): delete_task_resource(task-name)
+	(cmd_delete_daemon): likewise
+	(cmd_delete_http_service): likewise
+	(cmd_delete_task): likewise
+	(main): +tasks
+	* lib/App/FargateStack/Builder.pm.in
+	(delete_task_resources)
+	- only need task-name
+	- use type from config
+	(_delete_roles)
+	- only need confirm-all
+	* lib/App/FargateStack/Pod.pm.in
+	- mention autoscaling in feature list
+
 Fri Sep 19 14:12:27 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.44]:
