@@ -145,7 +145,7 @@ sub check_service_name {
   # if only 1 service in config, then let's stat that
   my ( $default_service, $error ) = grep { $tasks->{$_}->{type} =~ /daemon|http/xsm } keys %{$tasks};
 
-  return
+  return $default_service
     if $default_service || ( !$default_service && $return_on_missing );
 
   if ($error) {
@@ -387,19 +387,20 @@ sub get_default_task_name {
 ########################################################################
   my ( $self, $type, $filter ) = @_;
 
+  $type //= 'task';
+
   my $tasks = $self->common_args('tasks');
 
   my ($task_name) = $self->get_args;
+  $task_name //= $EMPTY;
 
   return $task_name
-    if $task_name;
+    if $task_name && $tasks->{$task_name} && ( $tasks->{$task_name}->{type} eq 'type' ) && !$filter;
 
   my @task_names = keys %{$tasks};
 
   return $task_names[0]
-    if @task_names == 1;
-
-  $type //= 'task';
+    if @task_names == 1 && ( $tasks->{ $task_names[0] }->{type} eq 'type' ) && !$filter;
 
   my @tasks = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
 
@@ -1066,9 +1067,14 @@ sub cmd_stop_task {
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
 
   my ($task_name) = $self->get_default_task_name('task');
+
+  croak sprintf "ERROR: no task found to stop\n"
+    if !$task_name;
+
   my $cluster_name = $config->{cluster}->{name};
 
-  my $ecs       = $self->fetch_ecs;
+  my $ecs = $self->fetch_ecs;
+
   my $task_arns = $ecs->list_tasks( $cluster_name, 'taskArns' );
   $ecs->check_result( 'ERROR: could not list tasks for cluster: [%s]', $cluster_name );
 
@@ -1370,7 +1376,7 @@ sub cmd_delete_daemon {
   my ($self) = @_;
 
   my $tasks     = $self->get_config->{tasks};
-  my $task_name = $self->get_default_task_name( 'task', 'daemon' );
+  my $task_name = $self->get_default_task_name('daemon');
 
   die "usage: $ENV{SCRIPT_NAME} delete-daemon task-name\n"
     if !$task_name;
@@ -1715,8 +1721,8 @@ sub main {
     'reset-history'           => [ \&cmd_reset_history,  'info', { skip_init => $TRUE, skip_config => $TRUE } ],
     'run-task'                => \&cmd_run_task,
     'start-service'           => [ \&cmd_start_stop_service, 'info' ],
-    'stop-service'            => [ \&cmd_start_stop_service, 'error' ],
-    'stop-task'               => [ \&cmd_stop_task,          'error' ],
+    'stop-service'            => [ \&cmd_start_stop_service, 'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    'stop-task'               => [ \&cmd_stop_task,          'error', { skip_init => $TRUE, skip_config => $FALSE } ],
     'update-policy'           => \&cmd_update_policy,
     'update-service'          => [ \&cmd_update_service, 'error', { skip_init => $TRUE } ],
     'update-target'           => \&cmd_update_target,

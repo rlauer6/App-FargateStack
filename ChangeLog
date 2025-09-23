@@ -1,3 +1,20 @@
+Tue Sep 23 12:38:46 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.53]:
+	* VERSION: new
+	* README.md: generated
+	* lib/App/FargateStack.pm.in
+	(check_service_name)
+	- make sure type is correct
+	(get_default_task_name)
+	- apply filter if provided
+	(cmd_stop_task):
+	- croak if no task to stop
+	(cmd_delete_daemon):
+	- get_default_tasks_name(type)
+	(main)
+	- skip config for stop service, stop task
+
 Tue Sep 23 10:27:31 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.52]:
