@@ -141,7 +141,9 @@ sub get_role_policy {
 ########################################################################
 sub put_role_policy {
 ########################################################################
-  my ( $self, $role_name, $policy_name, $policy ) = @_;
+  my ( $self, %args ) = @_;
+
+  my ( $role_name, $policy_name, $policy ) = @args{qw(role_name policy_name policy)};
 
   $role_name //= $self->get_role_name;
 

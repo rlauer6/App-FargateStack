@@ -60,6 +60,7 @@ our @EXPORT = qw(
   fetch_logs
   fetch_secrets
   fetch_sts
+  fetch_sqs
   fetch_route53
   fetch_cli_api
   fetch_wafv2
@@ -77,6 +78,7 @@ sub fetch_ec2                     { return shift->fetch_cli_api( 'EC2',         
 sub fetch_ecr                     { return shift->fetch_cli_api( 'ECR',                     @_ ); }
 sub fetch_events                  { return shift->fetch_cli_api( 'Events',                  @_ ); }
 sub fetch_sts                     { return shift->fetch_cli_api( 'STS',                     @_ ); }
+sub fetch_sqs                     { return shift->fetch_cli_api( 'SQS',                     @_ ); }
 sub fetch_secrets                 { return shift->fetch_cli_api( 'Secrets',                 @_ ); }
 sub fetch_elbv2                   { return shift->fetch_cli_api( 'ElbV2',                   @_ ); }
 sub fetch_route53                 { return shift->fetch_cli_api( 'Route53',                 @_ ); }

@@ -1,3 +1,37 @@
+Tue Sep 23 10:27:31 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.52]:
+	* README.md: generated
+	* VERSION: bump
+	* lib/App/FargateStack/Builder/Events.pm.in
+	(build_events_iam_role)
+	- put_role_policy() updated signature
+	* lib/App/FargateStack/Builder/IAM.pm.in
+	(create_policy)
+	- put_role_policy() updated signature
+	(save_policy): new
+	(create_fargate_task_policy)
+	- add_bucket_policy now returns an array ref
+	* lib/App/FargateStack/Builder/S3Bucket.pm.in
+	(add_bucket_policy)
+	- more granular permissions
+	- add ListBucket
+	* lib/App/FargateStack/Builder/SQSQueue.pm.in
+	(build_queue)
+	- refactoring
+	- add queue ARN if missing
+	(add_queue_policy)
+	- refactored
+	- add new permissions feature
+	(create_iam_permissions): new
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(fetch_sqs): new
+	* lib/App/FargateStack/Pod.pm.in
+	- document new SQS permissions feature
+	* lib/App/IAM.pm.in
+	(put_role_policy)
+	- use named args
+
 Mon Sep 22 14:22:46 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.51]:

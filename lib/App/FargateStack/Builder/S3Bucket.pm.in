@@ -79,7 +79,7 @@ sub add_bucket_policy {
   $paths    //= [];
 
   my $bucket_arn = sprintf $S3_BUCKET_ARN_TEMPLATE, $name;
-  my $action     = $readonly ? ['s3:GetObject'] : ['s3:*'];
+  my $action     = $readonly ? ['s3:GetObject'] : [ 's3:GetObject', 's3:PutObject' ];
 
   my @resources = ( $bucket_arn, map { sprintf '%s/%s', $bucket_arn, $_ } @{$paths} );
 
@@ -88,11 +88,16 @@ sub add_bucket_policy {
     push @{$action}, 's3:ListBucket';
   }
 
-  return {
-    Effect   => 'Allow',
-    Action   => $action,
-    Resource => \@resources,
-  };
+  return [
+    { Effect   => 'Allow',
+      Action   => $action,
+      Resource => \@resources,
+    },
+    { Effect   => 'Allow',
+      Action   => 's3:ListBucket',
+      Resource => $bucket_arn,
+    }
+  ];
 }
 
 1;

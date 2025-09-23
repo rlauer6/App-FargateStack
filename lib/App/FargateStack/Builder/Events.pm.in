@@ -286,7 +286,12 @@ sub build_events_iam_role {
   return
     if $dryrun;
 
-  $iam->put_role_policy( $role_name, $policy_name, $role_policy );
+  $iam->put_role_policy(
+    role_name   => $role_name,
+    policy_name => $policy_name,
+    policy      => $role_policy
+  );
+
   $iam->check_result(
     message => 'ERROR: could not %s policy [%s] for [%s]',
     params  => [ ( $policy ? 'update' : 'create' ), $policy_name, $role_name ]

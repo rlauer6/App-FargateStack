@@ -43,12 +43,17 @@ sub build_queue {
   return
     if !$queue || !$queue->{name};
 
-  my $sqs = App::SQS->new( $self->get_global_options );
+  my $sqs = $self->fetch_sqs;
 
   my $queue_url = $self->queue_exists( sqs => $sqs, %{$queue} );
 
   if ($queue_url) {
     $queue->{url} = $queue_url;
+
+    if ( !$queue->{arn} ) {
+      $queue->{arn} = $sqs->get_queue_arn($queue_url);
+    }
+
     $self->inc_existing_resources( queue => $queue_url );
   }
   else {
@@ -209,21 +214,82 @@ sub apply_queue_defaults {
   return;
 }
 
+use Readonly;
+
+Readonly our %SQS_IAM_PROFILES => (
+
+  consumer => [
+    qw(
+      sqs:ReceiveMessage
+      sqs:DeleteMessage
+      sqs:ChangeMessageVisibility
+    )
+  ],
+  producer => [
+    qw(
+      sqs:SendMessage
+      sqs:GetQueueAttributes
+    )
+  ],
+  admin => ['sqs:*'],
+  none  => [],
+);
+
 ########################################################################
 sub add_queue_policy {
 ########################################################################
   my ($self) = @_;
 
   my $config = $self->get_config;
+  my @policy;
 
-  my $dlq = $config->{dlq};
+  foreach my $queue_type (qw(queue dlq)) {
+    my $queue_config = $config->{$queue_type};
+    next if !$queue_config;
 
-  my @queue_arns = ( $config->{queue}->{arn}, defined $dlq && $dlq->{arn} ? $dlq->{arn} : () );
+    # Ensure the essential 'arn' key exists before proceeding.
+    # This prevents generating a malformed policy.
+    if ( !defined $queue_config->{arn} ) {
+      croak("Configuration for '$queue_type' is missing the required 'arn' key.");
+    }
+
+    # e.g., "SQSAllowQueuePolicy" instead of "SQSAllowqueuePolicy"
+    my $sid = sprintf 'SQSAllow%sPolicy', ucfirst $queue_type;
+
+    # Check the return value before pushing to be fully robust.
+    if ( my $statement = create_iam_permissions( $sid, $queue_config ) ) {
+      push @policy, $statement;
+    }
+  }
+
+  return @policy;
+}
+
+########################################################################
+sub create_iam_permissions {
+########################################################################
+  my ( $sid, $queue ) = @_;
+
+  my $permissions = $queue->{permissions} // {};
+
+  my $profile = $permissions->{profile} // 'consumer';
+
+  croak sprintf "ERROR: profile must be one of %s\n", join q{ | }, keys %SQS_IAM_PROFILES
+    if !exists $SQS_IAM_PROFILES{$profile};
+
+  my %iam_permissions = map { $_ => 1 } @{ $SQS_IAM_PROFILES{$profile} };
+  @iam_permissions{ @{ $permissions->{include} // [] } } = 1;
+
+  delete @iam_permissions{ @{ $permissions->{exclude} // [] } };
+
+  carp sprintf "WARNING: no permissions are being applied to %s\n", $queue->{arn}
+    if !keys %iam_permissions;
 
   return {
+    Sid      => $sid,
     Effect   => 'Allow',
-    Action   => ['sqs:*'],
-    Resource => \@queue_arns,
+    Action   => [ keys %iam_permissions ],
+    Resource => [ $queue->{arn} ],
   };
 }
 

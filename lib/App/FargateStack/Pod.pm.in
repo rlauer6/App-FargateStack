@@ -16,11 +16,23 @@ App::FargateStack
 
 =head1 SYNOPSIS
 
- # Dry-run and analyze the configuration
- app-FargateStack plan -c my-stack.yml
+ # 1. Create a configuration stub for a one-shot task
+ export AWS_PROFILE=my-profile
+ app-FargateStack create-stack my-stack task:helloworld image:helloworld
 
- # Provision the full stack
- app-FargateStack apply -c my-stack.yml
+ # 2. Dry-run and analyze the configuration
+ app-FargateStack plan
+
+ # 3. Provision the full stack
+ app-FargateStack apply
+
+ # 4. Run the task
+ app-FargateStack run-task
+
+ # 5. View the provisioned configuration file
+ cat my-stack.yml
+
+See L<"GETTING STARTED"> for more details.
 
 =head1 DESCRIPTION
 
@@ -87,7 +99,7 @@ and container image
 
 =item *
 
-Supports multiple task types: HTTP, HTTPS, daemon, cron (scheduled)
+Supports multiple task types: HTTP, HTTPS, daemon, scheduled
 
 =item *
 
@@ -370,10 +382,10 @@ and C<apply>. You provide the following arguments in order:
 =item * C<action-name> is a name for your schedule. It must be
 unique within your entire configuration.
 
-=item C<start-time> is UTC. The format for the staring time is
-MM::HH. (Example: 00:18)
+=item * C<start-time> is UTC. The format for the starting time is
+MM:HH. (Example: 00:18)
 
-=item C<days> is the day or days of the week for the scheduled action.
+=item * C<days> is the day or days of the week for the scheduled action.
 
 I<Note: Days should be one of MON,TUE,WED,THU,FRI,SAT or 1-7>
 
@@ -387,9 +399,9 @@ on Friday night.
 I<Note that the cron specification is in UTC, hence we run at 2am for
 30 minutes on Saturday morning in UTC.>
 
-=item C<end-time> time t scale back in. Same format as C<start-time>
+=item * C<end-time> time to scale back in. Same format as C<start-time>
 
-=item C<scale-out-capacity>, C<scale-in-capacity> - These options
+=item * C<scale-out-capacity>, C<scale-in-capacity> - These options
 represent the scale out and scale in capacities.
 
 Each value should be a tuple separated by '/', ',', ':' or '-'. The
@@ -459,7 +471,7 @@ before building them
 
 =item * ...create daemon services
 
-=item * ...create scheduled jobs
+=item * ...create scheduled tasks
 
 =item * ...execute adhoc jobs
 
@@ -510,7 +522,7 @@ while allowing our development workflow to go something like:
 
 =item Execute the framework's script and create the necessary AWS infrastructure
 
-=item Launch the http server, daemon, scheduled job, or adhoc worker
+=item Launch the http server, daemon, scheduled task, or adhoc worker
 
 =back
 
@@ -565,7 +577,7 @@ Using this minimal configuration and running C<app-FargateStack> like this:
 ...so as you can see, rolling all of this by hand could be a daunting
 task and one made even more difficult when you decide to use other AWS
 resources inside your task like buckets, queues or an EFS file
-systems!
+system!
 
 =head2 Web Applications
 
@@ -622,23 +634,24 @@ Currently the framework supports adding a single SQS queue, a single
 S3 bucket, volumes using EFS mount points, environment variables and
 secrets from AWS Secrets Manager.
 
- my-worker:
-   image: my-worker:latest
-   command: /usr/local/bin/my-worker.pl
-   type: task
-   schedule: cron(00 15 * * * *)   
-   bucket:
-     name: my-worker-bucket
-   queue:
-     name: my-worker-queue
-   environment:
-     ENVIRONMENT=prod
-   secrets:
-     db_password:DB_PASSWORD
-   efs:
-     id: fs-abcde12355
-     path: /
-     mount_point: /mnt/my-worker
+ bucket:
+   name: my-worker-bucket
+ queue:
+   name: my-worker-queue
+ tasks:
+   my-worker:
+     image: my-worker:latest
+     command: /usr/local/bin/my-worker.pl
+     type: task
+     schedule: cron(00 15 * * * *)   
+     environment:
+       ENVIRONMENT=prod
+     secrets:
+       db_password:DB_PASSWORD
+     efs:
+       id: fs-abcde12355
+       path: /
+       mount_point: /mnt/my-worker
 
 Adding new resources would normally require you to update your
 policies to allow your worker to access these resource. However, the
@@ -694,7 +707,7 @@ command that includes any of the tracked CLI options, the
 F<.fargatestack/defaults.json> file will be created
 automatically. Future commands run from that directory can then omit
 those options. A typical workflow to create a new stack with a
-scheduled job might look like this:
+scheduled task might look like this:
 
  mkdir my-project
  cd my-project
@@ -702,7 +715,7 @@ scheduled job might look like this:
  app-FargateStack plan
  app-FargateStack apply
 
-That's it...you just created a scheduled job that will run at 10 AM every day!
+That's it...you just created a scheduled task that will run at 10 AM every day!
 
 =head2 Disabling and Resetting
 
@@ -772,6 +785,8 @@ shortened versions of the topic.
  help cloudwatch
 
 =head3 add-autoscaling-policy
+
+Alias for C<add-scaling-policy>.
 
 =head3 add-scaling-policy
 
@@ -920,7 +935,7 @@ In this case, your scaling policy C<max_capacity> value must be at least
        scheduled:
          business_hours:
            start_time: 30:12
-           end_time: 21:30
+           end_time: 30:21
            min_capacity: 2/1
            max_capacity: 3/1
 
@@ -930,7 +945,7 @@ B<Note:>
 
 I<Scheduled actions are only for HTTP, HTTPS and daemon tasks. If you
 need to run a one-shot job at a particular time use a L<scheduled
-task|/SCHEDULED JOBS>.>
+task|/SCHEDULED TASKS>.>
 
 =head3 apply
 
@@ -1228,12 +1243,12 @@ automatically create and start the ECS service.
 
 Use this command to start the service:
 
-  app-FargateTask deploy-service service-name
+  app-FargateStack deploy-service service-name
 
 If you want to start multiple tasks for the service, you can include a
 count argument:
 
-  app-FargateTask deploy-service service-name 2
+  app-FargateStack deploy-service service-name 2
 
 =head3 delete-daemon
 
@@ -1281,14 +1296,17 @@ See L</Notes on Deletion of Resources> for additional details.
 
 =head3 destroy
 
-Removes all resources provisioned by App::FargateStack. This command
+Removes all resources provisioned by C<App::FargateStack>. This command
 will confirm deletion before removing any resources. Use C<--force> to
 prevent confirmation.  Use C<--confirm-all> to confirm deletion of
 every resource.
 
 After this command is executed a skeleton of the tasks will
-remain. You can run C<--plan> again and then C<--apply> to reprovision
+remain. You can run C<plan> again and then C<apply> to reprovision
 the stack.
+
+Use the C<--dryrun> and C<--confirm-all> options to review the
+resources to be removed.
 
 =head3 disable-scheduled-task
 
@@ -1556,7 +1574,7 @@ If C<update-policy> identifies a need to update your role policy, you
 can view the changes before they are applied by running the C<plan>
 command at the C<trace> log level.
 
- app-Fargate --log-level trace plan
+ app-FargateStack --log-level trace plan
 
 =head3 update-service
 
@@ -1617,7 +1635,7 @@ task definition is out of sync with your latest configuration.
  update-target task-name
 
 Updates an EventBridge rule and rule target. For tasks of type "task"
-(typically scheduled jobs) when you change the schedule the rule must
+(typically scheduled tasks) when you change the schedule the rule must
 be deleted, re-created and associated with the target task. This
 command will detect the drift in your configuration and apply the
 changes if not in C<--dryrun> mode.
@@ -1774,8 +1792,8 @@ entry in your configuration file.
 
 =head1 IAM PERMISSIONS
 
-This framework uses a single IAM role for all tasks defined within an
-application stack.  The assumption is that services within the stack
+This framework uses a B<single IAM role for all tasks defined within an
+application stack>.  The assumption is that services within the stack
 share a trust boundary and operate on shared infrastructure.  This
 simplifies IAM management while maintaining strict isolation between
 stacks.
@@ -1784,8 +1802,8 @@ IAM roles and policies are automatically created based on your
 configuration.  Only the minimum required permissions are granted.
 For example, if your configuration defines an S3 bucket, the ECS task
 role will be permitted to access only that specific bucket - not all
-buckets in your account. The policy is updated when new resources are
-added to the configuration file.
+buckets in your account. The task IAM policy is updated when new
+resources are added to the configuration file.
 
 The task execution role name and role policy name are found under the
 C<role:> key in the configuration. The task role is found under the
@@ -1794,7 +1812,7 @@ fabricated for you from the name you specified under the C<app:> key.
 
 =head2 Task Execution Role vs. Task Role
 
-It's important to understand that App::FargateStack provisions two
+It's important to understand that C<App::FargateStack> provisions two
 distinct IAM roles for your service. The Task Role, which is detailed
 above, grants your application the specific permissions it needs to
 interact with other AWS services like S3 or SQS. In addition, the
@@ -1804,6 +1822,83 @@ perform essential actions, such as pulling container images from ECR
 and sending logs to CloudWatch. You typically won't need to modify the
 Task Execution Role, as the framework manages its permissions
 automatically.
+
+=head2 Single IAM Task Role
+
+The decision to use a single IAM task role for an entire
+C<App::FargateStack> stack is a classic trade-off between simplicity
+and security. While it successfully simplifies management, it does so
+by moving away from the security best practice of least privilege.
+
+=head3 The Benefit: Simplicity and Reduced Overhead
+
+The primary advantage of this approach is its simplicity, which aligns
+with the framework's goal of abstracting away AWS complexity.
+
+=over 4
+
+=item * B<Simplified Management>
+
+Users don't have to define and manage multiple, near-identical IAM
+roles for tasks that often share resources within the same application
+stack.  This reduces configuration boilerplate and mental overhead.
+
+=item * B<Avoids Role Proliferation>
+
+In a microservices architecture, creating a separate role for every single
+task can lead to a large number of IAM roles that are difficult to track
+and audit. A single-stack role prevents this "IAM sprawl."
+
+=item * B<Automatic Policy Updates>
+
+The framework automatically updates the single role's policy when new
+resources are added, ensuring permissions are always in sync with the
+configuration without manual intervention.
+
+=back
+
+=head3 The Drawback: Violation of Least Privilege
+
+The main disadvantage is that this design violates the B<principle of
+least privilege>, a core tenant of cloud security.
+
+=over 4
+
+=item * B<Over-Provisioned Permissions>
+
+If one task in the stack needs access to an S3 bucket and another needs
+access to an SQS queue, both tasks get permissions for I<both> the bucket
+and the queue. The SQS-processing task now has unnecessary access to S3,
+and vice-versa.
+
+=item * B<Increased Blast Radius>
+
+If a vulnerability is exploited in a single task (e.g., the one that
+only needs SQS access), the attacker gains the permissions of the
+I<entire stack>.  They could potentially access or delete data in the
+S3 bucket, even though the compromised task had no legitimate reason
+to access it.
+
+=back
+
+Think of it like giving every employee in an office building a master
+key.  It's much simpler than managing individual keys for each room,
+but if one person's key is lost or stolen, the entire building is at
+risk.
+
+=head3 Single Role: Conclusion
+
+The single-role design makes C<App::FargateStack> easier to use,
+especially for smaller applications or for teams that prioritize rapid
+development over granular security. It successfully meets its goal of
+simplifying IAM management for the end-user.
+
+However, this simplicity comes at the cost of a weaker security posture.
+For environments with strict security requirements or for larger, more complex
+applications with diverse tasks, this approach could be a significant risk.
+A more secure, albeit more complex, approach would be to define permissions
+at the task level, ensuring each task receives only the permissions it
+absolutely needs to perform its function.
 
 =head1 SECURITY GROUPS
 
@@ -1896,6 +1991,43 @@ The fastest way to get up and running with C<App::FargateStack> is to
 use the C<create-stack> command to generate a configuration file,
 inspect the deployment plan, and then apply it.
 
+=head3 Prerequisites
+
+=over 4
+
+=item * B<AWS CLI> - install and configure C<aws>
+
+See L<Installing the AWS CLI|https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html>.
+
+=item * Perl >= 5.16.3
+
+I<NOTE: If you use C<App::FargateStack-docker> you only need
+B<Docker>. You only need Perl and the required Perl modules if you
+install C<App::FargateStack> from the CPAN repository.>
+
+See L<https://app-fargatestack.tbcdevelopmentgroup.com> for more
+detailed installation instructions.
+
+=item * B<Docker> - required for building and pushing container images or
+for using the C<app-FargateStack-docker> implementation
+
+=item * An appropriately configured B<AWS account>
+
+You can check your current environment's suitablility for building
+Fargate applications using the C<app-FargateChecker> script.
+
+ app-FargateStack-checker --profile my-profile
+ app-FargateStack-checker-docker --profile my-profile
+
+Your profile should allow creation of the resources you wish to
+provision, including the ability to create IAM roles and policies. In
+general, your profile should include the I<AdministratorAccess> policy.
+
+=item * A B<Route53 Hosted Zone> if you are planning to deploy HTTP or HTTPS
+services.
+
+=back
+
 =head3 Step 1: Create a Configuration Stub
 
 First, generate a minimal YAML configuration file. The C<create-stack>
@@ -1903,23 +2035,25 @@ command provides a shorthand syntax to do this. You only need to
 provide an overall application name, a service type, a service name,
 and the container image to use.
 
-This command will create a file named F<my-stack.yml> in your current
-directory. Make sure you have your AWS profile configured in your
-environment or pass it using the C<--profile> option.
+This command shown below will create a file named F<my-stack.yml> in your
+current directory. Make sure you have your AWS profile configured in
+your environment or pass it using the C<--profile> option.
 
+  export AWS_PROFILE=my-profile
   app-FargateStack create-stack my-stack daemon:my-stack-daemon image:my-stack-daemon:latest
 
-This will produce a configuration stub that looks like this:
+This will produce a configuration stub that looks something like this:
 
   app:
     name: my-stack
+  profile: my-profile
   tasks:
     my-stack-daemon:
       image: my-stack-daemon:latest
       type: daemon
 
-This file contains the three key pieces of information you provided:
-the application name, the task name, and the image to use.
+This file contains the key pieces of information you provided:
+the B<application name>, the B<task name>, and the B<image> to use.
 
 =head3 Step 2: Plan the Deployment (Dry Run)
 
@@ -1930,9 +2064,11 @@ dry run. The framework will:
 
 =item * Read your minimal configuration file.
 
-=item * Intelligently discover resources in your AWS account (like your VPC and subnets).
+=item * Intelligently discover resources in your AWS account (like
+your VPC and subnets).
 
-=item * Determine what new resources need to be created (like IAM roles, a security group, an ECS cluster and a CloudWatch log group).
+=item * Determine what new resources need to be created (like IAM
+roles, a security group, an ECS cluster and a CloudWatch log group).
 
 =item * Report a full plan of action without making any actual changes.
 
@@ -1979,10 +2115,34 @@ To restart a stopped service, run:
 
   app-FargateStack start-service my-stack-daemon
 
+=head3 Resource Configuration
+
+You can define queues, buckets and secrets for your stack and for your
+individual tasks. The matrix below details where you configure those
+resources and their scope.
+
+ +-----------------------+---------+---------+
+ | Resource              |  Level  |  Scope  |
+ +-----------------------+---------+---------+
+ | SQS Queues            |   stack |  stack  |
+ | S3 Buckets            |   stack |  stack  |
+ | Secrets               |   task  |  stack* |
+ | EFS mounts            |   task  |  task   |
+ | Environment Variables |   task  |  task   |
+ +-------------+---------+---------+---------+
+
+I<* Secrets are defined per-task but the IAM permissions to access
+them are granted at the stack level via a shared task role.>
+
+A task definition is created for each task defined in your
+configuration file, however any task can access resources defined at
+the stack level since they will all use the same task IAM role created
+by C<App::FargateStack>.
+
 =head2 VPC AND SUBNET DISCOVERY
 
-If you do not specify a C<vpc_id> in your configuration, the framework will attempt
-to locate a usable VPC automatically.
+If you do not specify a C<vpc_id> in your configuration, the framework
+will attempt to locate a usable VPC automatically.
 
 A VPC is considered usable if it meets the following criteria:
 
@@ -2109,6 +2269,10 @@ Here is the full schema outline. All keys are optional unless otherwise noted:
   id:
   last_updated:
   region:
+  task_role:
+    arn:
+    name:
+    policy_name:
   role:
     arn:
     name:
@@ -2189,7 +2353,7 @@ to your container at runtime.
 Environment variables are specified under the C<environment:> key within the task
 configuration.
 
-=head2 BASIC USAGE
+=head2 Basic Usage
 
   task:
     apache:
@@ -2209,7 +2373,7 @@ C<secrets:> block for sensitive data.
 This mechanism is ideal for non-sensitive configuration such as
 runtime flags, environment names, or log levels.
 
-=head2 SECURITY NOTE
+=head2 Security Note
 
 Avoid placing secrets (such as passwords, tokens, or private keys) directly in the
 C<environment:> section. That mechanism is intended for non-sensitive configuration
@@ -2219,7 +2383,7 @@ To securely inject secrets into the task environment, use the C<secrets:> sectio
 of your task configuration. This integrates with AWS Secrets Manager and ensures
 secrets are passed securely to your container.
 
-=head2 INJECTING SECRETS FROM SECRETS MANAGER
+=head2 Injecting Secrets from Secrets Manager
 
 To inject secrets into your ECS task from AWS Secrets Manager, define a C<secrets:>
 block in the task configuration. Each entry in this list maps a Secrets Manager
@@ -2240,7 +2404,7 @@ and injects it into the container environment as C<DB_PASSWORD>.
 Secrets are referenced via their ARN using ECS's native secrets mechanism,
 which securely injects them without placing plaintext values in the task definition.
 
-=head2 BEST PRACTICES
+=head2 Environment Variable Best Practices
 
 Avoid placing secrets in the C<environment:> block. That block is for non-sensitive
 configuration values and exposes data in plaintext.
@@ -2260,7 +2424,7 @@ associated DLQ (if any).
 
 I<Only one queue and one optional DLQ may be configured per stack.>
 
-=head2 BASIC CONFIGURATION
+=head2 Basic Queue Configuration
 
 At minimum, a queue requires a name:
 
@@ -2280,8 +2444,95 @@ and attributes using the top-level C<dlq> key:
 
 If you do not specify a C<dlq.name>, the framework defaults to appending C<-dlq> to
 the main queue name (e.g., C<fu-man-q-dlq>).
+=head2 Customizing IAM Permissions
 
-=head2 DEFAULT QUEUE ATTRIBUTES
+While the framework automatically grants basic permissions, you can
+precisely control the IAM policy for each queue using the optional C<permissions>
+object. This provides a flexible, declarative way to define permissions without
+writing raw JSON.
+
+If the C<permissions> key is omitted, permissions will default to the C<consumer>
+profile.
+
+Both C<queue> and C<dlq> objects can have their own C<permissions> block.
+
+=head3 The C<permissions> Object
+
+=over 4
+
+=item * C<profile> (I<Optional>, Default: C<consumer>)
+
+Specifies a base set of permissions. The available profiles are:
+
+=over 8
+
+=item * C<consumer>
+
+(Default) Grants C<sqs:ReceiveMessage>, C<sqs:DeleteMessage>, and
+C<sqs:ChangeMessageVisibility>. Ideal for the main worker queue.
+
+=item * C<producer>
+
+Grants C<sqs:SendMessage> and C<sqs:GetQueueAttributes>. The recommended
+profile for a DLQ if you wish to apply the Principle of Least Privilege.
+
+=item * C<admin>
+
+Grants C<sqs:*> for full administrative access to the queue.
+
+=item * C<none>
+
+Grants no permissions by default, requiring you to specify all desired
+actions via the C<include> key.
+
+=back
+
+=item * C<include> (I<Optional>)
+
+An array of specific IAM action strings to B<add> to the base profile. This
+is useful for granting extra permissions not included in the standard
+profile.
+
+=item * C<exclude> (I<Optional>)
+
+An array of specific IAM action strings to B<remove> from the base profile.
+This is useful for creating a more restricted set of permissions than the
+default profile provides.
+
+=back
+
+=head3 Example
+
+Here is a full example demonstrating a main queue and a DLQ with custom
+permissions.
+
+=begin verbatim
+
+# Example SQS Configuration from fargate-stack.yml
+
+queue:
+  name: "fu-man-q"
+  arn: "arn:aws:sqs:us-east-1:311974035819:fu-man-q"
+  permissions:
+    # Start with the standard consumer permissions.
+    profile: "consumer"
+    # Also allow this task to get queue attributes.
+    include:
+      - "sqs:GetQueueAttributes"
+    # But explicitly forbid it from changing message visibility.
+    exclude:
+      - "sqs:ChangeMessageVisibility"
+
+dlq:
+  name: "fu-man-q-dlq"
+  arn: "arn:aws:sqs:us-east-1:311974035819:fu-man-q-dlq"
+  permissions:
+    # This task role should only ever send messages to the DLQ.
+    profile: "producer"
+
+=end verbatim
+
+=head2 Default Queue Attributes
 
 If not specified, the framework applies default values to match AWS's standard SQS behavior:
 
@@ -2301,7 +2552,7 @@ If not specified, the framework applies default values to match AWS's standard S
     message_retention_period: 345600
     maximum_message_size: 262144
 
-=head2 DLQ DESIGN NOTE
+=head2 DLQ Design Note
 
 A dead letter queue is not a special type - it is simply another queue used
 to receive messages that have been unsuccessfully processed. It is modeled
@@ -2310,24 +2561,24 @@ as a standalone queue and defined at the top level of the stack configuration.
 The C<dlq> block is defined at the same level as C<queue>, not nested within it.
 If no overrides are provided, DLQ attributes default to AWS attribute defaults.
 
-=head2 IAM POLICY UPDATES
+=head2 IAM Policy Updates for Queues
 
 Adding a new queue to an existing stack will not only create the queue, but
 also update the IAM policy associated with your stack to include permissions
 for the newly defined queue and DLQ (if applicable).
 
-=head1 SCHEDULED JOBS
+=head1 SCHEDULED TASKS
 
 The Fargate stack framework allows you to schedule container-based jobs
 using AWS EventBridge. This is useful for recurring tasks like report generation,
 batch processing, database maintenance, and other periodic workflows.
 
-A scheduled job is defined like any other task, using C<type: task>, and
+A scheduled task is defined like any other task, using C<type: task>, and
 adding a C<schedule:> key in AWS EventBridge cron format.
 
-=head2 SCHEDULING A JOB
+=head2 Scheduling a Task
 
-To schedule a job, add a C<schedule:> key to your task definition. The
+To schedule a task, add a C<schedule:> key to your task definition. The
 value must be a valid AWS cron expression, such as:
 
   cron(0 2 * * ? *)   # every day at 2:00 AM UTC
@@ -2350,7 +2601,7 @@ the pattern "<task>-schedule".
 All scheduled tasks support environment variables, secrets, and other
 standard task features.
 
-=head2 RUNNING AN ADHOC JOB
+=head2 Running an Adhoc Task
 
 You can run a scheduled (or unscheduled) task manually at any time using:
 
@@ -2371,7 +2622,7 @@ By default, this will:
 This is ideal for debugging, re-running failed jobs, or triggering
 occasional maintenance tasks on demand.
 
-=head2 SERVICES VS TASKS
+=head2 Services vs Tasks
 
 A task of type C<daemon> is launched as a long-running ECS service
 and benefits from restart policies and availability guarantees.
@@ -2395,7 +2646,7 @@ I<Note: Full access includes s3:GetObject, s3:PutObject, s3:DeleteObject, and
 s3:ListBucket.  Readonly access is limited to s3:GetObject and
 s3:ListBucket.>
 
-=head2 BASIC CONFIGURATION
+=head2 Basic Bucket Configuration
 
 You define a bucket in your configuration like this:
 
@@ -2405,7 +2656,7 @@ You define a bucket in your configuration like this:
 By default, this grants full read/write access to the entire bucket via the
 IAM role attached to your ECS task definition.
 
-=head2 RESTRICTED ACCESS
+=head2 Restricted Bucket Access
 
 You can limit access to a subset of the bucket using the C<readonly:> and
 C<paths:> keys:
@@ -2434,14 +2685,14 @@ If you specify C<readonly: true> but omit C<paths:>, read-only access will
 apply to the entire bucket. If you omit both keys, full read/write access
 is granted.
 
-=head2 IAM-BASED ENFORCEMENT
+=head2 IAM Based Bucket Access Enforcement
 
 Bucket access is enforced exclusively through IAM role permissions. The
 framework does not modify or require an S3 bucket policy. This keeps your
 configuration simpler and avoids potential conflicts with externally
 managed bucket policies.
 
-=head2 USING EXISTING BUCKETS
+=head2 Using Existing Buckets
 
 If you reference an existing bucket not created by the framework, be aware
 that the bucket's own policy may still restrict access.
@@ -3138,7 +3389,7 @@ For any service type (C<https>, C<http>, C<daemon>, or C<task>), you can enable
 and configure autoscaling directly from the command line. This provides a
 quick-start method to make your service elastic from the moment it's created.
 
-The Cautoscaling: keyword accepts a metric and an optional target value:
+The C<autoscaling:> keyword accepts a metric and an optional target value:
 
 =over
 
@@ -3280,7 +3531,7 @@ via VPC endpoints (no public IPs)
 
 =back
 
-=head2 My task fails with this message:
+=head2 Why does my task fail with a "ResourceInitializationError" message?
 
  ResourceInitializationError: unable to pull secrets or registry auth:
  The task cannot pull registry auth from Amazon ECR: There is a
@@ -3524,13 +3775,238 @@ itself.
 
 =over 4
 
-=item * Scaling configuration
-
-=item * Service Connect, including certificates for internal HTTP services
-
 =item * Multiple HTTP services
 
 =item * Path based routing
+
+=back
+
+=head1 FAQ
+
+=head2 Can I run configure multiple tasks and daemons in the same
+cluster using a single configuration file?
+
+Yes. The C<tasks:> section of the configuration allows you to create
+multiple tasks. A typical stack might consist of:
+
+=over 4
+
+=item * one-shot tasks
+
+=item * scheduled tasks
+
+=item * daemons
+
+=item * an HTTP service
+
+=back
+
+=head3 Limitations
+
+=over 4
+
+=item * You can only define 1 HTTP service in the stack
+
+=item * EFS mounts are specific to a task
+
+=item * Queues and Buckets are defined at the stack level (not the
+task level)
+
+=item * Secrets are defined at the task level
+
+=item * EFS mount points are defined at the task level
+
+=item * A task definition is created for each task in your
+configuration file, however a single IAM role is created allowing
+access to any of the configured resources in your stack (buckets,
+queues, secrets). See L<"IAM PERMISSIONS"> for more details.
+
+=back
+
+=head2 Do I need to know (or install) Perl to use this?
+
+No. While the framework is written in Perl, you do not need to be a
+Perl developer or even have Perl installed on your system to use it.
+
+The recommended way to use C<App::FargateStack> is via its
+containerized version, which is invoked using the
+C<app-FargateStack-docker> script.  This version bundles Perl and all
+its dependencies into a single Docker image. As long as you have
+Docker installed, you have everything you need.
+
+We chose Perl for its powerful text processing and system integration
+capabilities, which make it an excellent "glue" language for wrapping
+the AWS CLI (you can read more about this in the L<"BACKGROUND">
+section).
+
+Ultimately, we believe the tool's ability to simplify Fargate
+deployments speaks for itself. We encourage you to give the Docker
+version a try - you might find you like it, no Perl knowledge required.
+
+=head2 Can I modify the generated task definition file manually?
+
+No, you should not. The configuration file is treated as the single
+source of truth.
+
+On every C<plan> or C<apply> run, the framework regenerates the task
+definition file (C<taskdef-{task-name}.json>) based on the settings in your
+YAML configuration. Any manual edits you make to the JSON file will be
+overwritten the next time you run the tool.
+
+The documentation explicitly warns: "You should not manually modify the
+generated file... as doing so may cause App::FargateStack to lose track of
+your task's configuration."[cite: 955]. If you need to change your task's
+configuration, you must do so in the YAML configuration file.
+
+=head2 Will App::FargateStack delete resources it doesn't manage?
+
+No. The framework operates on a "safe by default" principle and will
+not modify or delete any AWS resources that are not explicitly defined
+in your C<fargate-stack.yml> file.
+
+For example, C<App::FargateStack> will B<not> delete:
+
+=over 4
+
+=item * ECR images associated with your task.
+
+=item * ACM certificates that it may have provisioned for an HTTPS
+service.
+
+=item * An existing ALB that was discovered and used by the service
+but was not created by the framework.
+
+=back
+
+It is designed to manage only the resources that are within its
+defined scope.
+
+=head2 How can I contribute?
+
+This project is driven by the goal of making AWS Fargate simple and accessible.
+Community feedback and contributions are highly encouraged and appreciated.
+Here are the best ways to get involved:
+
+=over 4
+
+=item * B<Try it and provide feedback>
+
+The primary goal is for this framework to be easy to use. The benchmark is
+to get a new user up and running in under 10 minutes. If that's not your
+experience, please open an issue on GitHub and let us know where you got stuck.
+Real-world feedback is the most valuable contribution you can provide.
+
+=item * B<Improve the documentation>
+
+Writing good software is hard; writing good documentation is even harder.
+If you find a section that is confusing, unclear, or incorrect, please
+let us know by opening an issue or submitting a pull request with your suggested changes.
+
+=item * B<Suggest new features>
+
+If there is a feature you believe is missing, please suggest it! Keeping in mind
+the project's philosophy of simplicity, we welcome ideas for enhancements
+that make Fargate easier to use. Before you reach for a complex solution like
+EKS, consider if there's a simpler path with Fargate. If this tool can help
+bridge that gap, we want to hear about it.
+
+=item * B<Contribute code>
+
+Pull requests are always welcome. Whether it's a bug fix, a new feature, or
+a refactoring to improve the code, your contributions are valued.
+
+=back
+
+=head1 BACKGROUND
+
+This framework is the logical evolution of many projects that required
+provisioning resources for ECS. Those early projects typically avoided
+heavy IaaC tools like Terraform in favor of a lighter approach using
+I<bash> scripts and the AWS CLI.
+
+Naturally, as a Perl developer, I eventually concluded that Perl is a
+superior "glue" language than I<bash>. That led me to write C<App::AWS>, a
+lightweight Perl wrapper around the AWS CLI that eschewed the heavier
+PAWS module. This wrapper proved to be a convenient and powerful way
+to interact with the AWS CLI, combining Perl's magnificent data
+structures with the CLI's JMESPath query capabilities.
+
+What started as a simpler way to write provisioning scripts has now
+evolved into the framework you see today: C<App::FargateStack>.
+
+=head1 HOW IT WORKS
+
+While C<App::FargateStack> is designed to be a high-level abstraction,
+this section provides a brief overview of its internal mechanics for
+users who wish to understand its behavior more deeply for debugging or
+contribution purposes.
+
+=head2 The AWS CLI as the Engine
+
+C<App::FargateStack> does not use the AWS SDKs directly. Instead, it acts as an
+intelligent wrapper around the B<AWS CLI>. Every action that modifies or queries
+your AWS environment is performed by shelling out and executing a corresponding
+C<aws> command.
+
+This design choice makes the tool's behavior highly transparent. If
+you ever need to see the exact AWS API calls being made, you can run
+any command with the C<--log-level debug> or C<trace> flag, which will
+print the full AWS CLI commands being executed.
+
+=head2 The YAML File as a State Record
+
+As mentioned in the L<"Configuration as State"> section, the YAML file is more
+than just an input. The C<plan> command enriches this file by populating it
+with the ARNs, IDs, and names of discovered or newly provisioned resources.
+
+On subsequent runs, the framework uses this enriched file as a cache. By
+reading the ARNs directly from the file, it avoids making unnecessary "describe"
+API calls to AWS, which significantly speeds up execution. This is why the
+YAML file should be considered a managed state file and checked into version
+control alongside your application code.
+
+=head2 Intermediate Artifacts
+
+Before creating certain AWS resources, the framework first generates local
+JSON files that represent the resource's configuration. The most common
+example is the F<taskdef-{task-name}.json> file created before registering a
+new task definition.
+
+These files are intermediate artifacts managed entirely by the tool. As noted
+in the L<"FAQ">, they should not be edited manually, as they are regenerated on
+each run from the "single source of truth" - your YAML configuration file.
+
+=head1 ADDITIONAL RESOURCES
+
+=over 4
+
+=item * Repository
+
+L<https://github.com/rlauer6/App-FargateStack>
+
+=item * Docker Hub
+
+L<https://hub.docker.com/r/rlauer/app-fargatestack>
+
+=item * Website
+
+L<https://app-fargatestack.tbcdevelopmentgroup.com>
+
+=item * CPAN
+
+L<https://metacpan.org/pod/App::FargateStack::Pod>
+
+=item * AWS Links
+
+=over 4
+
+=item L<AWS Fargate|https://aws.amazon.com/fargate/>
+
+=item L<AWS ECS|https://aws.amazon.com/ecs/>
+
+=item L<AWS ECR|https://aws.amazon.com/ecr/>
+
+=back
 
 =back
 

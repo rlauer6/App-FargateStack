@@ -158,7 +158,13 @@ sub create_policy {
 
   $self->log_warn( 'iam: creating policy [%s] for role [%s]...', $policy_name, $role_name );
 
-  $iam->put_role_policy( $role_name, $policy_name, $role_policy );
+  $iam->put_role_policy(
+    role_name   => $role_name,
+    policy_name => $policy_name,
+    policy      => $role_policy
+  );
+
+  $self->save_policy( $policy_name, $role_policy );
 
   $iam->check_result(
     { message => "ERROR: could not create policy %s for %s\n%s",
@@ -167,6 +173,23 @@ sub create_policy {
   );
 
   return;
+}
+
+########################################################################
+sub save_policy {
+########################################################################
+  my ( $self, $policy_name, $policy ) = @_;
+
+  my $filename = sprintf 'policy-%s.json', $policy_name;
+
+  open my $fh, '>', $filename
+    or croak "ERROR: could not save $filename\n$OS_ERROR";
+
+  print {$fh} JSON->new->pretty->encode($policy);
+
+  close $fh;
+
+  return $filename;
 }
 
 ########################################################################
@@ -211,7 +234,7 @@ sub create_fargate_task_policy {
   };
 
   if ( $config->{bucket} ) {
-    push @statement, $self->add_bucket_policy;
+    push @statement, @{ $self->add_bucket_policy };
   }
 
   if ( $config->{queue} ) {
