@@ -14,6 +14,8 @@
   * [`docker`](#docker)
   * [`lib/App`](#libapp)
   * [`lib/App/FargateStack`](#libappfargatestack)
+  * [`lib/App/FargateStack/Builder`](#libappfargatestackbuilder)
+  * [`t`](#t)
 
 This README will explain what you need to build `App::FargateStack'
 from source and possibly contribute to the project.
@@ -76,8 +78,8 @@ list may be incomplete):
 * `libssl-dev`
 * `libzip-dev`
 
->> Library names may differ on different distributions. The libraries
->> named above can be installed on Debian based distributions.
+> Library names may differ on different distributions. The libraries
+> named above can be installed on Debian based distributions.
 
 Typically, I install Perl dependencies in my home directory
 to avoid overwriting system `perl` artifacts:
@@ -118,7 +120,7 @@ you will be using for building and testing `App::FargateStack`.
 
 ## Additional Dependencies for Building the Project
 
->> Note: these should be already listed in `build-requires`
+> Note: these should be already listed in `build-requires`
 
 * [`Markdown::Render`](https://metacpan.org/pod/Markdown::Render) - provides `md-utils.pl`
 * [`CPAN::Maker`](https://metacpan.org/pod/CPAN::Maker) - provides `make-cpan-dist.pl`
@@ -128,6 +130,10 @@ you will be using for building and testing `App::FargateStack`.
 [Back to Table of Contents](#table-of-contents)
 
 # Project Structure
+
+The project is basically laid out to faciliate building a CPAN
+distribution.  The sections below explain the purpose of the modules
+in each of the subdirectories.
 
 ```
 .
@@ -140,9 +146,6 @@ you will be using for building and testing `App::FargateStack`.
 |           `-- Builder
 `-- t
 ```
-
-The project is basically laid out to faciliate building a CPAN
-distribution.
 
 ## `bin`
 
@@ -241,3 +244,31 @@ with the AWS API and the module that is essentially the
   ```
   lib/App/FargateStack/AutoscalingConfig.pm.in
   ```
+
+## `lib/App/FargateStack/Builder`
+
+* This modules provides utilities for entire project.
+  ```
+  lib/App/FargateStack/Builder/Utils.pm.in
+  ```
+* These modules actually build the AWS resources.
+  ```
+  lib/App/FargateStack/Builder/Autoscaling.pm.in
+  lib/App/FargateStack/Builder/Certificate.pm.in
+  lib/App/FargateStack/Builder/Cluster.pm.in
+  lib/App/FargateStack/Builder/EFS.pm.in
+  lib/App/FargateStack/Builder/Events.pm.in
+  lib/App/FargateStack/Builder/HTTPService.pm.in
+  lib/App/FargateStack/Builder/IAM.pm.in
+  lib/App/FargateStack/Builder/LogGroup.pm.in
+  lib/App/FargateStack/Builder/S3Bucket.pm.in
+  lib/App/FargateStack/Builder/Secrets.pm.in
+  lib/App/FargateStack/Builder/SecurityGroup.pm.in
+  lib/App/FargateStack/Builder/Service.pm.in
+  lib/App/FargateStack/Builder/SQSQueue.pm.in
+  lib/App/FargateStack/Builder/TaskDefinition.pm.in
+  lib/App/FargateStack/Builder/WafV2.pm.in
+  ```
+## `t`
+
+This directory will hopefuly *someday* have some meaningful tests.
