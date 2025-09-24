@@ -1,0 +1,32 @@
+FROM debian:trixie as app-fargatestack-dev
+
+COPY trixie-backports.list /etc/apt/sources.list.d/
+
+RUN apt-get update --fix-missing && apt-get install -y --fix-missing \
+    less vim curl git automake less gcc gnupg libzip-dev \
+    libssl-dev libperl-dev perl perl-doc libexpat-dev make \
+    python3 unzip man
+
+# AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install
+
+# cpanm
+RUN curl -L https://cpanmin.us | perl - App::cpanminus
+RUN cpanm -n ExtUtils::XSBuilder::ParseSource
+
+RUN rm -rf ~/.cpanm
+
+RUN echo 'export PERL5LIB=$HOME/lib/perl5' >>$HOME/.bashrc
+RUN echo 'export PATH=$HOME/bin:$PATH' >>$HOME/.bashrc
+RUN echo "set mouse-=a" >>$HOME/.vimrc 
+
+RUN mkdir $HOME/git && cd $HOME/git && \
+  git clone https://github.com/rlauer6/App-FargateStack.git && \
+  cd App-FargateStack && \
+  git checkout dev && \
+  ./install-deps
+
+RUN apt-get autoremove --fix-missing -yq && rm -rf /var/lib/apt/lists/*
+

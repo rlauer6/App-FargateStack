@@ -57,10 +57,20 @@ HELLOWORLD_DEPS= \
     helloworld.repo
 
 helloworld.id: $(HELLOWORLD_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-helloworld.log
-	grep 'Successfully built' build-helloworld.log | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
 helloworld: helloworld.id
+
+########################################################################
+# development image
+########################################################################
+
+app-fargatestack-dev: app-fargatestack-dev.id
+
+app-fargatestack-dev.id: Dockerfile.dev
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
 ########################################################################
 # HTTP service image
@@ -75,8 +85,8 @@ HTTP_TEST_DEPS = \
 http-test: http-test.id
 
 http-test.id: $(HTTP_TEST_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-http-test.log
-	grep 'Successfully built' build-http-test.log | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
 install: http-test.id helloworld.id
 	./deploy-to-ecr helloworld:latest | grep '^latest' | awk '{print $$3}' > helloworld.digest

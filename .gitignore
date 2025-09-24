@@ -3,8 +3,6 @@
 *.pod
 *.yml
 test-*.pl
-packages
-requires.in
 README.md.in
 *.json
 *.log

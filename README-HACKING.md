@@ -42,7 +42,7 @@ curl -L https://cpanmin.us | perl - App::cpanminus
 
 ...then
 
-for a in $(cat requires); do \
+for a in $(cat requires build-requires); do \
   cpanm -n -v -l $HOME $a; \
 done
 ```
@@ -65,6 +65,8 @@ Make sure you configure the CLI with your AWS profile for the account
 you will be using for building and testing `App::FargateStack`.
 
 ## Additional Dependencies for Building the Project
+
+>> Note: these should be already listed in `build-requires`
 
 * [`Markdown::Render`](https://metacpan.org/pod/Markdown::Render) - provides `md-utils.pl`
 * [`CPAN::Maker`](https://metacpan.org/pod/CPAN::Maker) - provide `make-cpan-dist.pl`
