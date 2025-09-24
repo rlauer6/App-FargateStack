@@ -1,19 +1,6 @@
 # README-HACKING
 
-# Table of Contents
-
-* [README-HACKING](#readme-hacking)
-* [Before You Dive In...](#before-you-dive-in)
-* [Prerequisites](#prerequisites)
-  * [Utilities](#utilities)
-  * [Perl Module Dependencies](#perl-module-dependencies)
-  * [AWS CLI](#aws-cli)
-  * [Additional Dependencies for Building the Project](#additional-dependencies-for-building-the-project)
-* [Project Structure](#project-structure)
-  * [`bin`](#bin)
-  * [`docker`](#docker)
-  * [`lib/App`](#libapp)
-  * [`lib/App/FargateStack`](#libappfargatestack)
+@TOC@
 
 This README will explain what you need to build `App::FargateStack'
 from source and possibly contribute to the project.
@@ -47,7 +34,7 @@ app-FargateStack --version
 Fork the repo and hack away...if you still want to go your own
 way...read on.
 
-[Back to Table of Contents](#table-of-contents)
+@TOC_BACK@
 
 # Prerequisites
 
@@ -95,7 +82,7 @@ for a in $(cat requires build-requires); do \
 done
 ```
 
-[Back to Table of Contents](#table-of-contents)
+@TOC_BACK@
 
 ## AWS CLI
 
@@ -114,7 +101,7 @@ unzip awscliv2.zip && \
 Make sure you configure the CLI with your AWS profile for the account
 you will be using for building and testing `App::FargateStack`.
 
-[Back to Table of Contents](#table-of-contents)
+@TOC_BACK@
 
 ## Additional Dependencies for Building the Project
 
@@ -125,7 +112,7 @@ you will be using for building and testing `App::FargateStack`.
 * [`Pod::Markedown`](https://metacpan.org/pod/Pod::Markdown)
 * [`Pod::Text`](https://metacpan.org/pod/Pod::Text)
 
-[Back to Table of Contents](#table-of-contents)
+@TOC_BACK@
 
 # Project Structure
 

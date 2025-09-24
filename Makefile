@@ -38,7 +38,7 @@ VERSION := $(shell cat VERSION)
 
 TARBALL = $(subst ::,-,$(MODULE_NAME))-$(VERSION).tar.gz
 
-all: $(TARBALL)
+all: $(TARBALL) README.md README-HACKING.md
 
 %.pm: %.pm.in
 	rm -f $@
@@ -157,6 +157,9 @@ requires.in: packages
 
 README.md.in: README.pod
 	pod2markdown $< > $@
+
+README-HACKING.md: README-HACKING.md.in
+	md-utils.pl $< > $@
 
 README.md: README.md.in
 	perl -npe 's/^.*\@TOC/\@TOC/g;' $< | \

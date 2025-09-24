@@ -66,11 +66,25 @@ helloworld: helloworld.id
 # development image
 ########################################################################
 
-app-fargatestack-dev: app-fargatestack-dev.id
+DOCKERHUB_USER = rlauer
+PROJECT        = app-fargatestack-dev
+IMAGE          = $(PROJECT)
+REPO           = $(DOCKERHUB_USER)/$(IMAGE)
+
+$(PROJECT): $(PROJECT).id
 
 app-fargatestack-dev.id: Dockerfile.dev
 	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
 	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
+
+.PHONY: public
+
+public: $(PROJECT).digest
+
+$(PROJECT).digest: $(PROJECT).id
+	docker login -u $(DOCKERHUB_USER) --password-stdin < ~/.ssh/dockerhub.token
+	docker tag $(IMAGE):latest $(REPO):$(IMAGE); \
+	docker push $(REPO):$(IMAGE) | tail -1 | tee | awk '{print $$3}' > $@
 
 ########################################################################
 # HTTP service image
