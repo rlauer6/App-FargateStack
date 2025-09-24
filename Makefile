@@ -38,7 +38,7 @@ VERSION := $(shell cat VERSION)
 
 TARBALL = $(subst ::,-,$(MODULE_NAME))-$(VERSION).tar.gz
 
-all: $(TARBALL)
+all: $(TARBALL) README.md README-HACKING.md
 
 %.pm: %.pm.in
 	rm -f $@
@@ -62,7 +62,6 @@ FARGATE_BUILDERS = \
     lib/App/FargateStack/Builder/S3Bucket.pm.in \
     lib/App/FargateStack/Builder/SQSQueue.pm.in \
     lib/App/FargateStack/Builder/TaskDefinition.pm.in \
-    lib/App/FargateStack/Builder/Utils.pm.in \
     lib/App/FargateStack/Builder/WafV2.pm.in
 
 GFARGATE_BUILDERS = $(FARGATE_BUILDERS:.pm.in=.pm)
@@ -98,6 +97,8 @@ FARGATE_INIT_DEPS = \
     $(GAWS_PERL_MODULES) \
     lib/App/FargateStack/Constants.pm \
     lib/App/FargateStack/Builder/Utils.pm.in
+
+$(FARGATE_DEPS): lib/App/FargateStack/Builder/Utils.pm
 
 lib/App/FargateStack.pm: $(FARGATE_DEPS)
 
@@ -157,6 +158,9 @@ requires.in: packages
 README.md.in: README.pod
 	pod2markdown $< > $@
 
+README-HACKING.md: README-HACKING.md.in
+	md-utils.pl $< > $@
+
 README.md: README.md.in
 	perl -npe 's/^.*\@TOC/\@TOC/g;' $< | \
 	perl -0npe 'BEGIN { print qq{\@TOC\@\n---\n}; }'  | \
@@ -168,4 +172,12 @@ clean:
 	rm -f *.tar.gz
 	rm -f provides extra-files resources
 
+.PHONY: realclean
+
+install: $(TARBALL)
+	cpanm -n -v -l $HOME $(TARBALL)
+
+realclean: clean
+	rm -f requires.in
+  
 include version.mk

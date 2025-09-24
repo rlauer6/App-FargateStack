@@ -25,6 +25,7 @@ sub cmd_logs {
   my ($self) = @_;
 
   my ( $config, $tasks ) = $self->common_args(qw(config tasks));
+
   my ( $task_name, $start, $end ) = $self->get_args;
 
   $task_name //= $self->get_default_task_name;

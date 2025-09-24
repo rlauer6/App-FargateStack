@@ -223,6 +223,7 @@ object-oriented use. As such, this section is intentionally omitted.
  --log-poll-time            amount of time in seconds to sleep between requesting new log events
  --max-events, -m           maximum number of events to show for status command (default: 5)
  --output                   output type for some commands, valid values: text|json
+ --no-profile               do not use --profile in AWS CLI commands (See Note 14)
  -p, --profile              AWS profile (see Note 1)
  --purge-config             remove deleted tasks from multi-task configs
  --route53-profile          set this if your Route 53 zones are in a different account (See Note 10)
@@ -425,6 +426,9 @@ In this case, your scaling policy C<max_capacity> value must be at least
 4.
 
 =back
+
+=item (14) Use the C<--no-profile> option if you are using an IAM
+instance role.
 
 =back
 

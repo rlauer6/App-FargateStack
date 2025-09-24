@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#-*- mode:sh; -*-
+
+set -oe
+
+source $HOME/.bashrc
+
+for a in $(cat requires build-requires); do \
+  cpanm -n -v -l $HOME $a; \
+done

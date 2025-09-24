@@ -98,10 +98,11 @@ sub new_client {
       if !ref $args[0];
 
     return {
-      profile   => $args[0]->get_profile,
-      region    => $args[0]->get_region,
-      log_level => $args[0]->get_log_level,
-      logger    => $args[0]->get_logger,
+      no_profile => $args[0]->get_no_profile,
+      profile    => $args[0]->get_profile,
+      region     => $args[0]->get_region,
+      log_level  => $args[0]->get_log_level,
+      logger     => $args[0]->get_logger,
     };
   };
 
@@ -402,9 +403,10 @@ sub check_route53 {
   my ($self) = @_;
 
   my %options = (
-    profile   => $self->get_route53_profile,
-    region    => $self->get_region,
-    log_level => $self->get_log_level,
+    profile    => $self->get_route53_profile,
+    region     => $self->get_region,
+    log_level  => $self->get_log_level,
+    no_profile => $self->get_no_profile,
   );
 
   my $r53 = new_client( 'App::Route53' => %options );
@@ -686,7 +688,7 @@ sub init {
 ########################################################################
   my ($self) = @_;
 
-  $self->set_route53_profile($self->get_dns_profile // $self->get_profile);
+  $self->set_route53_profile( $self->get_dns_profile // $self->get_profile );
 
   return;
 }
@@ -706,6 +708,7 @@ sub main {
 
   my @option_specs = qw(
     profile=s
+    no-profile
     region=s
     https!
     help|h

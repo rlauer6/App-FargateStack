@@ -57,10 +57,34 @@ HELLOWORLD_DEPS= \
     helloworld.repo
 
 helloworld.id: $(HELLOWORLD_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-helloworld.log
-	grep 'Successfully built' build-helloworld.log | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
 helloworld: helloworld.id
+
+########################################################################
+# development image
+########################################################################
+
+DOCKERHUB_USER = rlauer
+PROJECT        = app-fargatestack-dev
+IMAGE          = $(PROJECT)
+REPO           = $(DOCKERHUB_USER)/$(IMAGE)
+
+$(PROJECT): $(PROJECT).id
+
+$(PROJECT).id: Dockerfile.dev
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
+
+.PHONY: public
+
+public: $(PROJECT).digest
+
+$(PROJECT).digest: $(PROJECT).id
+	docker login -u $(DOCKERHUB_USER) --password-stdin < ~/.ssh/dockerhub.token
+	docker tag $(IMAGE):latest $(REPO):$(IMAGE); \
+	docker push $(REPO):$(IMAGE) | tee /dev/tty | tail -1 | awk '{print $$3}' > $@
 
 ########################################################################
 # HTTP service image
@@ -75,8 +99,8 @@ HTTP_TEST_DEPS = \
 http-test: http-test.id
 
 http-test.id: $(HTTP_TEST_DEPS)
-	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-http-test.log
-	grep 'Successfully built' build-http-test.log | awk '{print $$3}' > $@
+	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
+	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
 install: http-test.id helloworld.id
 	./deploy-to-ecr helloworld:latest | grep '^latest' | awk '{print $$3}' > helloworld.digest

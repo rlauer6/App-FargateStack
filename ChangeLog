@@ -1,3 +1,46 @@
+Wed Sep 24 14:05:14 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.54]:
+	* VERSION: bump
+	* README.md: generated
+	* .gitignore: -packages, -requires.in
+	* Makefile
+	- fix dependency issue
+	(install): new
+	(README-HACKING.md): new
+	(realclean): new
+	* docker/Makefile
+	(app-fargatestack-dev): new
+	* lib/App/AWS.pm.in
+	- + no_profile option
+	(command): don't use --profile if no_profile
+	* lib/App/FargateStack.pm.in
+	(cmd_register_task_definition)
+	- only list event targets if scheduled task
+	(main): no_profile
+	* lib/App/FargateStack/Checker.pm.in
+	(new_client): no_profile
+	(check_route53): likewise
+	(main): likewise
+	* lib/App/FargateStack/Constants.pm.in
+	- avoid use of ToCamelCase
+	- don't import choose from Utils
+	(choose): new
+	* lib/App/FargateStack/Init.pm.in
+	(_init_defaults): no_profile
+	* lib/App/FargateStack/Logs.pm.in: whitespace
+	* README-HACKING.md: new
+	* README-HACKING.md.in: new
+	* build-requires: new
+	* docker/Dockerfile.dev: new
+	* docker/entrypoint.sh: new
+	* docker/trixie-backports.list: new
+	* install-deps: new
+	* packages: new
+	* requires.in: new
+	* lib/App/FargateStack/Pod.pm.in
+	- add note about --no-profile
+
 Tue Sep 23 12:38:46 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.53]:

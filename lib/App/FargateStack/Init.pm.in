@@ -339,11 +339,12 @@ sub _init_defaults {
   $self->set_profile_source($profile_source);
 
   my %global_options = (
-    profile   => $self->get_profile,
-    region    => $self->get_region,
-    logger    => $self->get_logger,
-    log_level => $self->get_log_level,
-    unlink    => $self->get_unlink,
+    profile    => $self->get_profile,
+    region     => $self->get_region,
+    logger     => $self->get_logger,
+    log_level  => $self->get_log_level,
+    unlink     => $self->get_unlink,
+    no_profile => $self->get_no_profile,
   );
 
   $self->set_global_options( \%global_options );

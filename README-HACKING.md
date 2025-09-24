@@ -1,0 +1,315 @@
+# README-HACKING
+
+# Table of Contents
+
+* [Before You Dive In...](#before-you-dive-in)
+* [Prerequisites](#prerequisites)
+  * [Utilities](#utilities)
+  * [Perl Module Dependencies](#perl-module-dependencies)
+  * [AWS CLI](#aws-cli)
+  * [Additional Dependencies for Building the Project](#additional-dependencies-for-building-the-project)
+* [Project Structure](#project-structure)
+  * [`bin`](#bin)
+  * [`docker`](#docker)
+  * [`lib/App`](#libapp)
+  * [`lib/App/FargateStack`](#libappfargatestack)
+  * [`lib/App/FargateStack/Builder`](#libappfargatestackbuilder)
+  * [`t`](#t)
+* [Rolling the Next Version (primary maintainer only)](#rolling-the-next-version-primary-maintainer-only)
+
+This README will explain what you need to build `App::FargateStack`
+from source...and possibly contribute to the project?
+
+# Before You Dive In...
+
+First, thanks for taking a peek at `App::FargateStack`. It was a lot
+of fun learning as much about Fargate to build this project.  I love
+me some Fargate! If you need a reminder why checkout the white papers
+on the official [`App::FargateStack` website](https://app-fargatestack.tbcdevelopmentgroup.com).
+
+> This README will help you install all of the dependencies in order
+  to run and build `App-FargateStack`...but there is an easier way! If
+  you want to get a **ready-to-go** environment, pull
+  `app-fargatestack-dev` from DockerHub.
+
+```
+docker run --rm -it app-fargatestack-dev
+```
+
+This will put you in a Debian based container with the project already
+cloned. The `dev` branch is already checked out and updated. To test it
+out:
+
+```
+make
+cpanm -n -v -l $HOME App-FargateStack*.tar.gz
+app-FargateStack --version
+```
+
+Fork the repo and hack away...if you still want to go your own
+way...read on.
+
+[Back to Table of Contents](#table-of-contents)
+
+# Prerequisites
+
+`App::FargateStack` is a Perl based application and as such you should
+have a complete Perl installation. `perl` version 5.16.3 is sufficient
+although older versions _may_ work...ymmv.
+
+## Utilities
+
+* `docker`
+* `curl`
+* `unzip`
+* `git`
+
+## Perl Module Dependencies
+
+The modules required by `App::FargateStack` are listed in the
+`requires` file. You can install all of the required modules by using
+`cpanm`. Some modules require additioanl libraries,  `make` and `gcc`
+so make sure these dependencies are installed before you proceed (this
+list may be incomplete):
+
+* `gcc`
+* `make`
+* `automake`
+* `libexpat-dev`
+* `libssl-dev`
+* `libzip-dev`
+
+> Library names may differ on different distributions. The libraries
+> named above can be installed on Debian based distributions.
+
+Typically, I install Perl dependencies in my home directory
+to avoid overwriting system `perl` artifacts:
+
+```
+eval $(perl -I$HOME/lib/perl5 -Mlocal::lib=$HOME)
+curl -L https://cpanmin.us | perl - App::cpanminus
+```
+
+...then
+
+```
+for a in $(cat requires build-requires); do \
+  cpanm -n -v -l $HOME $a; \
+done
+```
+
+[Back to Table of Contents](#table-of-contents)
+
+## AWS CLI
+
+`App::FargateStack` uses the `aws` CLI script to invoke AWS APIs when
+creating and describing resources. Visit the [AWS
+page](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+describing the latest installation process, however this recipe below
+may still work:
+
+```
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+unzip awscliv2.zip && \
+./aws/install
+```
+
+Make sure you configure the CLI with your AWS profile for the account
+you will be using for building and testing `App::FargateStack`.
+
+[Back to Table of Contents](#table-of-contents)
+
+## Additional Dependencies for Building the Project
+
+> Note: these should be already listed in `build-requires`
+
+* [`Markdown::Render`](https://metacpan.org/pod/Markdown::Render) - provides `md-utils.pl`
+* [`CPAN::Maker`](https://metacpan.org/pod/CPAN::Maker) - provides `make-cpan-dist.pl`
+* [`Pod::Markedown`](https://metacpan.org/pod/Pod::Markdown)
+* [`Pod::Text`](https://metacpan.org/pod/Pod::Text)
+
+[Back to Table of Contents](#table-of-contents)
+
+# Project Structure
+
+The project is basically laid out to faciliate building a CPAN
+distribution.  The sections below explain the purpose of the modules
+in each of the subdirectories.
+
+```
+.
+|-- bin
+|-- docker
+|-- examples
+|-- lib
+|   `-- App
+|       `-- FargateStack
+|           `-- Builder
+`-- t
+```
+
+## `bin`
+
+```
+app-fargatestack
+app-FargateStack
+app-FargateStack-checker-docker
+app-FargateStack-docker
+```
+
+The files in the `bin` directory are the scripts that invoke the Perl
+modules (as
+[modulinos](https://perlmaven.com/modulino-both-script-and-module)).
+
+For the most part you should never have to muck with these.
+
+## `docker`
+
+The `docker` directory contains Dockefiles and a `Makefile` for
+creating the example images and the `app-fargatestack-dev`
+development image.
+
+## `lib/App`
+
+The `lib/App` directory contains Perl modules that interface
+with the AWS API and the module that is essentially the
+`app-FargateStack` script.
+
+* These modules wrap AWS CLI calls.
+  ```
+  lib/App/ACM.pm.in
+  lib/App/ApplicationAutoscaling.pm.in
+  lib/App/CloudTrail.pm.in
+  lib/App/EC2.pm.in
+  lib/App/ECR.pm.in
+  lib/App/ECS.pm.in
+  lib/App/EFS.pm.in
+  lib/App/ElbV2.pm.in
+  lib/App/Events.pm.in
+  lib/App/IAM.pm.in
+  lib/App/Logs.pm.in
+  lib/App/Route53.pm.in
+  lib/App/S3Api.pm.in
+  lib/App/SecretsManager.pm.in
+  lib/App/SQS.pm.in
+  lib/App/STS.pm.in
+  lib/App/WafV2.pm.in
+  ```
+* The main driver script is implemented in this module:
+  ```
+  lib/App/FargateStack.pm.in
+  ```
+* These modules invoke the AWS API...`lib/App/Command` is a wrapper
+  for `IPC::Run`.
+  ```
+  lib/App/Command.pm.in
+  lib/App/AWS.pm.in
+  ```
+* This modules provides a wrapper for `Benchmark` for timing AWS API
+  calls.
+  ```
+  lib/App/BenchmarkRole.pm
+  ```
+
+## `lib/App/FargateStack`
+
+* This module executes the sequence of steps to create or destroy
+   resources.
+   ```
+   lib/App/FargateStack/Builder.pm.in
+   ```
+* These modules implement many of the commands. Methods named
+  `cmd_{something}` are called directly from the driver script in
+  response to command execution.
+  ```
+  lib/App/FargateStack/Autoscaling.pm.in
+  lib/App/FargateStack/CloudTrail.pm.in
+  lib/App/FargateStack/Constants.pm.in
+  lib/App/FargateStack/CreateStack.pm.in
+  lib/App/FargateStack/Logs.pm.in
+  lib/App/FargateStack/Pod.pm.in
+  lib/App/FargateStack/Route53.pm.in
+  ```
+* This module implements the `app-FargateStack-checker` script
+  ```
+  lib/App/FargateStack/Checker.pm.in
+  ```
+* This module contains the `init()` method that reads the
+  configuration file and initializes the framework.
+  ```
+  lib/App/FargateStack/Init.pm.in
+  ```
+* This module contains helper methods for parsing the configuration
+  file and creating the autoscaling
+  configuration.
+  ```
+  lib/App/FargateStack/AutoscalingConfig.pm.in
+  ```
+
+## `lib/App/FargateStack/Builder`
+
+* This modules provides utilities for entire project.
+  ```
+  lib/App/FargateStack/Builder/Utils.pm.in
+  ```
+* These modules actually build the AWS resources.
+  ```
+  lib/App/FargateStack/Builder/Autoscaling.pm.in
+  lib/App/FargateStack/Builder/Certificate.pm.in
+  lib/App/FargateStack/Builder/Cluster.pm.in
+  lib/App/FargateStack/Builder/EFS.pm.in
+  lib/App/FargateStack/Builder/Events.pm.in
+  lib/App/FargateStack/Builder/HTTPService.pm.in
+  lib/App/FargateStack/Builder/IAM.pm.in
+  lib/App/FargateStack/Builder/LogGroup.pm.in
+  lib/App/FargateStack/Builder/S3Bucket.pm.in
+  lib/App/FargateStack/Builder/Secrets.pm.in
+  lib/App/FargateStack/Builder/SecurityGroup.pm.in
+  lib/App/FargateStack/Builder/Service.pm.in
+  lib/App/FargateStack/Builder/SQSQueue.pm.in
+  lib/App/FargateStack/Builder/TaskDefinition.pm.in
+  lib/App/FargateStack/Builder/WafV2.pm.in
+  ```
+## `t`
+
+This directory will hopefuly *someday* have some meaningful tests.
+
+# Rolling the Next Version (primary maintainer only)
+
+To create a new version of `App::FargateStack` follow these steps:
+
+* Update the version number. Run:
+  * `make release` for normal bug fix release
+  * `make minor` for a feature release
+  * `make major` for an epic release
+* Update the `ChangeLog`
+* Build the tarball
+  ```
+  make clean && make && make install
+  ```
+* Commit all files and push to main
+  ```
+  git commit -m '1.m.n blah blah blah...'
+  git push origin main
+  git tag 1.m.n
+  git push --tags
+  ```
+* Update CPAN
+  ```
+  upload2cpan
+  ```
+* Update the CPAN mirror
+  ```
+  orepan2-s3 add App-FargateStack-1.m.n.tar.gz
+  ```
+* Update the website
+  ```
+  cd git/app-fargatestack-website
+  make install
+  ```
+* Update Dockerhub repo
+  ```
+  cd git/app-fargatestack-website/docker
+  make clean && make public
+  ```
+  * Update *News* section of repo notes
