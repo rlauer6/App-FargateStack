@@ -174,6 +174,9 @@ clean:
 
 .PHONY: realclean
 
+install: $(TARBALL)
+	cpanm -n -v -l $HOME $(TARBALL)
+
 realclean: clean
 	rm -f requires.in
   
