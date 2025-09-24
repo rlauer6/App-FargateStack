@@ -2,7 +2,6 @@
 
 # Table of Contents
 
-* [README-HACKING](#readme-hacking)
 * [Before You Dive In...](#before-you-dive-in)
 * [Prerequisites](#prerequisites)
   * [Utilities](#utilities)
@@ -16,9 +15,10 @@
   * [`lib/App/FargateStack`](#libappfargatestack)
   * [`lib/App/FargateStack/Builder`](#libappfargatestackbuilder)
   * [`t`](#t)
+* [Rolling the Next Version](#rolling-the-next-version)
 
-This README will explain what you need to build `App::FargateStack'
-from source and possibly contribute to the project.
+This README will explain what you need to build `App::FargateStack`
+from source...and possibly contribute to the project?
 
 # Before You Dive In...
 
@@ -27,17 +27,17 @@ of fun learning as much about Fargate to build this project.  I love
 me some Fargate! If you need a reminder why checkout the white papers
 on the official [`App::FargateStack` website](https://app-fargatestack.tbcdevelopmentgroup.com).
 
-This README will help you install all of the dependencies in order to
-run and build `App-FargateStack`...but there is an easier way! If you
-want to get a **ready-to-go** environment, pull `app-fargatestack-dev` from
-DockerHub.
+> This README will help you install all of the dependencies in order
+  to run and build `App-FargateStack`...but there is an easier way! If
+  you want to get a **ready-to-go** environment, pull
+  `app-fargatestack-dev` from DockerHub.
 
 ```
 docker run --rm -it app-fargatestack-dev
 ```
 
-This will put you a Debian based container with the project already
-cloned. The the `dev` branch is checked out and updated. To test it
+This will put you in a Debian based container with the project already
+cloned. The `dev` branch is already checked out and updated. To test it
 out:
 
 ```
@@ -59,6 +59,7 @@ although older versions _may_ work...ymmv.
 
 ## Utilities
 
+* `docker`
 * `curl`
 * `unzip`
 * `git`
@@ -272,3 +273,46 @@ with the AWS API and the module that is essentially the
 ## `t`
 
 This directory will hopefuly *someday* have some meaningful tests.
+
+# Rolling the Next Version
+
+> ...primary maintainer only
+
+To create a new version of `App::FargateStack` follow these steps:
+
+* Update the version number. Run:
+  * `make release` for normal bug fix release
+  * `make minor` for a feature release
+  * `make major` for an epic release
+* Update the `ChangeLog`
+* Build the tarball
+  ```
+  make clean && make
+  cpanm -n -v -l $HOME App-FargateStack*.tar.gz
+  ```
+* Make sure all changed files are checked in
+* Command and push to main
+  ```
+  git push origin main
+  git tag 1.m.n
+  git push --tags
+  ```
+* Update CPAN
+  ```
+  upload2
+  ```
+* Update the CPAN mirror
+  ```
+  orepan2-s3 add App-FargateStack-1.m.n.tar.gz
+  ```
+* Update the website
+  ```
+  cd git/app-fargatestack-website
+  make install
+  ```
+* Update Dockerhub repo
+  ```
+  cd git/app-fargatestack-website/docker
+  make clean && make public
+  ```
+  * Update *News* section of repo notes
