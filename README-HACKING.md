@@ -15,7 +15,7 @@
   * [`lib/App/FargateStack`](#libappfargatestack)
   * [`lib/App/FargateStack/Builder`](#libappfargatestackbuilder)
   * [`t`](#t)
-* [Rolling the Next Version](#rolling-the-next-version)
+* [Rolling the Next Version (primary maintainer only)](#rolling-the-next-version-primary-maintainer-only)
 
 This README will explain what you need to build `App::FargateStack`
 from source...and possibly contribute to the project?
@@ -274,9 +274,7 @@ with the AWS API and the module that is essentially the
 
 This directory will hopefuly *someday* have some meaningful tests.
 
-# Rolling the Next Version
-
-> ...primary maintainer only
+# Rolling the Next Version (primary maintainer only)
 
 To create a new version of `App::FargateStack` follow these steps:
 
@@ -287,19 +285,18 @@ To create a new version of `App::FargateStack` follow these steps:
 * Update the `ChangeLog`
 * Build the tarball
   ```
-  make clean && make
-  cpanm -n -v -l $HOME App-FargateStack*.tar.gz
+  make clean && make && make install
   ```
-* Make sure all changed files are checked in
-* Command and push to main
+* Commit all files and push to main
   ```
+  git commit -m '1.m.n blah blah blah...'
   git push origin main
   git tag 1.m.n
   git push --tags
   ```
 * Update CPAN
   ```
-  upload2
+  upload2cpan
   ```
 * Update the CPAN mirror
   ```
