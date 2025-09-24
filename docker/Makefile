@@ -73,7 +73,7 @@ REPO           = $(DOCKERHUB_USER)/$(IMAGE)
 
 $(PROJECT): $(PROJECT).id
 
-app-fargatestack-dev.id: Dockerfile.dev
+$(PROJECT).id: Dockerfile.dev
 	docker build -f $< . -t $$(basename $@ .id) 2>&1 | tee build-$$(basename $@ .id).log
 	grep 'Successfully built' build-$$(basename $@ .id).log | awk '{print $$3}' > $@
 
@@ -84,7 +84,11 @@ public: $(PROJECT).digest
 $(PROJECT).digest: $(PROJECT).id
 	docker login -u $(DOCKERHUB_USER) --password-stdin < ~/.ssh/dockerhub.token
 	docker tag $(IMAGE):latest $(REPO):$(IMAGE); \
+<<<<<<< HEAD
 	docker push $(REPO):$(IMAGE) | tail -1 | tee | awk '{print $$3}' > $@
+=======
+	docker push $(REPO):$(IMAGE) | tee /dev/tty | tail -1 | awk '{print $$3}' > $@
+>>>>>>> main
 
 ########################################################################
 # HTTP service image

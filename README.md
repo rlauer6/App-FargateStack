@@ -240,7 +240,7 @@ _This is a work in progress._ Versions prior to 1.1.0 are considered usable
 but may still contain issues related to edge cases or uncommon configuration
 combinations.
 
-This documentation corresponds to version 1.0.53.
+This documentation corresponds to version 1.0.54.
 
 The release of version _1.1.0_ will mark the first production-ready release.
 Until then, you're encouraged to try it out and provide feedback. Issues or
@@ -347,6 +347,7 @@ object-oriented use. As such, this section is intentionally omitted.
     --log-poll-time            amount of time in seconds to sleep between requesting new log events
     --max-events, -m           maximum number of events to show for status command (default: 5)
     --output                   output type for some commands, valid values: text|json
+    --no-profile               do not use --profile in AWS CLI commands (See Note 14)
     -p, --profile              AWS profile (see Note 1)
     --purge-config             remove deleted tasks from multi-task configs
     --route53-profile          set this if your Route 53 zones are in a different account (See Note 10)
@@ -514,6 +515,9 @@ and `apply`. You provide the following arguments in order:
 
         In this case, your scaling policy `max_capacity` value must be at least
         4.
+
+- (14) Use the `--no-profile` option if you are using an IAM
+instance role.
 
 [Back to Table of Contents](#table-of-contents)
 
