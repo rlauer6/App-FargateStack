@@ -3,12 +3,14 @@ package App::FargateStack::Constants;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(choose);
-
 use Data::Dumper;
 use English qw(no_match_vars);
 use JSON;
 use parent qw(Exporter);
+
+####################################################################
+sub choose (&) { return $_[0]->(); }  ## no critic
+####################################################################
 
 use Readonly;
 
@@ -201,21 +203,18 @@ Readonly::Scalar our $DEFAULT_SQS_DELAY_SECONDS                     => 0;
 Readonly::Scalar our $DEFAULT_SQS_MAX_RECEIVE_COUNT                 => 5;
 Readonly::Scalar our $DEFAULT_SQS_MAXIMUM_MESSAGE_SIZE              => 262_144;
 
-require App::FargateStack::Builder::Utils;
-
-Readonly::Scalar our $QUEUE_ATTRIBUTES => App::FargateStack::Builder::Utils::ToCamelCase(
-  [ qw(
-      delay_seconds
-      last_modified_timestamp
-      max_receive_count
-      maximum_message_size
-      message_retention_period
-      receive_message_wait_time_seconds
-      redrive_policy
-      visibility_timeout
-    )
-  ],
-);
+Readonly::Scalar our $QUEUE_ATTRIBUTES => [
+  qw(
+    DelaySeconds
+    LastModifiedTimestamp
+    MaxReceiveCount
+    MaximumMessageSize
+    MessageRetentionPeriod
+    ReceiveMessageWaitTimeSeconds
+    RedrivePolicy
+    VisibilityTimeout
+  )
+];
 
 ########################################################################
 # CloudWatch Logs defaults & constants

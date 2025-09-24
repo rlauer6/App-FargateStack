@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#-*- mode:sh; -*-
+
+set -oe
+
+eval $(perl -I$HOME/lib/perl5 -Mlocal::lib=$HOME)
+
+for a in $(cat requires build-requires); do \
+  cpanm -n -v -l $HOME $a; \
+done

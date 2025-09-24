@@ -387,29 +387,36 @@ sub get_default_task_name {
 ########################################################################
   my ( $self, $type, $filter ) = @_;
 
-  $type //= 'task';
+  $type //= $EMPTY;
 
   my $tasks = $self->common_args('tasks');
 
   my ($task_name) = $self->get_args;
   $task_name //= $EMPTY;
 
-  return $task_name
-    if $task_name && $tasks->{$task_name} && ( $tasks->{$task_name}->{type} eq 'type' ) && !$filter;
+  if ($task_name) {
+    return $task_name
+      if !$type && $tasks->{$task_name};
+
+    return $task_name
+      if $tasks->{$task_name} && $tasks->{$task_name}->{type} eq $type;
+  }
 
   my @task_names = keys %{$tasks};
 
-  return $task_names[0]
-    if @task_names == 1 && ( $tasks->{ $task_names[0] }->{type} eq 'type' ) && !$filter;
-
-  my @tasks = grep { $tasks->{$_}->{type} eq $type } keys %{$tasks};
-
-  if ($filter) {
-    @tasks = grep { defined $tasks->{$_}->{$filter} } @tasks;
+  if ($type) {
+    @task_names = grep { $tasks->{$_}->{type} eq $type } @task_names;
   }
 
-  # more than 1, error or we found just 1
-  return $tasks[1] ? $EMPTY : $tasks[0];
+  return
+    if @task_names != 1;
+
+  return $task_names[0]
+    if !$filter;
+
+  @task_names = grep { defined $tasks->{$_}->{$filter} } @task_names;
+
+  return $task_names[1] ? $EMPTY : $task_name;
 }
 
 ########################################################################
@@ -956,15 +963,13 @@ sub cmd_register_task_definition {
   }
 
   ## - events -
-  if ( $tasks->{$task_name}->{type} eq 'task' ) {
-    require App::Events;
-
+  if ( $tasks->{$task_name}->{type} eq 'task' && $tasks->{$task_name}->{schedule} ) {
     my $event = $self->fetch_events;
 
     my $rule_name = sprintf '%s-schedule', $task_name;
 
     my $target = $event->list_targets_by_rule( $rule_name, 'Targets' );
-    $self->check_result( message => 'ERROR: could not list targets for: [%s]', $rule_name );
+    $event->check_result( message => 'ERROR: could not list targets for: [%s]', $rule_name );
 
     if ( $target && @{$target} ) {
 
