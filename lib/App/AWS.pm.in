@@ -16,7 +16,7 @@ use Role::Tiny;
 use parent qw(Class::Accessor::Fast);
 
 __PACKAGE__->follow_best_practice();
-__PACKAGE__->mk_accessors(qw(_service_name));
+__PACKAGE__->mk_accessors(qw(_service_name no_profile));
 
 ########################################################################
 sub profile {
@@ -49,8 +49,8 @@ sub command {
   my @cmd = ( 'aws', $service, $command );
 
   my @args = (
-    '--profile' => $self->profile,
-    '--region'  => $self->region,
+    $self->get_no_profile ? () : ( '--profile' => $self->profile ),
+    '--region' => $self->region,
     @{ $extra || [] },
   );
 

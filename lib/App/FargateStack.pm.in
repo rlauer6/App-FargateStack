@@ -1677,6 +1677,7 @@ sub main {
     max-events|m=i
     output=s
     profile|p=s
+    no-profile
     purge_config
     region|r=s
     route53-profile|R=s
