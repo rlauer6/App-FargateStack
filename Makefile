@@ -62,7 +62,6 @@ FARGATE_BUILDERS = \
     lib/App/FargateStack/Builder/S3Bucket.pm.in \
     lib/App/FargateStack/Builder/SQSQueue.pm.in \
     lib/App/FargateStack/Builder/TaskDefinition.pm.in \
-    lib/App/FargateStack/Builder/Utils.pm.in \
     lib/App/FargateStack/Builder/WafV2.pm.in
 
 GFARGATE_BUILDERS = $(FARGATE_BUILDERS:.pm.in=.pm)
@@ -98,6 +97,8 @@ FARGATE_INIT_DEPS = \
     $(GAWS_PERL_MODULES) \
     lib/App/FargateStack/Constants.pm \
     lib/App/FargateStack/Builder/Utils.pm.in
+
+$(FARGATE_DEPS): lib/App/FargateStack/Builder/Utils.pm
 
 lib/App/FargateStack.pm: $(FARGATE_DEPS)
 
