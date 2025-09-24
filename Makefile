@@ -169,4 +169,9 @@ clean:
 	rm -f *.tar.gz
 	rm -f provides extra-files resources
 
+.PHONY: realclean
+
+realclean: clean
+	rm -f requires.in
+  
 include version.mk
