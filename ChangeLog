@@ -1,3 +1,95 @@
+Thu Sep 25 09:45:40 2025  Rob Lauer  <rlauer6@comcast.net>
+
+	[1.0.55]:
+	* README.md: generated
+	* README-HACKING.md: likewise
+	* VERSION: bump
+	* README-HACKING.md.in: make install
+	* buildspec.yml
+	- added examples/
+	* Makefile: $$HOME
+	* lib/App/ACM.pm.in
+	(delete_certificate): new
+	(describe_certificate): check args
+	(request_certificate): likewise
+	* lib/App/ECS.pm.in
+	(describe_clusters): whitespace
+	* lib/App/ElbV2.pm.in
+	(remove_listenter_certificates): new
+	(add_listener_certificate): check args, refactoring
+	(modify_listener_certificate): check args
+	(list_certificates): likewise
+	(describe_rules): likewise
+	(delete_load_balancer): likewise
+	(delete_target_group): likewise
+	(delete_rule): likewise
+	(set_security_groups): likewise
+	(describe_load_balancer): likewise
+	(get_listener_by_port): likewise
+	(describe_tags): likewise
+	(create_rule): likewise
+	(create_listener): likewise
+	(fetch_rules_by_domain): likewise
+	(target_group_exists): ', not "
+	(find_alb_subnets): likewise
+	* lib/App/FargateStack.pm.in
+	- use constants for color names
+	(cmd_destroy)
+	- nicer warning message (in color!)
+	(cmd_deploy): whitespace
+	(cmd_delete_daemon)
+	- better error message
+	- only delete if --force when single task
+	(redeploy): whitespace
+	(main)
+	- log at info level for destroy
+	* lib/App/FargateStack/Constants.pm.in
+	- ANSI colors
+	* lib/App/FargateStack/Builder.pm.in
+	(build)
+	- pass http type to build_certificate
+	(delete_task_resources)
+	- log number of task to delete
+	- delete certificate
+	(_delete_certificate): new
+	(remove_certificate): new
+	(delete_cluster)
+	- check cluster state and log appropriate message
+	(_delete_alias_record)
+	- let remove_alias_record log messages
+	(_delete_service)
+	- check to see if service exists
+	(_delete_task_definitions)
+	- check to see if task definitions exist
+	(_delete_http)
+	- fix log message
+	- use named ars for is_our_alb()
+	(is_our_alb)
+	- named args
+	- check args
+	- refactor using _listener()
+	(_listener): new
+	- add log message
+	- return if dryrun mode
+	* lib/App/FargateStack/Builder/Certificate.pm.in
+	(build_certificate)
+	- refactor using certificate_exists()
+	* lib/App/FargateStack/Builder/HTTPService.pm.in
+	(has_http_service): return https if true
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	(confirm): y/n
+	* lib/App/FargateStack/CreateStack.pm.in
+	(cmd_create_stack)
+	- add route53_profile option
+	* lib/App/FargateStack/Init.pm.in
+	(_init_route53)
+	- +destroy to list of commands for which we initialize Route53
+	* examples/http-test/000-default.conf: new
+	* examples/http-test/Dockerfile: new
+	* examples/http-test/apache2.conf: new
+	* examples/http-test/deploy-to-ecr: new
+	* examples/http-test/start-apache: new
+
 Wed Sep 24 14:05:14 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.54]:

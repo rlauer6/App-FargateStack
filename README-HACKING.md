@@ -41,8 +41,7 @@ cloned. The `dev` branch is already checked out and updated. To test it
 out:
 
 ```
-make
-cpanm -n -v -l $HOME App-FargateStack*.tar.gz
+make && make install
 app-FargateStack --version
 ```
 

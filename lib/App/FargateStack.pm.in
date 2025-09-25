@@ -266,17 +266,17 @@ sub cmd_service_status {
 
   $pending_count //= q{-};
 
-  $status = $self->maybe_color( $status eq 'ACTIVE' ? 'bright_green' : 'bright_yellow' => $status );
+  $status = $self->maybe_color( $status eq 'ACTIVE' ? $BRIGHT_GREEN : $BRIGHT_YELLOW => $status );
 
-  my $title = sprintf "Service:[%s]\n", $self->maybe_color( bright_white => $service_name );
+  my $title = sprintf "Service:[%s]\n", $self->maybe_color( $BRIGHT_WHITE => $service_name );
 
   $title .= sprintf "Status:[%s] Running:[%s] Pending:[%s] Desired:[%s]\n",
     $status,
-    $self->maybe_color( green        => $running_count ),
-    $self->maybe_color( yellow       => $pending_count ),
-    $self->maybe_color( bright_white => $desired_count );
+    $self->maybe_color( $GREEN        => $running_count ),
+    $self->maybe_color( $YELLOW       => $pending_count ),
+    $self->maybe_color( $BRIGHT_WHITE => $desired_count );
 
-  $title .= sprintf 'Task Definition: [%s]', $self->maybe_color( 'bright_white' => $task_definition_arn );
+  $title .= sprintf 'Task Definition: [%s]', $self->maybe_color( $BRIGHT_WHITE => $task_definition_arn );
 
   my @events = grep {defined} @{ $result->{events} }[ 0 .. ( $self->get_max_events - 1 ) ];
 
@@ -333,7 +333,7 @@ sub display_task_status {
 
     my $latest_image_digest = $self->get_latest_image($service_name)->{imageDigest};
 
-    $last_status = $self->maybe_color( $last_status eq 'RUNNING' ? 'green' : 'yellow' => $last_status );
+    $last_status = $self->maybe_color( $last_status eq 'RUNNING' ? $GREEN : $YELLOW => $last_status );
 
     $self->log_debug(
       sub {
@@ -346,19 +346,19 @@ sub display_task_status {
     );
 
     my $task_definition_status = choose {
-      return $self->maybe_color( green => 'Current' )
+      return $self->maybe_color( $GREEN => 'Current' )
         if $task_definition_arn eq $latest_task_definition_arn;
 
-      return $self->maybe_color( red => ( split m{/}xsm, $latest_task_definition_arn )[-1] );
+      return $self->maybe_color( $RED => ( split m{/}xsm, $latest_task_definition_arn )[-1] );
     };
 
     $image_digest //= q{};
 
     my $image_digest_status = choose {
-      return $self->maybe_color( green => 'Current' )
+      return $self->maybe_color( $GREEN => 'Current' )
         if $image_digest eq $latest_image_digest;
 
-      return $self->maybe_color( red => abbrev( $latest_image_digest, 16 ) );
+      return $self->maybe_color( $RED => abbrev( $latest_image_digest, 16 ) );
     };
 
     push @data,
@@ -821,10 +821,10 @@ sub cmd_update_service {
   $self->log_debug( sub { return Dumper( [ result => $result ] ) } );
 
   my @data = {
-    'Status'        => $self->maybe_color( bright_white => $result->{status} ),
-    'Running Count' => $self->maybe_color( green        => $result->{running_count} ),
-    'Desired Count' => $self->maybe_color( bright_white => $result->{desired_count} ),
-    'Pending Count' => $self->maybe_color( yellow       => $result->{pending_count} ),
+    'Status'        => $self->maybe_color( $BRIGHT_WHITE => $result->{status} ),
+    'Running Count' => $self->maybe_color( $GREEN        => $result->{running_count} ),
+    'Desired Count' => $self->maybe_color( $BRIGHT_WHITE => $result->{desired_count} ),
+    'Pending Count' => $self->maybe_color( $YELLOW       => $result->{pending_count} ),
   };
 
   print {*STDOUT} easy_table(
@@ -1231,14 +1231,23 @@ sub cmd_destroy {
 
   if ( !$self->get_force ) {
     my $warning = <<'END_OF_WARNING';
-** WARNING ** 
-
-This command will remove ALL resources provisioned for the cluster: [%s]!
-
-Resources that were not provisioned by App::FargateStack will NOT be removed.
-
++-------------------------------------------------------+
+|                   ** WARNING **                       |
++-------------------------------------------------------+
+| This command will remove most resources provisioned   |
+| for the cluster by App::FargateStack.                 |
++-------------------------------------------------------+
+|        Resources that will not be removed             |
++-------------------------------------------------------+
+|        - Bucket created by App::FargateStack          |
+|        - Queue created by App::FargateStack           |
+|        - ALB NOT created by App::FargateStack         |
++-------------------------------------------------------+
 END_OF_WARNING
-    print {*STDOUT} sprintf $warning, $config->{cluster}->{name}, scalar %tasks;
+
+    my $cluster_name = $config->{cluster}->{name} // $self->create_default('cluster-name');
+
+    print {*STDOUT} $self->maybe_color( $BRIGHT_RED, sprintf( $warning, $cluster_name, scalar %tasks ), $BRIGHT_RED );
 
     log_die( $self, 'Aborting...' )
       if !confirm( sprintf 'Are you sure you want to delete the entire stack?' );
@@ -1389,13 +1398,20 @@ sub cmd_delete_daemon {
   die sprintf "ERROR: [%s] is not a daemon\n", $task_name
     if $tasks->{$task_name}->{type} ne 'daemon';
 
-  if ( scalar keys %{$tasks} == 1 ) {
+  if ( scalar keys %{$tasks} == 1 && !$self->get_force ) {
     my $msg = <<'END_OF_ERROR';
-This is the only task in your configuration.
-
-You can stop the daemon from running with the "stop-service" command.
++-----------------------------------------------+
++                **WARNING**                    +
++-----------------------------------------------+
+| This is the only task in your configuration.  |
+| You can stop the daemon from running with the |
+| "stop-service" command. Use --force to delete |
+| the task.                                     |
++-----------------------------------------------+
 END_OF_ERROR
-    print {*STDERR} colored( $msg, 'bright_red' );
+    print {*STDERR} $self->maybe_colored( $BRIGHT_RED, $msg );
+
+    return $SUCCESS;
   }
 
   return $self->delete_task_resources($task_name);
@@ -1424,7 +1440,7 @@ WARNING: This is the only task in your configuration.
  - You can delete only the service with the "delete-service" command.
 
 END_OF_WARNING
-    print {*STDERR} colored( $msg, 'bright_red' );
+    print {*STDERR} colored( $msg, $BRIGHT_RED );
   }
 
   return $self->delete_task_resources($task_name);
@@ -1435,7 +1451,8 @@ sub cmd_redeploy {
 ########################################################################
   my ( $self, @args ) = @_;
 
-  my $cluster      = $self->common_args('cluster');
+  my $cluster = $self->common_args('cluster');
+
   my $cluster_name = $cluster->{name};
 
   my ( $service_name, $err ) = $self->get_default_service_name;
@@ -1734,7 +1751,7 @@ sub main {
     'update-target'           => \&cmd_update_target,
     apply                     => \&cmd_apply,
     default                   => [ \&cmd_explain, 'error' ],
-    destroy                   => [ \&cmd_destroy, 'error', { skip_init => $TRUE, skip_config => $FALSE } ],
+    destroy                   => [ \&cmd_destroy, 'info' ],
     help                      => [ \&help,        'error', { skip_init => $TRUE, skip_config => $TRUE } ],
     logs                      => [ \&cmd_logs,    'error' ],
     plan                      => \&cmd_plan,

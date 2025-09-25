@@ -148,7 +148,7 @@ sub confirm {
 ########################################################################
   my ( $prompt, @args ) = @_;
 
-  print sprintf "$prompt [y/N] ", @args;
+  print sprintf "$prompt [y/n] ", @args;
 
   chomp( my $answer = <STDIN> );
 
@@ -166,7 +166,7 @@ sub common_args {
     config => $config,
     cache  => $self->get_cache,
     dryrun => $self->get_dryrun,
-    # these just avoid a bunch of hash digging
+    # these are just to avoid a bunch of hash digging...
     tasks           => $config->{tasks},
     cluster         => $config->{cluster},
     security_groups => $config->{security_groups},

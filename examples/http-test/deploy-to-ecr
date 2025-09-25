@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# -*- mode: sh; -*-
+
+set -euo pipefail
+
+# Check for required env var
+if [[ -z "${AWS_PROFILE:-}" ]]; then
+  echo "ERROR: AWS_PROFILE is not set"
+  exit 1
+fi
+
+# Check for image tag argument
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $0 <image:tag>"
+  exit 1
+fi
+
+IMAGE_TAG="$1"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
+# Get account ID
+ACCOUNT=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query "Account" --output text)
+ECS_REPO="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+# Extract repository name from image:tag
+REPO_NAME="${IMAGE_TAG%%:*}"
+REMOTE_IMAGE="${ECS_REPO}/${IMAGE_TAG}"
+
+# Login to ECR
+aws ecr get-login-password --region "$AWS_REGION" --profile "$AWS_PROFILE" | \
+  docker login --username AWS --password-stdin "$ECS_REPO"
+
+# Tag and push image
+docker tag "$IMAGE_TAG" "$REMOTE_IMAGE"
+docker push "$REMOTE_IMAGE"
+
+echo "Pushed $REMOTE_IMAGE"

@@ -36,10 +36,29 @@ sub add_listener_certificate {
 ########################################################################
   my ( $self, $listener_arn, $certificate_arn ) = @_;
 
+  croak "usage: add_listener_certificate(listener-arn, certificate-arn)\n"
+    if !$listener_arn || !$certificate_arn;
+
   return $self->command(
     'add-listener-certificates' => [
       '--listener-arn' => $listener_arn,
-      '--certificates' => "CertificateArn=$certificate_arn",
+      '--certificates' => sprintf( 'CertificateArn=%s', $certificate_arn ),
+    ]
+  );
+}
+
+########################################################################
+sub remove_listener_certificates {
+########################################################################
+  my ( $self, $listener_arn, $certificate_arn ) = @_;
+
+  croak "usage: add_listener_certificate(listener-arn, certificate-arn)\n"
+    if !$listener_arn || !$certificate_arn;
+
+  return $self->command(
+    'remove-listener-certificates' => [
+      '--listener-arn' => $listener_arn,
+      '--certificates' => sprintf( 'CertificateArn=%s', $certificate_arn ),
     ]
   );
 }
@@ -49,23 +68,24 @@ sub modify_listener_certificate {
 ########################################################################
   my ( $self, $listener_arn, $certificate_arn, $default_action ) = @_;
 
+  croak "usage: modify_listener_certificate(listener-arn, certificate-arn, [default-action])\n"
+    if !$listener_arn || !$certificate_arn;
+
   if ( !$default_action ) {
     my $response = $self->command( 'describe-listeners' => [ '--listener-arns' => $listener_arn ] );
 
     my ($listener) = ref $response eq 'HASH' ? @{ $response->{Listeners} || [] } : ();
 
-    if ( $listener && $listener->{DefaultActions} ) {
-      $default_action = $listener->{DefaultActions};
-    }
-    else {
-      die "Unable to retrieve existing default actions for listener $listener_arn\n";
-    }
+    croak sprintf "Unable to retrieve existing default actions for listener: [%s]\n", $listener_arn
+      if !$listener || !$listener->{DefaultActions};
+
+    $default_action = $listener->{DefaultActions};
   }
 
   return $self->command(
     'modify-listener' => [
       '--listener-arn'    => $listener_arn,
-      '--certificates'    => "CertificateArn=$certificate_arn",
+      '--certificates'    => sprintf( 'CertificateArn=%s', $certificate_arn ),
       '--default-actions' => encode_json($default_action),
     ]
   );
@@ -74,9 +94,12 @@ sub modify_listener_certificate {
 ########################################################################
 sub list_certificates {
 ########################################################################
-  my ( $self, $listener_arn ) = @_;
+  my ( $self, $listener_arn, $query ) = @_;
 
-  my $query = 'Certificates[].CertificateArn';
+  croak "usage: list_certificates(listener-arn, [query])\n"
+    if !$listener_arn;
+
+  $query //= 'Certificates[].CertificateArn';
 
   return $self->command(
     'describe-listener-certificates' => [
@@ -120,7 +143,7 @@ sub describe_listeners {
 ########################################################################
   my ( $self, $alb_arn, $query ) = @_;
 
-  croak "no ALB arn\n"
+  croak "usage: describe_listeners(alb-arn, [query])\n"
     if !$alb_arn;
 
   return $self->command(
@@ -136,7 +159,7 @@ sub describe_rules {
 ########################################################################
   my ( $self, $listener_arn, $query ) = @_;
 
-  croak "no listener arn\n"
+  croak "usage: describe_rules(listener-arn, [query])\n"
     if !$listener_arn;
 
   return $self->command(
@@ -176,10 +199,15 @@ sub delete_load_balancer {
 ########################################################################
   my ( $self, $alb_arn, $query ) = @_;
 
-  my $result
-    = $self->command( 'delete-load-balancer' => [ '--load-balancer-arn' => $alb_arn, $query ? ( '--query' => $query ) : (), ] );
+  croak "usage: delete_load_balancer(alb-arn, [query])\n"
+    if !$alb_arn;
 
-  return $result;
+  return $self->command(
+    'delete-load-balancer' => [
+      '--load-balancer-arn' => $alb_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
 }
 
 ########################################################################
@@ -187,8 +215,15 @@ sub delete_target_group {
 ########################################################################
   my ( $self, $target_group_arn, $query ) = @_;
 
+  croak "usage: delete_target_group(target-group-arn, [query])\n"
+    if !$target_group_arn;
+
   return $self->command(
-    'delete-target-group' => [ '--target-group-arn' => $target_group_arn, $query ? ( '--query' => $query ) : (), ] );
+    'delete-target-group' => [
+      '--target-group-arn' => $target_group_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
 }
 
 ########################################################################
@@ -196,13 +231,24 @@ sub delete_rule {
 ########################################################################
   my ( $self, $rule_arn, $query ) = @_;
 
-  return $self->command( 'delete-rule' => [ '--rule-arn' => $rule_arn, $query ? ( '--query' => $query ) : (), ] );
+  croak "usage: delete_rule(rule-arn, [query])\n"
+    if !$rule_arn;
+
+  return $self->command(
+    'delete-rule' => [
+      '--rule-arn' => $rule_arn,
+      $query ? ( '--query' => $query ) : (),
+    ]
+  );
 }
 
 ########################################################################
 sub set_security_groups {
 ########################################################################
   my ( $self, $arn, @security_groups ) = @_;
+
+  croak "usage: set_security_groups(arn, security-groups)\n"
+    if !$arn || !@security_groups;
 
   return $self->command(
     'set-security-groups' => [
@@ -218,6 +264,9 @@ sub describe_load_balancer {
 ########################################################################
   my ( $self, $arn, $query, @filters ) = @_;
 
+  croak "usage: describe_load_balancer(arn, query, [filters])\n"
+    if !$arn;
+
   return $self->command(
     'describe-load-balancers' => [
       '--load-balancer-arn' => $arn,
@@ -231,6 +280,9 @@ sub describe_load_balancer {
 sub describe_tags {
 ########################################################################
   my ( $self, $arn, $query ) = @_;
+
+  croak "usage: describe_tags(arn, [query])\n"
+    if !$arn;
 
   return $self->command(
     'describe-tags' => [
@@ -305,6 +357,9 @@ sub get_listener_by_port {
 ########################################################################
   my ( $self, $alb_arn, $port ) = @_;
 
+  croak "usage: get_listener_by_port(alb-arn, port)\n"
+    if !$alb_arn || !$port;
+
   my $query = sprintf 'Listeners[?Port == `%s`]', $port;
 
   my $result = $self->command(
@@ -323,6 +378,9 @@ sub create_rule {
   my ( $self, %args ) = @_;
 
   my ( $listener_arn, $priority, $conditions, $default_action ) = @args{qw(listener_arn priority conditions default_action)};
+
+  croak "usage: create_rule(listener_arn => listener-arn, priority => priority, conditions => conditions, actions => actions)\n"
+    if !$listener_arn || !defined $priority || !$conditions || !$default_action;
 
   return $self->command(
     'create-rule' => [
@@ -359,7 +417,7 @@ sub find_alb_subnets {
 ########################################################################
   my ( $self, $alb_arn ) = @_;
 
-  my $query = sprintf "LoadBalancers[?LoadBalancerArn == `%s`] | [0].AvailabilityZones[].SubnetId", $alb_arn;
+  my $query = sprintf 'LoadBalancers[?LoadBalancerArn == `%s`] | [0].AvailabilityZones[].SubnetId', $alb_arn;
 
   my @cmd = qw(aws elbv2 describe-load-balancers);
 
@@ -377,7 +435,7 @@ sub target_group_exists {
 ########################################################################
   my ( $self, $target_group_name ) = @_;
 
-  my $query = sprintf "TargetGroups[?TargetGroupName == `%s`]|[0]", $target_group_name;
+  my $query = sprintf 'TargetGroups[?TargetGroupName == `%s`]|[0]', $target_group_name;
 
   my @cmd = qw(aws elbv2 describe-target-groups);
 
@@ -476,11 +534,12 @@ sub create_listener {
   my ( $alb_arn, $tg_arn, $port, $default_actions, $certificate_arn, $query )
     = @args{qw(alb_arn target_group_arn port default_actions certificate_arn query)};
 
+  croak
+    "usage: create_listener(alb_arn => alb-arn, target_group_arn => target-group-arn, port => port, [default_actions => actions, certificate_arn => certificate-arn, query => query])\n"
+    if !$alb_arn || !$tg_arn || !$port;
+
   $certificate_arn //= $self->get_certificate_arn;
   my $protocol = $certificate_arn ? 'HTTPS' : 'HTTP';
-
-  croak "port is a required argument\n"
-    if !$port;
 
   return $self->command(
     'create-listener' => [
@@ -498,6 +557,9 @@ sub create_listener {
 sub fetch_rules_by_domain {
 ########################################################################
   my ( $self, $domain, $listener_arn ) = @_;
+
+  croak "usage: fetch_rules_by_domain(domain, listener_arn)\n"
+    if !$domain || !$listener_arn;
 
   my $query = sprintf 'Rules[?Conditions[?Field == `host-header` && contains(Values,`%s`)]]', $domain;
 

@@ -362,7 +362,7 @@ sub _init_route53 {
 
   my $command = $self->command;
 
-  my @route53_commands = qw(apply plan list-zones delete-http-service);
+  my @route53_commands = qw(apply plan list-zones delete-http-service destroy);
 
   return
     if none { $command eq $_ } @route53_commands;

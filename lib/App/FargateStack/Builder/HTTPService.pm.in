@@ -365,7 +365,7 @@ sub has_https_service {
   return
     if !$http_service;
 
-  return $services->{$http_service}->{type} eq 'https';
+  return $services->{$http_service}->{type} eq 'https' ? $http_service : $EMPTY;
 }
 
 ########################################################################

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# -*- mode: shell-script; -*-
+
+set -euo pipefail
+
+APACHE_BIN="/usr/sbin/apache2ctl"
+
+# Start Apache in the foreground
+echo "[$(date +%FT%T)] Launching Apache in foreground..."
+exec "$APACHE_BIN" -D FOREGROUND
