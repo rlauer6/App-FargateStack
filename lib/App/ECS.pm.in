@@ -183,7 +183,12 @@ sub describe_clusters {
 
   $cluster_name //= $self->get_cluster_name;
 
-  return $self->command( 'describe-clusters' => [ '--clusters' => $cluster_name, ] );
+  return $self->command(
+    'describe-clusters' => [
+      '--clusters' => $cluster_name,
+      $query ? ( '--query' => $query ) : ()
+    ]
+  );
 }
 
 ########################################################################

@@ -20,6 +20,12 @@ extra-files:
     - README.md
     - ChangeLog
     - postamble
+  - share/examples:
+    - examples/http-test/start-apache
+    - examples/http-test/deploy-to-ecr
+    - examples/http-test/000-default.conf
+    - examples/http-test/apache2.conf
+    - examples/http-test/Dockerfile
 resources:
   homepage: http://github.com/rlauer6/App-FargateStack
   bugtracker:

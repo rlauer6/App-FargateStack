@@ -41,10 +41,11 @@ sub cmd_create_stack {
   $sts->check_result( message => 'ERROR: could not determine account for profile: [%s]', $self->get_profile );
 
   my $config = {
-    account => $account,
-    profile => $self->get_profile,
-    region  => $self->get_region,
-    app     => { name => $app_name },
+    account         => $account,
+    route53_profile => $self->get_dns_profile,
+    profile         => $self->get_profile,
+    region          => $self->get_region,
+    app             => { name => $app_name },
   };
 
   my %tasks;

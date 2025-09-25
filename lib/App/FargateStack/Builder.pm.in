@@ -55,7 +55,7 @@ sub build {
 
   # -- certificate --
   if ( $domain && $self->has_https_service ) {
-    $self->build_certificate;
+    $self->build_certificate( $self->has_https_service );
     $self->benchmark('certificate');
     $self->section_break;
   }
@@ -411,7 +411,9 @@ sub delete_task_resources {
 
   my @active_tasks = grep { $tasks->{$_}->{arn} } keys %{$tasks};
 
-  my $num_tasks = scalar @active_tasks;
+  my $num_tasks = scalar keys %{$tasks};
+
+  $self->log_info( '%s: number of tasks: %s active tasks: %s', $self->command, $num_tasks, scalar @active_tasks );
 
   $config->{cluster} //= {};
 
@@ -484,6 +486,10 @@ sub delete_task_resources {
   ######################################################################
   if ( $type =~ /^(?:https?)$/xsm ) {
     $self->_delete_http( $confirm_all, $task_name );
+
+    if ( $tasks->{$task_name}->{certificate_arn} || $config->{certificate_arn} ) {
+      $self->_delete_certificate($task_name);
+    }
   }
 
   ####################################################################
@@ -509,6 +515,7 @@ sub delete_task_resources {
   # -- iam role (resource changes may require new policy)
   ######################################################################
   if ( $num_tasks != 1 ) {
+    $self->log_warn( 'iam: number of tasks is %s', $num_tasks );
     $self->log_warn('iam: looking to see if we need to update role...');
     $self->build_iam_role();
   }
@@ -536,6 +543,94 @@ sub delete_task_resources {
 }
 
 ########################################################################
+sub _delete_certificate {
+########################################################################
+  my ( $self, $task_name ) = @_;
+
+  my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
+
+  my $cert   = $self->certificate_exists( task_name => $task_name );
+  my $domain = $config->{domain} // $config->{tasks}->{$task_name}->{domain};
+
+  if ( !$cert ) {
+    $self->log_warn( 'acm: no certificate exists for domain: %s...skipping deletion', $domain );
+    return;
+  }
+
+  $self->log_warn( 'acm: found a certificate for %s...will be deleted...%s', $domain, $dryrun );
+
+  $self->remove_certificate( $cert->{CertificateArn} );
+
+  return
+    if $dryrun;
+
+  my $acm = $self->fetch_acm;
+
+  my $arn = $cert->{CertificateArn};
+
+  $acm->delete_certificate($arn);
+
+  $acm->check_result(
+    { message => 'ERROR: could not delete certificate: %s for domain: %s',
+      params  => [ $arn, $domain ]
+    }
+  );
+
+  $self->log_warn( 'acm: certificate for %s...has been deleted', $domain );
+
+  delete $config->{certficate_arn};
+  delete $config->{tasks}->{$task_name}->{certificate_arn};
+
+  return;
+}
+
+########################################################################
+sub remove_certificate {
+########################################################################
+  my ( $self, $cert_arn ) = @_;
+
+  my $dryrun = $self->get_dryrun;
+  my $config = $self->get_config;
+
+  my $elb = $self->fetch_elbv2;
+
+  my ( $alb_arn, $alb_name ) = @{ $config->{alb} }{qw(arn name)};
+
+  return
+    if !$alb_arn;
+
+  my $listener = $self->_listener(
+    elb     => $elb,
+    alb_arn => $alb_arn,
+    port    => '443'
+  );
+
+  my $listener_arn = $listener->{ListenerArn};
+
+  my $certificates = $elb->list_certificates($listener_arn);
+  $elb->check_result( message => 'ERROR: could not list certificates for: [%s]', $listener_arn );
+
+  if ( !$certificates || !@{$certificates} || none { $cert_arn eq $_ } @{$certificates} ) {
+    $self->log_warn( 'elb: certificate: [%s] is not associated with ALB...skipping removal', $cert_arn );
+    return;
+  }
+
+  $self->log_warn( 'elb: certificate: [%s] will be removed from listener...%s', $cert_arn, $dryrun );
+
+  return
+    if $dryrun;
+
+  $elb->remove_listener_certificates( $listener_arn, $cert_arn );
+  $elb->check_result( message => 'ERROR: could not remove certificate arn: [%s]', $cert_arn );
+
+  $self->log_warn( 'elb: certificate: [%s] has been removed from ALB: [%s]', $cert_arn, $alb_name );
+
+  return;
+}
+
+########################################################################
 sub _delete_cluster {
 ########################################################################
   my ( $self, $confirm_all, $service_name, $type ) = @_;
@@ -543,10 +638,20 @@ sub _delete_cluster {
   my ( $config, $dryrun, $tasks, $cluster ) = $self->common_args(qw(config dryrun tasks cluster));
 
   my $cluster_name = $cluster->{name};
-  my $confirmed    = $confirm_all ? confirm( 'cluster: delete cluster: [%s]', $cluster_name ) : $TRUE;
+
+  my $confirmed = $confirm_all ? confirm( 'cluster: delete cluster: [%s]', $cluster_name ) : $TRUE;
 
   if ($confirmed) {
     my $ecs = $self->fetch_ecs;
+
+    my $query   = sprintf 'clusters[?clusterName == `%s` && status == `ACTIVE`]', $cluster_name;
+    my $cluster = $ecs->describe_clusters( $cluster_name, $query );
+    $ecs->check_result( message => 'ERROR: could not describe cluster: [%s]', $cluster_name );
+
+    if ( !$cluster || !@{$cluster} ) {
+      $self->log_warn( 'cluster: [%s] does not exist or is INACTIVE...skipping deletion', $cluster_name );
+      return;
+    }
 
     $self->log_warn( 'cluster: [%s] will be deleted...%s', $cluster_name, $dryrun );
 
@@ -576,6 +681,7 @@ sub _delete_alias_record {
   my ( $self, $confirm_all, $service_name, $type ) = @_;
 
   my ( $config, $dryrun, $tasks, $alb ) = $self->common_args(qw(config dryrun tasks alb));
+
   my $domain = $config->{domain};
 
   return  # belt & suspenders...we should never get here
@@ -584,11 +690,7 @@ sub _delete_alias_record {
   my $confirmed = $confirm_all ? confirm( 'route53: delete alias record for: [%s]', $domain ) : $TRUE;
 
   if ($confirmed) {
-    $self->log_warn( 'route53: alias record for: [%s] will be deleted...%s', $domain, $dryrun );
-
-    if ( !$dryrun ) {
-      $self->remove_alias_record( $alb->{arn} );
-    }
+    $self->remove_alias_record( $alb->{arn} );
   }
   else {
     $self->log_warn( 'route53: alias record deletion skipped...%s', $dryrun );
@@ -603,6 +705,18 @@ sub _delete_service {
   my ( $self, $confirm_all, $service_name, $type ) = @_;
 
   my ( $config, $dryrun, $tasks ) = $self->common_args(qw(config dryrun tasks));
+
+  my $cluster_name = $config->{cluster}->{name} // $self->create_default('cluster-name');
+
+  my $ecs = $self->fetch_ecs;
+
+  my $services = $ecs->list_services( $cluster_name, 'serviceArns' );
+  $ecs->check_result( message => 'ERROR: could not list services for cluster: [%s]', $cluster_name );
+
+  if ( !$services || !@{$services} ) {
+    $self->log_warn( 'service: no services exist for cluster: [%s]...skipping deletion', $cluster_name );
+    return;
+  }
 
   my $confirmed = $confirm_all ? confirm( 'service: delete %s service?', $type ) : $TRUE;
 
@@ -643,6 +757,13 @@ sub _delete_task_definitions {
     my $ecs = $self->fetch_ecs;
 
     my $task_definitions = $ecs->list_task_definitions( $task_name, 'taskDefinitionArns' );
+    $ecs->check_result( message => 'ERROR: could not list task definitions for: [%s]', $task_name );
+
+    if ( $task_definitions || !@{$task_definitions} ) {
+      $self->log_warn( 'task: no task definitions found for: [%s]...skipping deletion', $task_name );
+      return;
+    }
+
     $self->log_warn( 'task: definitions for: [%s] will be deleted...%s', $task_name, $dryrun );
 
     if ( !$dryrun ) {
@@ -937,7 +1058,7 @@ sub _delete_http {
   my $alb_arn = $config->{alb}->{arn};
 
   if ( !$alb_arn ) {
-    $self->log_warn('elbv2: no ALB  in config...skipping ALB teardown');
+    $self->log_warn('elbv2: no ALB in config...skipping ALB teardown');
     return $FALSE;
   }
 
@@ -969,7 +1090,12 @@ sub _delete_http {
     return;
   }
 
-  my $is_our_alb = $self->is_our_alb( $alb_arn, $target_group_arn );
+  my $port       = $type eq 'https' ? '443' : '80';
+  my $is_our_alb = $self->is_our_alb(
+    port             => $port,
+    alb_arn          => $alb_arn,
+    target_group_arn => $target_group_arn,
+  );
 
   if ( !$is_our_alb ) {
     $self->log_warn('elbv2: ALB was not provisioned by App::FargateStack...only deleting listerner rules.');
@@ -1083,12 +1209,14 @@ sub wait_for_alb_delete {
 ########################################################################
 sub is_our_alb {
 ########################################################################
-  my ( $self, $alb_arn, $tg_arn ) = @_;
+  my ( $self, %args ) = @_;
+
+  my ( $port, $target_group_arn, $alb_arn ) = @args{qw(port target_group_arn alb_arn)};
 
   my $elb = $self->get_elbv2;
 
-  croak "usage: is_our_alb(alb-arn, target-group-arn)\n"
-    if !$alb_arn || !$tg_arn;
+  croak "usage: is_our_alb(port => port, alb-arn => alb-arn, target_group_arn => target-group-arn)\n"
+    if !$alb_arn || !$target_group_arn;
 
   my $tags = $elb->describe_tags( $alb_arn, 'TagDescriptions[].Tags[]' );
 
@@ -1097,11 +1225,20 @@ sub is_our_alb {
   return $TRUE
     if $ours;
 
-  # get listener rules and see if our ALB is default by finding
-  # default and seeing if its target group (if any) is our target
-  # group...
-  my $result = $elb->describe_listeners( $alb_arn, 'Listeners[0]' );
-  $elb->check_result( message => 'ERROR: could not describe listeners for: [%s]', $alb_arn );
+  ######################################################################
+  # Alternate way to determine if the ALB is ours...
+  ######################################################################
+  # Retrieve the listener rules for the appropriate listener (443=https, 80=http)
+  # Find the default listener rule
+  # Check if its target group (if any) is our target group
+  ######################################################################
+
+  my $result = $self->_listener_arn(
+    elb     => $elb,
+    alb_arn => $alb_arn,
+    port    => $port
+  );
+
   my $listener_arn = $result->{ListenerArn};
 
   $result = $elb->describe_rules( $result->{ListenerArn}, 'Rules[]' );
@@ -1111,7 +1248,29 @@ sub is_our_alb {
 
   my $default_tg_arn = $default->{Actions}->[0]->{TargetGroupArn};
 
-  return $default_tg_arn && $default_tg_arn eq $tg_arn;
+  return $default_tg_arn && $default_tg_arn eq $target_group_arn;
+}
+
+########################################################################
+sub _listener {
+########################################################################
+  my ( $self, %args ) = @_;
+
+  my ( $elb, $alb_arn, $port ) = @args{qw(elb alb_arn port)};
+  $port //= '443';
+
+  my $result = $elb->describe_listeners( $alb_arn, sprintf 'Listeners[?Port == `%s`]', $port );
+
+  $elb->check_result(
+    { message => 'ERROR: could not describe listeners for: [%s] on port: [%s]',
+      params  => [ $alb_arn, $port ]
+    }
+  );
+
+  log_die( $self, 'elb: no listener found for port: [%s]', $port )
+    if !$result || !$result->[0];
+
+  return $result->[0];
 }
 
 ########################################################################
@@ -1120,6 +1279,8 @@ sub remove_alias_record {
   my ( $self, $alb_arn ) = @_;
 
   my $config = $self->get_config;
+
+  my $dryrun = $self->get_dryrun;
 
   my $elb = $self->fetch_elbv2;
 
@@ -1139,9 +1300,14 @@ sub remove_alias_record {
   );
 
   if ( !@{$resource_record_set} ) {
-    $self->log_warn( 'route53: alias record for: [%s]not found...skipping deletion', $domain );
+    $self->log_warn( 'route53: alias record for: [%s] not found...skipping deletion', $domain );
     return;
   }
+
+  $self->log_warn( 'route53: alias record for: [%s] will be deleted...%s', $domain, $dryrun );
+
+  return
+    if $dryrun;
 
   my $change_batch = {
     ChangeBatch => {

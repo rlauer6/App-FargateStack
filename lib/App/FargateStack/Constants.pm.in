@@ -232,6 +232,18 @@ Readonly::Scalar our $SEC_PER_HOUR => 60 * $SEC_PER_MIN;
 Readonly::Scalar our $SEC_PER_DAY  => 24 * $SEC_PER_HOUR;
 
 ########################################################################
+# ANSI Colors
+########################################################################
+Readonly::Scalar our $BRIGHT_RED    => 'bright_red';
+Readonly::Scalar our $BRIGHT_WHITE  => 'bright_white';
+Readonly::Scalar our $BRIGHT_GREEN  => 'bright_green';
+Readonly::Scalar our $BRIGHT_YELLOW => 'bright_yellow';
+Readonly::Scalar our $RED           => 'red';
+Readonly::Scalar our $WHITE         => 'white';
+Readonly::Scalar our $GREEN         => 'green';
+Readonly::Scalar our $YELLOW        => 'yellow';
+
+########################################################################
 # Default name functions
 # (see App::FargateStack::Builder::Utils::create_default)
 ########################################################################
@@ -528,6 +540,19 @@ our @EXPORT = (
   ######################################################################
   qw(
     $LOG4PERL_CONF
+  ),
+  ######################################################################
+  # ANSI Colors
+  ######################################################################
+  qw(
+    $BRIGHT_RED
+    $BRIGHT_WHITE
+    $BRIGHT_GREEN
+    $BRIGHT_YELLOW
+    $RED
+    $WHITE
+    $GREEN
+    $YELLOW
   ),
   ######################################################################
   # Help
