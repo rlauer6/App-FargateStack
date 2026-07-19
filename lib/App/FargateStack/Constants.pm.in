@@ -3,14 +3,11 @@ package App::FargateStack::Constants;
 use strict;
 use warnings;
 
+use CLI::Simple::Utils qw(choose);
 use Data::Dumper;
 use English qw(no_match_vars);
 use JSON;
 use parent qw(Exporter);
-
-####################################################################
-sub choose (&) { return $_[0]->(); }  ## no critic
-####################################################################
 
 use Readonly;
 

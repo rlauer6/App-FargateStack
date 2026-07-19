@@ -1,10 +1,10 @@
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # NAME
 
 App::FargateStack
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # SYNOPSIS
 
@@ -26,7 +26,7 @@ App::FargateStack
 
 See ["GETTING STARTED"](#getting-started) for more details.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # DESCRIPTION
 
@@ -97,14 +97,14 @@ internal-only)
 - Convenient CLI: start, stop, update, and tail logs for any service
 - Scheduled and metric based autoscaling
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # METHODS AND SUBROUTINES
 
 This class is implemented as a modulino and is not designed for traditional 
 object-oriented use. As such, this section is intentionally omitted.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # USAGE
 
@@ -338,7 +338,7 @@ and `apply`. You provide the following arguments in order:
 - (14) Use the `--no-profile` option if you are using an IAM
 instance role.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # OVERVIEW
 
@@ -525,7 +525,7 @@ inspecting your VPC and automatically added to the configuration file.
 
 This gives you a single view into your Fargate application
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # CLI OPTION DEFAULTS
 
@@ -579,7 +579,7 @@ environment variables or configuration files are not saved.
 
 This feature is enabled by default.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # COMMAND LIST
 
@@ -1409,7 +1409,7 @@ to recreate it from scratch.
 - ACM certificates provisioned by `App::FargateStack` will not be
 deleted.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # DEPLOYMENT WORKFLOW GUIDE
 
@@ -1463,7 +1463,7 @@ without changing the task definition itself. For all other changes,
 the register-task and update-service workflow is the correct and safer
 path.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # CLOUDWATCH LOG GROUPS
 
@@ -1511,7 +1511,7 @@ configuration file and re-running `apply`.
 - To retain logs indefinitely, remove the `retention_days`
 entry in your configuration file.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # IAM PERMISSIONS
 
@@ -1615,7 +1615,7 @@ A more secure, albeit more complex, approach would be to define permissions
 at the task level, ensuring each task receives only the permissions it
 absolutely needs to perform its function.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # SECURITY GROUPS
 
@@ -1625,7 +1625,7 @@ security group attached to your Application Load Balancer (ALB) is
 automatically authorized for ingress to your Fargate task. This is a
 rule allowing ALB-to-Fargate traffic.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # FILESYSTEM SUPPORT
 
@@ -1683,7 +1683,7 @@ assumes access is already configured
 filesystem for you. The framework does however validate that the
 filesystem exists in the current account and region.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # CONFIGURATION
 
@@ -1991,7 +1991,7 @@ Here is the full schema outline. All keys are optional unless otherwise noted:
          type:            # required (daemon, task, http, https)
      vpc_id:
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # TASK SIZE
 
@@ -2028,7 +2028,7 @@ a sensible default size based on the task type. For example:
 This behavior helps minimize configuration boilerplate while still providing
 sane defaults.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # ENVIRONMENT VARIABLES
 
@@ -2098,7 +2098,7 @@ configuration values and exposes data in plaintext.
 Use clear, descriptive environment variable names (e.g., `DB_PASSWORD`, `API_KEY`)
 and organize your Secrets Manager paths consistently with your stack naming.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # SQS QUEUES
 
@@ -2221,7 +2221,7 @@ Adding a new queue to an existing stack will not only create the queue, but
 also update the IAM policy associated with your stack to include permissions
 for the newly defined queue and DLQ (if applicable).
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # SCHEDULED TASKS
 
@@ -2281,7 +2281,7 @@ A task of type `task` is run using `run-task` and may run once,
 forever, or periodically - but it will not be automatically restarted
 if it fails.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # S3 BUCKETS
 
@@ -2353,7 +2353,7 @@ In particular:
 To avoid surprises, ensure that any bucket policy on an external bucket
 permits access from the IAM role you're configuring.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # HTTP SERVICES
 
@@ -2732,7 +2732,7 @@ premium features.
 
 - path based routing on ALB listeners
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # AUTOSCALING
 
@@ -2951,7 +2951,7 @@ file. This block will be populated with safe defaults (`min_capacity: 1`,
 making it easy to review and customize later. See ["AUTOSCALING"](#autoscaling) for
 a full list of configuration options.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # CURRENT LIMITATIONS
 
@@ -2969,7 +2969,7 @@ configuration
 is "LINUX" and the `cpuArchitecture` is "X86\_64" LINUX. This is
 unlikely to change.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # TROUBLESHOOTING
 
@@ -3226,14 +3226,14 @@ Look at the `image` field under `containerDefinitions`. It will either be:
 and you want to re-resolve it without changing the task definition
 itself.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # ROADMAP
 
 - Multiple HTTP services
 - Path based routing
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # FAQ
 
@@ -3345,7 +3345,7 @@ Here are the best ways to get involved:
     Pull requests are always welcome. Whether it's a bug fix, a new feature, or
     a refactoring to improve the code, your contributions are valued.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # BACKGROUND
 
@@ -3364,7 +3364,7 @@ structures with the CLI's JMESPath query capabilities.
 What started as a simpler way to write provisioning scripts has now
 evolved into the framework you see today: `App::FargateStack`.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # HOW IT WORKS
 
@@ -3408,7 +3408,7 @@ These files are intermediate artifacts managed entirely by the tool. As noted
 in the ["FAQ"](#faq), they should not be edited manually, as they are regenerated on
 each run from the "single source of truth" - your YAML configuration file.
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # ADDITIONAL RESOURCES
 
@@ -3433,19 +3433,19 @@ each run from the "single source of truth" - your YAML configuration file.
     - [AWS ECS](https://aws.amazon.com/ecs/)
     - [AWS ECR](https://aws.amazon.com/ecr/)
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # SEE ALSO
 
 [IPC::Run](https://metacpan.org/pod/IPC%3A%3ARun), [App::Command](https://metacpan.org/pod/App%3A%3ACommand), [App::AWS](https://metacpan.org/pod/App%3A%3AAWS), [CLI::Simple](https://metacpan.org/pod/CLI%3A%3ASimple)
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # AUTHOR
 
 Rob Lauer - rclauer@gmail.com
 
-    [Back to Table of Contents](#table-of-contents)
+    @TOC_BACK@
 
 # LICENSE
 

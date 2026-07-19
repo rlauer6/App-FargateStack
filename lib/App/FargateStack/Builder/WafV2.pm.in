@@ -269,7 +269,7 @@ sub check_web_acl_state {
   return $FALSE  # no need to update, everything OK
     if $md5_match && $lock_token_match;
 
-  return $TRUE   # update OK
+  return $TRUE  # update OK
     if !$md5_match && $lock_token_match;
 
   if ( $md5_match && !$lock_token_match ) {

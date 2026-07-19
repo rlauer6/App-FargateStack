@@ -4,7 +4,8 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(log_die choose);
+use App::FargateStack::Builder::Utils qw(log_die);
+use CLI::Simple::Utils qw(choose);
 use Carp;
 use Data::Dumper;
 use English qw(-no_match_vars);

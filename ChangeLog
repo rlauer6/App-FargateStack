@@ -1,3 +1,66 @@
+Sun Jul 19 11:33:51 2026  Rob Lauer  <rclauer@gmail.com>
+
+	[1.1.0]:
+	* .gitignore: installed from CPAN::Maker::Bootstrapper
+	* README.md: generated
+	* VERSION: bump
+	* bin/app-FargateStack-checker-docker.in: -x mode
+	* bin/app-FargateStack-docker.in: -x mode
+	* bin/app-fargatestack.in: updated modulino
+	* buildspec.yml: _ => -
+	* lib/App/EFS.pm.in: tidy
+	* lib/App/FargateStack.pm.in: import choose, toCamelCase from CLI::Simple::Utils
+	* lib/App/ECS.pm.in: import choose from CLI::Simple::Utils
+	* lib/App/FargateStack/AutoscalingConfig.pm.in: likewise
+	* lib/App/FargateStack/Builder/IAM.pm.in: likewise
+	* lib/App/FargateStack/Builder/TaskDefinition.pm.in: likewise
+	* lib/App/FargateStack/Checker.pm.in: likeiwise
+	* lib/App/FargateStack/CloudTrail.pm.in: likewise
+	* lib/App/FargateStack/Builder/Utils.pm.in
+	- likewise, remove choose ToCamelCase, toCamelCase
+	* lib/App/FargateStack/Builder/LogGroup.pm.in: tidy
+	* lib/App/FargateStack/Builder/Secrets.pm.in: likewise
+	* lib/App/FargateStack/Builder/WafV2.pm.in: likewise
+	* lib/App/FargateStack/Constants.pm.in: remove choose
+	* lib/App/FargateStack/Init.pm.in: @PACKAGE_VERSION@
+	* lib/App/FargateStack/Pod.pm.in: encoding utf8, @PACKAGE_VERSION@
+	* requires: add versions
+	* t/00-app-fargatestack.t: updated by CPAN::Maker::Bootstrapper
+	* test-requires: modified
+
+	[new]:
+	* test-requires.skip: new
+	* project.mk: new
+	* README.md.in: new
+	* cpanfile: new
+	* .includes/git.mk: installed by CPAN::Maker::Bootstrapper
+	* .includes/help.mk: likewise
+	* .includes/perl.mk: likewise
+	* .includes/release-notes.mk: likewise
+	* .includes/update.mk: likewise
+	* .includes/upgrade.mk: likewise
+	* .includes/version.mk: likewise
+	* Makefile: likewise
+	* config.mk: likewise
+	* deps.mk: likewise
+	* examples/minimal-multi-tasks.yaml: new
+	* examples/multi-tasks.yml: new
+	* examples/my-cron-job.yml: new
+
+	[deleted]:
+	* install-deps: deleted
+	* build-requires: deleted
+	* version.mk: deleted
+	* packages: deleted
+	* postamble: deleted
+	* bin/app-FargateStack: deleted
+	* requires.in: deleted
+	* t/01-test-utils.t: deleted
+	* bin/app-FargateStack-checker-docker.in: renamed
+	* bin/app-FargateStack-docker.in: renamed
+	* bin/app-fargatestack.in: renamed
+
+
 Thu Sep 25 09:45:40 2025  Rob Lauer  <rlauer6@comcast.net>
 
 	[1.0.55]:

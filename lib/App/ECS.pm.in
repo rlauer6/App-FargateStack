@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(choose);
+use CLI::Simple::Utils qw(choose);
 
 use Carp;
 use Data::Dumper;

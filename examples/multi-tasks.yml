@@ -1,0 +1,21 @@
+---
+account: 311974035819
+alb:
+  create: true
+  type: private
+app:
+  name: multi-stack
+config_name: multi-tasks.yml
+domain: http-test.treasurersbriefcase.com
+tasks:
+  http-test:
+    image: http-test:latest
+    type: http
+  my-cron-job:
+    environment:
+      RUN_ONCE: 1
+    image: helloworld:latest
+    schedule: 'cron(00 23 * * ? *)'
+  my-daemon:
+    image: helloworld:latest
+    type: daemon

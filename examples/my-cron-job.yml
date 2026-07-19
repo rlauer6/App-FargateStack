@@ -1,0 +1,56 @@
+---
+account: 311974035819
+app:
+  name: my-cron-job
+cluster:
+  arn: arn:aws:ecs:us-east-1:311974035819:cluster/my-cron-job-cluster
+  name: my-cron-job-cluster
+config_name: my-cron-job.yml
+default_log_group: /ecs/my-cron-job
+events_role:
+  arn: arn:aws:iam::311974035819:role/EventsMyCronJobRole
+  name: EventsMyCronJobRole
+  policy_name: EventsMyCronJobPolicy
+id: 732649efc3415aba4028550ac1ab6904
+last_updated: Sun Aug  3 11:10:32 2025
+profile: sandbox
+region: us-east-1
+role:
+  arn: arn:aws:iam::311974035819:role/FargateMyCronJobRole
+  name: FargateMyCronJobRole
+  policy_name: FargateMyCronJobPolicy
+route53:
+  profile: sandbox
+security_groups:
+  fargate:
+    group_id: sg-0aca56d16d446d160
+    group_name: my-cron-job-sg
+subnets:
+  private:
+    - subnet-fe150fb5
+    - subnet-7b675d1f
+    - subnet-c0a6f0ff
+    - subnet-08b5e355
+  public:
+    - subnet-7c160c37
+    - subnet-4e53692a
+    - subnet-f7bceac8
+    - subnet-6980d634
+tasks:
+  my-cron-job:
+    arn: arn:aws:ecs:us-east-1:311974035819:task-definition/my-cron-job:12
+    cpu: 256
+    environment:
+      RUN_ONCE: 1
+    family: my-cron-job
+    image: helloworld:latest
+    image_digest: sha256:2274d9c3148c2d7f3e7e3644161913913344474f2bc294334c9d5bbb34e14aca
+    log_group:
+      arn: arn:aws:logs:us-east-1:311974035819:log-group:/ecs/my-cron-job
+      name: /ecs/my-cron-job
+    memory: 512
+    name: my-cron-job
+    schedule: 'cron(00 15 * * ? *)'
+    task_definition_arn: arn:aws:ecs:us-east-1:311974035819:task-definition/my-cron-job:9
+    type: task
+vpc_id: vpc-9526f0ee

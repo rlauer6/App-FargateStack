@@ -1,25 +1,23 @@
+---
 project:
   description: App::FargateStack
   author:
     name: Rob Lauer
     mailto: rclauer@gmail.com
-pm_module: App::FargateStack
+pm-module: App::FargateStack
 min-perl-version: 5.010
 dependencies:
   requires: requires
-  test_requires: test-requires
+  test-requires: test-requires
 path:
-  pm_module: lib
-  scripts: bin
+  pm-module: lib
+  exe-files: bin
   tests: t
-postamble: postamble
 extra-files:
-  - postamble
   - README.md
   - share:
     - README.md
     - ChangeLog
-    - postamble
   - share/examples:
     - examples/http-test/start-apache
     - examples/http-test/deploy-to-ecr
@@ -27,11 +25,11 @@ extra-files:
     - examples/http-test/apache2.conf
     - examples/http-test/Dockerfile
 resources:
-  homepage: http://github.com/rlauer6/App-FargateStack
   bugtracker:
-    web: http://github.com/rlauer6/App-FargateStack
     mailto: rclauer@gmail.com
+    web: https://github.com/rlauer6/App-FargateStack/issues
+  homepage: https://github.com/rlauer6/App-FargateStack
   repository:
-    url: git://github.com/rlauer6/App-FargateStack
-    web: http://github.com/rlauer6/App-FargateStack
-    type: 'git'
+    type: git
+    url: git@github.com:rlauer6/App-FargateStack.git
+    web: https://github.com/rlauer6/App-FargateStack

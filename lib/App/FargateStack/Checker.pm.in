@@ -3,10 +3,11 @@ package App::FargateStack::Checker;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(choose);
+use App::FargateStack::Builder::Utils;
 use Carp;
 use Carp::Always;
 use CLI::Simple::Constants qw(:booleans %LOG_LEVELS);
+use CLI::Simple::Utils qw(choose);
 use Data::Dumper;
 use English qw(-no_match_vars);
 use Getopt::Long qw(GetOptions);
@@ -212,7 +213,7 @@ sub check_service_linked_roles {
 
   my $iam = new_client( 'App::IAM', $opt );
 
-  my @required = ('AWSServiceRoleForECS');                   # core ECS control plane
+  my @required = ('AWSServiceRoleForECS');  # core ECS control plane
   my @advisory = ('AWSServiceRoleForElasticLoadBalancing');  # only if you use ALB/NLB
 
   # If you intend to use service autoscaling, include this:
@@ -750,6 +751,8 @@ sub main {
 __END__
 
 =pod
+
+=encoding utf8
 
 =head1 NAME
 
