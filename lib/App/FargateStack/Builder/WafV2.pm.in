@@ -4,10 +4,11 @@ use strict;
 use warnings;
 
 use App::WafV2;
-use App::FargateStack::Builder::Utils qw(dmp slurp_file log_die display_diffs);
+use App::FargateStack::Builder::Utils qw(dmp log_die display_diffs);
 use App::FargateStack::Constants;
 use Carp;
 use CLI::Simple::Constants qw(:booleans :chars);
+use CLI::Simple::Utils qw(slurp_json);
 use Data::Dumper;
 use Digest::MD5 qw(md5_hex);
 use English qw(no_match_vars);
@@ -269,7 +270,7 @@ sub check_web_acl_state {
   return $FALSE  # no need to update, everything OK
     if $md5_match && $lock_token_match;
 
-  return $TRUE   # update OK
+  return $TRUE  # update OK
     if !$md5_match && $lock_token_match;
 
   if ( $md5_match && !$lock_token_match ) {
@@ -401,7 +402,7 @@ sub fetch_web_acl {
 ########################################################################
   my ($self) = @_;
 
-  return slurp_file( 'web-acl.json', $TRUE );
+  return slurp_json('web-acl.json');
 }
 
 ########################################################################
@@ -439,7 +440,7 @@ sub web_acl_diffs {
 ########################################################################
   my ( $self, $web_acl ) = @_;
 
-  my $current_web_acl = slurp_file( 'web-acl.json', $TRUE );
+  my $current_web_acl = slurp_json('web-acl.json');
 
   return $self->display_diffs( $current_web_acl, $web_acl );
 }

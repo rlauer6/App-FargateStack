@@ -3,9 +3,10 @@ package App::FargateStack::CloudTrail;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(normalize_time_range dmp jmespath_mapping normalize_timestamp choose);
+use App::FargateStack::Builder::Utils qw(normalize_time_range dmp jmespath_mapping normalize_timestamp );
 use Carp;
 use CLI::Simple::Constants qw(:booleans);
+use CLI::Simple::Utils qw(choose);
 use Data::Dumper;
 use Date::Parse qw(str2time);
 use English qw(no_match_vars);

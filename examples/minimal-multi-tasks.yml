@@ -1,0 +1,98 @@
+---
+account: 311974035819
+alb:
+  create: true
+  name: multi-stack-alb
+  port: 80
+  type: private
+app:
+  name: multi-stack
+cluster:
+  arn: arn:aws:ecs:us-east-1:311974035819:cluster/multi-stack-cluster
+  name: multi-stack-cluster
+config_name: minimal-multi-tasks.yml
+default_log_group: /ecs/multi-stack
+domain: http-test.treasurersbriefcase.com
+events_role:
+  arn: arn:aws:iam::311974035819:role/EventsMultiStackRole
+  name: EventsMultiStackRole
+  policy_name: EventsMultiStackPolicy
+id: 5e9605b12740e50c2e3877a7a8862a42
+last_updated: Thu Aug 14 17:35:27 2025
+log_group:
+  arn: arn:aws:logs:us-east-1:311974035819:log-group:/ecs/multi-stack
+  name: /ecs/multi-stack
+  retention_days: 14
+profile: sandbox
+region: us-east-1
+role:
+  arn: arn:aws:iam::311974035819:role/FargateMultiStackRole
+  name: FargateMultiStackRole
+  policy_name: FargateMultiStackPolicy
+route53:
+  profile: prod
+  zone_id: Z10L5PN1959MQM
+security_groups:
+  fargate:
+    group_id: sg-0d82c1cc5ed414592
+    group_name: multi-stack-sg
+subnets:
+  private:
+    - subnet-08b5e355
+    - subnet-7b675d1f
+    - subnet-fe150fb5
+    - subnet-c0a6f0ff
+  public:
+    - subnet-6980d634
+    - subnet-f7bceac8
+    - subnet-4e53692a
+    - subnet-7c160c37
+tasks:
+  http-test:
+    container_port: 80
+    cpu: 1024
+    family: http-test
+    health_check:
+      enabled: !!perl/scalar:JSON::PP::Boolean 1
+      healthy_threshold_count: 5
+      interval_seconds: 30
+      matcher: 200
+      path: /
+      port: 80
+      timeout_seconds: 5
+      unhealthy_threshold_count: 2
+    host_port: 80
+    image: http-test:latest
+    image_digest: sha256:152b03821908dba60e00e256358597d4664f5d9a720ba892e48fd6181c908fa8
+    memory: 2048
+    name: http-test
+    size: medium
+    type: http
+  my-cron-job:
+    arn: arn:aws:ecs:us-east-1:311974035819:task-definition/my-cron-job:19
+    cpu: 1024
+    environment:
+      RUN_ONCE: 1
+    family: my-cron-job
+    image: helloworld:latest
+    image_digest: sha256:2c12229025b620b8cdb876225b2d24c7c81cd922435065e9b06437120296b9e5
+    memory: 2048
+    name: my-cron-job
+    schedule: 'cron(0/5 * * * ? *)'
+    secrets:
+      - db_password:DB_PASSWORD
+    size: tiny
+    tags:
+      Owner: Rob
+    type: task
+  my-daemon:
+    arn: arn:aws:ecs:us-east-1:311974035819:task-definition/my-daemon:5
+    cpu: 1024
+    family: my-daemon
+    image: helloworld:latest
+    image_digest: sha256:2c12229025b620b8cdb876225b2d24c7c81cd922435065e9b06437120296b9e5
+    memory: 2048
+    name: my-daemon
+    size: medium
+    type: daemon
+vpc_id: vpc-9526f0ee

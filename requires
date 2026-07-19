@@ -1,20 +1,19 @@
-Carp::Always
-Class::Accessor::Fast
-CLI::Simple
-CLI::Simple::Constants
-Data::Compare
-Date::Parse
-IO::Pager
-IPC::Run
-JSON
-List::Util
-Log::Log4perl
-Log::Log4perl::Level
-Readonly
-Role::Tiny
-Role::Tiny::With
-Sub::Util
-Text::ASCIITable::EasyTable
-Text::Diff
-Time::Piece
-YAML
+CLI::Simple 2.1.0
+CLI::Simple::Constants 2.1.0
+CLI::Simple::Utils 2.1.0
+Carp::Always 0.16
+Class::Accessor::Fast 0.51
+Data::Compare 
+Date::Parse 2.33
+IO::Pager 2.10
+IPC::Run 20250809.0
+JSON 4.10
+Log::Log4perl 1.57
+Log::Log4perl::Level 0
+Readonly 2.05
+Role::Tiny 2.002004
+Role::Tiny::With 2.002004
+Sub::Util 1.70
+Text::ASCIITable::EasyTable 1.006
+Text::Diff 
+YAML 1.31

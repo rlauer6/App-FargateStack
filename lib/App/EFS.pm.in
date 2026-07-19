@@ -20,12 +20,8 @@ sub describe_file_systems {
 ########################################################################
   my ( $self, $file_system_id, $query ) = @_;
 
-  return $self->command(
-    'describe-file-systems' => [
-      $file_system_id ? ( '--file-system-id' => $file_system_id ) : (),
-      $query          ? ( '--query'          => $query )          : ()
-    ]
-  );
+  return $self->command( 'describe-file-systems' =>
+      [ $file_system_id ? ( '--file-system-id' => $file_system_id ) : (), $query ? ( '--query' => $query ) : () ] );
 }
 
 ########################################################################

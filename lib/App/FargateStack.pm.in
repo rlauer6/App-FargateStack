@@ -11,11 +11,12 @@ package App::FargateStack;
 use strict;
 use warnings;
 
-use App::FargateStack::Builder::Utils qw(jmespath_mapping toCamelCase dmp choose confirm);
+use App::FargateStack::Builder::Utils qw(jmespath_mapping dmp confirm);
 use App::FargateStack::Constants;
 use App::FargateStack::Pod;
 use Carp;
 use CLI::Simple;
+use CLI::Simple::Utils qw(toCamelCase choose slurp slurp_json);
 use CLI::Simple::Constants qw(:booleans :chars %LOG_LEVELS);
 use Cwd qw(realpath);
 use Data::Dumper;
@@ -1496,7 +1497,7 @@ sub fetch_option_defaults {
   my $defaults_file = '.fargatestack/defaults.json';
 
   if ( -s $defaults_file ) {
-    $options = slurp_file( $defaults_file, $TRUE );
+    $options = slurp_json( $defaults_file, $TRUE );
   }
   else {
     mkdir '.fargatestack';
@@ -1536,7 +1537,7 @@ sub build_section_paths {
     $level = int $level;  # Normalize level
 
     # Adjust the stack to this level
-    $#stack = $level - 2;               # level 1 means index 0, so -2 to truncate above
+    $#stack = $level - 2;  # level 1 means index 0, so -2 to truncate above
     $stack[ $level - 1 ] = $title;
 
     # Join the stack up to this level
@@ -1550,7 +1551,7 @@ sub build_section_paths {
 ########################################################################
 sub parse_pod_sections {
 ########################################################################
-  my $pod = slurp_file( $INC{'App/FargateStack/Pod.pm'} );
+  my $pod = slurp( $INC{'App/FargateStack/Pod.pm'} );
   my @sections;
 
   while ( $pod =~ /=head(\d+)\s+(.*?)$/gxsm ) {

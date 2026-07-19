@@ -4,8 +4,8 @@ use strict;
 use warnings;
 
 use App::FargateStack::Constants;
-use App::FargateStack::Builder::Utils qw(dmp choose);
-
+use App::FargateStack::Builder::Utils qw(dmp);
+use CLI::Simple::Utils qw(choose);
 use Data::Dumper;
 use English qw(no_match_vars);
 use List::Util qw(none uniq);
